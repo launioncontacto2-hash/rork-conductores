@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Big statistic block used across the operational screens.
 struct StatTile: View {
@@ -449,7 +450,7 @@ struct SessionMenuButton: View {
     @State private var isUnlinking: Bool = false
     @State private var isEnvironmentPresented: Bool = false
 
-    private var canSwitch: Bool { EnvironmentControl.canSwitch(account: store.currentAccount) }
+    private var canSwitch: Bool { EnvironmentControl.canSwitchEnvironment(account: store.currentAccount) }
 
     var body: some View {
         Group {
@@ -519,29 +520,58 @@ struct SessionMenuButton: View {
     }
 }
 
-/// Clock indicator of every interface. In production it just tells the hour; inside a
-/// simulation it carries the PRUEBA mark and opens the controller of the logical time.
+/// The clock of every interface, and the only door into the simulation.
+///
+/// One button, two destinations, decided by the environment it is standing in:
+/// production opens the environment switch, so test mode can be turned on from the very
+/// screen being tested; test mode opens the clock controller. Neither of them ever
+/// requires walking into the laboratory.
 struct DemoClockButton: View {
     @Environment(FleetStore.self) private var store
     @Environment(LabStore.self) private var lab
-    @State private var isPresented: Bool = false
+
+    @State private var isClockPresented: Bool = false
+    @State private var isEnvironmentPresented: Bool = false
 
     private var isTest: Bool { EnvironmentControl.showsTestBadge(mode: lab.mode) }
-    private var canControl: Bool {
+
+    /// Turning the simulation on happens *from* production, so this must not depend on
+    /// the environment. It is what keeps the button alive on a production screen.
+    private var canSwitchEnvironment: Bool {
+        EnvironmentControl.canSwitchEnvironment(account: store.currentAccount)
+    }
+
+    private var canControlClock: Bool {
         EnvironmentControl.canControlClock(account: store.currentAccount, mode: lab.mode)
     }
 
+    /// An unauthorised device still reads the hour; it simply cannot open anything.
+    private var isInteractive: Bool { canSwitchEnvironment }
+
+    private var badge: String? {
+        guard canSwitchEnvironment else { return nil }
+        return isTest ? "PRUEBA" : "PROD"
+    }
+
+    private var tint: Color { isTest ? Palette.amber : Palette.textMuted }
+
     var body: some View {
         Button {
-            guard canControl else { return }
-            isPresented = true
+            guard isInteractive else { return }
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            if canControlClock {
+                isClockPresented = true
+            } else {
+                // Production: the tap is the way into the simulation.
+                isEnvironmentPresented = true
+            }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
                 Text(Fmt.clock(store.now))
                     .monospacedDigit()
-                if isTest {
-                    Text("PRUEBA")
+                if let badge {
+                    Text(badge)
                         .font(.system(size: 8, weight: .black))
                 }
             }
@@ -555,9 +585,16 @@ struct DemoClockButton: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(!canControl)
-        .sheet(isPresented: $isPresented) {
+        .accessibilityLabel(
+            isTest
+                ? "Reloj de prueba, \(Fmt.clock(store.now)). Abrir controles de tiempo."
+                : "Producción, \(Fmt.clock(store.now)). Abrir selector de entorno."
+        )
+        .sheet(isPresented: $isClockPresented) {
             SimulationClockSheet()
+        }
+        .sheet(isPresented: $isEnvironmentPresented) {
+            EnvironmentSheet()
         }
     }
 }

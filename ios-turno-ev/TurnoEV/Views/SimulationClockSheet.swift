@@ -281,11 +281,29 @@ struct SimulationClockSheet: View {
     }
 
     private var note: some View {
-        Text("Esta hora es la del entorno de pruebas completo, no la de este teléfono: el supervisor, el conductor y mantenimiento la comparten. Retroceder el reloj no borra lo que ya ocurrió — las ausencias, búsquedas y asignaciones se conservan hasta que reinicies el escenario desde el laboratorio.")
-            .font(.system(size: 10))
-            .foregroundStyle(Palette.textMuted)
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
+        VStack(spacing: 9) {
+            Text("Esta hora gobierna todas las reglas del entorno de prueba en este dispositivo: turno, tolerancias, ausencias, metas y cortes. Retroceder el reloj no borra lo que ya ocurrió — las ausencias, búsquedas y asignaciones se conservan hasta que reinicies el escenario desde el laboratorio.")
+                .font(.system(size: 10))
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+
+            // Said plainly, so no two-device test is run on a false assumption.
+            if !SharedSimulationClock.isConnected {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "iphone.gen3.slash")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Palette.info)
+                    Text(SharedSimulationClock.pendingNotice)
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(11)
+                .background(Palette.info.opacity(0.08), in: .rect(cornerRadius: 13))
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     /// Publishes the new hour so every module re-evaluates its rules without a refresh.
@@ -307,7 +325,7 @@ struct EnvironmentSheet: View {
 
     @State private var isLeavingTestPresented: Bool = false
 
-    private var canSwitch: Bool { EnvironmentControl.canSwitch(account: store.currentAccount) }
+    private var canSwitch: Bool { EnvironmentControl.canSwitchEnvironment(account: store.currentAccount) }
 
     var body: some View {
         NavigationStack {
