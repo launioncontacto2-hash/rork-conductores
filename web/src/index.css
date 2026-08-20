@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Turno EV — fleet ops design system.
+   Dark-only, battery friendly. All colors MUST be HSL. */
+
+@layer base {
+  :root {
+    --background: 210 22% 4%;
+    --foreground: 150 8% 96%;
+
+    --card: 207 22% 8%;
+    --card-foreground: 150 8% 96%;
+
+    --popover: 207 24% 7%;
+    --popover-foreground: 150 8% 96%;
+
+    /* Volt lime — the single brand accent */
+    --primary: 77 100% 62%;
+    --primary-foreground: 120 40% 6%;
+
+    --secondary: 206 19% 13%;
+    --secondary-foreground: 150 8% 92%;
+
+    --muted: 206 17% 12%;
+    --muted-foreground: 205 12% 60%;
+
+    --accent: 206 19% 15%;
+    --accent-foreground: 77 100% 62%;
+
+    --destructive: 359 100% 65%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 206 19% 15%;
+    --input: 206 19% 17%;
+    --ring: 77 100% 62%;
+
+    --radius: 1rem;
+
+    /* Extra semantic tokens */
+    --surface: 207 22% 8%;
+    --surface-2: 206 19% 11%;
+    --warning: 39 100% 56%;
+    --warning-foreground: 30 60% 8%;
+    --info: 190 100% 65%;
+    --info-foreground: 200 60% 8%;
+
+    --sidebar-background: 210 24% 5%;
+    --sidebar-foreground: 205 12% 70%;
+    --sidebar-primary: 77 100% 62%;
+    --sidebar-primary-foreground: 120 40% 6%;
+    --sidebar-accent: 206 19% 12%;
+    --sidebar-accent-foreground: 77 100% 62%;
+    --sidebar-border: 206 19% 14%;
+    --sidebar-ring: 77 100% 62%;
+  }
+
+  .dark {
+    --background: 210 22% 4%;
+    --foreground: 150 8% 96%;
+    --card: 207 22% 8%;
+    --card-foreground: 150 8% 96%;
+    --popover: 207 24% 7%;
+    --popover-foreground: 150 8% 96%;
+    --primary: 77 100% 62%;
+    --primary-foreground: 120 40% 6%;
+    --secondary: 206 19% 13%;
+    --secondary-foreground: 150 8% 92%;
+    --muted: 206 17% 12%;
+    --muted-foreground: 205 12% 60%;
+    --accent: 206 19% 15%;
+    --accent-foreground: 77 100% 62%;
+    --destructive: 359 100% 65%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 206 19% 15%;
+    --input: 206 19% 17%;
+    --ring: 77 100% 62%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+    overscroll-behavior-y: none;
+  }
+
+  /* Numeric readouts stay aligned while timers tick */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer components {
+  /* Station floor: deep charcoal with a lime pool of light and a faint grid */
+  .station-bg {
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(120% 80% at 50% -10%, hsl(77 100% 62% / 0.1), transparent 60%),
+      radial-gradient(70% 50% at 100% 100%, hsl(190 100% 65% / 0.05), transparent 70%),
+      linear-gradient(hsl(0 0% 100% / 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(0 0% 100% / 0.022) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      100% 100%,
+      44px 44px,
+      44px 44px;
+  }
+
+  .panel {
+    @apply rounded-3xl border border-border/80 bg-card/85 backdrop-blur-xl;
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.04),
+      0 18px 40px -24px hsl(0 0% 0% / 0.9);
+  }
+
+  .panel-flat {
+    @apply rounded-2xl border border-border/70 bg-secondary/40;
+  }
+
+  .volt-glow {
+    box-shadow:
+      0 0 0 1px hsl(77 100% 62% / 0.35),
+      0 12px 36px -14px hsl(77 100% 62% / 0.55);
+  }
+
+  .label-caps {
+    @apply text-[0.66rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground;
+  }
+
+  .hairline {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-border to-transparent;
+  }
+
+  .press {
+    @apply transition-transform duration-150 active:scale-[0.97];
+  }
+}
+
+@layer utilities {
+  .safe-b {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}

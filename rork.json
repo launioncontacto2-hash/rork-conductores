@@ -1,0 +1,20 @@
+{
+  "$schema": "https://rork.com/schema/rork.json",
+  "apps": [
+    {
+      "name": "Turno EV",
+      "path": "ios-turno-ev",
+      "framework": "swift"
+    },
+    {
+      "name": "Turno EV Web",
+      "path": "web",
+      "framework": "web"
+    },
+    {
+      "name": "Turno EV Android",
+      "path": "android",
+      "framework": "kotlin"
+    }
+  ]
+}
