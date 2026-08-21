@@ -8,6 +8,7 @@ struct LabSystemView: View {
 
     @State private var config: LabShiftConfig = .standard
     @State private var previewTarget: LabUser?
+    @State private var connection: SupabaseHealth.Outcome = .idle
 
     var body: some View {
         LabScreen(section: .system) {
@@ -21,6 +22,7 @@ struct LabSystemView: View {
             blocksCard
             clockCard
             previewCard
+            connectionCard
         }
         .sheet(item: $previewTarget) { user in LabPreviewSheet(user: user) }
         .onAppear { config = lab.world.shiftConfig }
@@ -154,6 +156,84 @@ struct LabSystemView: View {
         }
         .padding(16)
         .labPanel()
+    }
+
+    // MARK: Supabase
+
+    /// Minimal proof of life of the shared backend. It only asks whether this device can
+    /// reach the project and whether the key is accepted — no table is read, no scenario is
+    /// published yet, and Producción is not touched.
+    private var connectionCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            LabCaps(text: "Backend compartido")
+
+            Text("Comprobación de conexión con Supabase. Por ahora sólo verifica el enlace: todavía no hay tablas ni escenarios publicados, y los datos actuales siguen viviendo en el dispositivo.")
+                .font(.caption)
+                .foregroundStyle(LabTone.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            connectionStatus
+
+            if case .success(let credentials) = SupabaseConfig.resolve() {
+                VStack(spacing: 7) {
+                    LabRow(title: credentials.projectRef, subtitle: "Proyecto", symbol: "cylinder.split.1x2.fill", tint: LabTone.muted)
+                    LabRow(title: credentials.maskedKey, subtitle: "Publishable key", symbol: "key.fill", tint: LabTone.muted)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 5) {
+                    LabCaps(text: "Variables requeridas en Rork")
+                    Text(SupabaseConfig.urlVariable)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(LabTone.accent)
+                    Text(SupabaseConfig.keyVariable)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(LabTone.accent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .labFlat()
+            }
+
+            Button(connection == .checking ? "Comprobando…" : "Probar conexión") {
+                Task {
+                    connection = .checking
+                    connection = await SupabaseHealth.check()
+                }
+            }
+            .buttonStyle(LabButtonStyle(kind: .solid))
+            .disabled(connection == .checking)
+        }
+        .padding(16)
+        .labPanel()
+    }
+
+    @ViewBuilder
+    private var connectionStatus: some View {
+        switch connection {
+        case .idle:
+            LabRow(title: "Sin comprobar", subtitle: "Pulsa Probar conexión", symbol: "circle.dashed", tint: LabTone.muted)
+        case .checking:
+            LabRow(title: "Contactando al proyecto…", subtitle: "Esto no modifica ningún dato", symbol: "antenna.radiowaves.left.and.right", tint: LabTone.muted)
+        case .notConfigured(let problem):
+            LabRow(title: "Sin configurar", subtitle: problem.message, symbol: "exclamationmark.triangle.fill", tint: Palette.amber)
+        case .connected(let milliseconds, let projectRef):
+            LabRow(
+                title: "Conexión confirmada",
+                subtitle: "\(projectRef) respondió correctamente",
+                detail: "\(milliseconds) ms",
+                symbol: "checkmark.seal.fill",
+                tint: LabTone.accent
+            )
+        case .rejected(let status):
+            LabRow(
+                title: "Clave rechazada",
+                subtitle: "El proyecto respondió \(status). Revisa que la publishable key corresponda a esta URL.",
+                symbol: "xmark.seal.fill",
+                tint: Palette.danger
+            )
+        case .unreachable(let reason):
+            LabRow(title: "Sin alcance", subtitle: reason, symbol: "wifi.slash", tint: Palette.danger)
+        }
     }
 }
 
