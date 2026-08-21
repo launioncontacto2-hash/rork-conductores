@@ -210,6 +210,8 @@ struct LabSystemView: View {
                 .labFlat()
             }
 
+            keyAuditPanel
+
             Button(connection == .checking ? "Comprobando…" : "Probar conexión") {
                 Task {
                     connection = .checking
@@ -227,6 +229,68 @@ struct LabSystemView: View {
     private var receivedURLDisplay: String {
         let raw = SupabaseConfig.rawURL
         return raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(vacío)" : raw
+    }
+
+    /// Character-level portrait of the injected key. Shows shape, never content: a length, the
+    /// fixed public prefix, the last four characters and which stray characters were found.
+    @ViewBuilder
+    private var keyAuditPanel: some View {
+        let audit = SupabaseConfig.keyAudit
+
+        VStack(alignment: .leading, spacing: 6) {
+            LabCaps(text: "Auditoría de la clave")
+
+            if audit.isEmpty {
+                Text("No llegó ningún valor en \(SupabaseConfig.keyVariable).")
+                    .font(.caption)
+                    .foregroundStyle(Palette.amber)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                auditLine("Longitud recibida", "\(audit.rawLength) caracteres")
+                if audit.wasRepaired {
+                    auditLine("Longitud tras limpieza", "\(audit.normalizedLength) caracteres")
+                }
+                auditLine("Comienza por", audit.visiblePrefix)
+                auditLine("Termina en", "…\(audit.lastFour)")
+                auditLine("Formato", audit.recognisedFormat.label)
+
+                if audit.findings.isEmpty {
+                    Text("Sin caracteres extraños: ni barras invertidas, ni espacios, ni saltos de línea, ni comillas.")
+                        .font(.caption)
+                        .foregroundStyle(LabTone.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Caracteres detectados que no pertenecen a una clave de Supabase: \(audit.findings.joined(separator: ", ")).")
+                        .font(.caption)
+                        .foregroundStyle(Palette.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if audit.wasRepaired {
+                    Text("La app los elimina antes de conectarse, pero conviene volver a pegar la clave copiándola directamente del panel de Supabase, no de un texto con formato.")
+                        .font(.caption)
+                        .foregroundStyle(LabTone.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .labFlat()
+    }
+
+    private func auditLine(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(LabTone.muted)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(LabTone.accent)
+                .textSelection(.enabled)
+                .multilineTextAlignment(.trailing)
+        }
     }
 
     @ViewBuilder

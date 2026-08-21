@@ -101,11 +101,118 @@ enum SupabaseConfig {
     /// diagnostic so a truncated or altered value is immediately obvious.
     static var rawURL: String { Config.EXPO_PUBLIC_SUPABASE_URL }
 
+    // MARK: Key normalisation
+
+    /// Characters that can never legitimately appear inside a Supabase API key.
+    ///
+    /// Both key generations use a restricted alphabet: `sb_publishable_…` keys are
+    /// `[A-Za-z0-9_]`, and legacy `anon` JWTs are base64url segments joined by dots
+    /// (`[A-Za-z0-9_.-]`). A backslash is impossible in either. When one shows up it was added
+    /// in transit — almost always Markdown escaping (`sb\_publishable\_…`), which happens when
+    /// the key is copied out of a chat message, a README or a formatted document instead of
+    /// straight from the Supabase dashboard.
+    ///
+    /// Same story for zero-width characters, which rich-text editors love to smuggle in.
+    ///
+    /// These are transport artefacts, not user choices, so they are removed — but never in
+    /// silence: `keyAudit` reports every repair on screen.
+    static func normalizeKey(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.removeAll { character in
+            if character == "\\" { return true }
+            return character.unicodeScalars.allSatisfy { $0.properties.isDefaultIgnorableCodePoint }
+        }
+        return value
+    }
+
+    /// A safe, character-level portrait of the injected key.
+    ///
+    /// Everything here is designed to be shown on screen: the length, the fixed public prefix,
+    /// the last four characters, and which suspicious characters are present. The key itself is
+    /// never reconstructible from this.
+    struct KeyAudit: Equatable {
+        let isEmpty: Bool
+        /// Length exactly as injected, before any repair.
+        let rawLength: Int
+        /// Length after removing transport artefacts.
+        let normalizedLength: Int
+        /// First characters, with invisible ones made visible.
+        let visiblePrefix: String
+        let lastFour: String
+        let hasBackslash: Bool
+        let hasSpace: Bool
+        let hasNewline: Bool
+        let hasQuotes: Bool
+        let hasInvisible: Bool
+        let recognisedFormat: KeyFormat
+
+        var wasRepaired: Bool { rawLength != normalizedLength }
+
+        /// Human-readable list of what is wrong with the characters themselves.
+        var findings: [String] {
+            var found: [String] = []
+            if hasBackslash { found.append("barra invertida \\") }
+            if hasSpace { found.append("espacios") }
+            if hasNewline { found.append("saltos de línea") }
+            if hasQuotes { found.append("comillas") }
+            if hasInvisible { found.append("caracteres invisibles") }
+            return found
+        }
+    }
+
+    static var keyAudit: KeyAudit { audit(Config.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY) }
+
+    static func audit(_ raw: String) -> KeyAudit {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = normalizeKey(raw)
+        let quotes: Set<Character> = ["\"", "'", "`"]
+
+        return KeyAudit(
+            isEmpty: trimmed.isEmpty,
+            rawLength: trimmed.count,
+            normalizedLength: normalized.count,
+            // 15 characters is exactly the fixed, public `sb_publishable_` marker — enough to
+            // prove the prefix survived the trip, short of any random material.
+            visiblePrefix: sanitizedForDisplay(String(trimmed.prefix(15))),
+            lastFour: String(trimmed.suffix(4)),
+            hasBackslash: trimmed.contains("\\"),
+            hasSpace: trimmed.contains(" "),
+            hasNewline: trimmed.contains(where: { $0.isNewline }),
+            hasQuotes: trimmed.contains(where: { quotes.contains($0) }),
+            hasInvisible: trimmed.contains { character in
+                character.unicodeScalars.allSatisfy { $0.properties.isDefaultIgnorableCodePoint }
+            },
+            recognisedFormat: format(of: normalized)
+        )
+    }
+
+    /// Renders invisible characters as visible marks so the diagnostic cannot lie by omission.
+    private static func sanitizedForDisplay(_ text: String) -> String {
+        var output = ""
+        for character in text {
+            if character == " " {
+                output += "␠"
+            } else if character.isNewline {
+                output += "⏎"
+            } else if character == "\t" {
+                output += "⇥"
+            } else if character.unicodeScalars.allSatisfy({ $0.properties.isDefaultIgnorableCodePoint }) {
+                output += "⟨invisible⟩"
+            } else {
+                output.append(character)
+            }
+        }
+        return output
+    }
+
     static func resolve() -> Result<Credentials, Problem> {
         // Outer whitespace is an artefact of value injection, not a user mistake: it is
         // trimmed. Everything else is reported rather than repaired.
         let rawURL = Config.EXPO_PUBLIC_SUPABASE_URL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawKey = Config.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Transport artefacts (Markdown escapes, zero-width characters) are stripped here.
+        // Quotes, brackets and inner spaces are deliberately *not* removed: those are genuine
+        // paste mistakes and are reported below instead of being papered over.
+        let rawKey = normalizeKey(Config.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
 
         guard !rawURL.isEmpty else { return .failure(.missingURL) }
         guard !rawKey.isEmpty else { return .failure(.missingKey) }
