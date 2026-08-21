@@ -5,14 +5,11 @@ import Supabase
 
 /// Reads the Supabase credentials out of the public configuration injected at build time.
 ///
-/// Two deliberate decisions here:
+/// `Config.swift` is regenerated at build time from the variables registered in Rork: the
+/// literals are empty in source control and carry the real values only in a built app.
 ///
-/// 1. The values are read through `Config.allValues` instead of `Config.EXPO_PUBLIC_SUPABASE_URL`.
-///    `Config.swift` is regenerated at build time from the variables registered in Rork, so a
-///    direct reference would not compile until those variables exist. The dictionary lookup
-///    compiles today and starts returning real values the moment they are registered.
-/// 2. Nothing is hardcoded and nothing is defaulted. A missing credential is reported as
-///    missing; it is never replaced by a guess.
+/// Nothing here is hardcoded and nothing is defaulted. A missing or malformed credential is
+/// reported as such and the app stays local; it is never replaced by a guess.
 @MainActor
 enum SupabaseConfig {
     static let urlVariable = "EXPO_PUBLIC_SUPABASE_URL"
@@ -55,11 +52,11 @@ enum SupabaseConfig {
     }
 
     static func resolve() -> Result<Credentials, Problem> {
-        let rawURL = value(for: urlVariable)
-        let rawKey = value(for: keyVariable)
+        let rawURL = Config.EXPO_PUBLIC_SUPABASE_URL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawKey = Config.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let rawURL, !rawURL.isEmpty else { return .failure(.missingURL) }
-        guard let rawKey, !rawKey.isEmpty else { return .failure(.missingKey) }
+        guard !rawURL.isEmpty else { return .failure(.missingURL) }
+        guard !rawKey.isEmpty else { return .failure(.missingKey) }
 
         guard let url = URL(string: rawURL), let scheme = url.scheme, scheme == "https", url.host != nil else {
             return .failure(.malformedURL)
@@ -70,10 +67,6 @@ enum SupabaseConfig {
         guard !isPrivileged(rawKey) else { return .failure(.privilegedKey) }
 
         return .success(Credentials(url: url, publishableKey: rawKey))
-    }
-
-    private static func value(for name: String) -> String? {
-        Config.allValues[name]?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Recognises the two shapes a privileged credential can take: the modern
