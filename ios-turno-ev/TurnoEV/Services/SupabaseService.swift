@@ -181,6 +181,46 @@ enum SupabaseConfig {
         return jwtRole(of: key) == "service_role"
     }
 
+    /// Which generation of API key this is. It decides how the key may be transmitted.
+    enum KeyFormat: Equatable {
+        /// `sb_publishable_…` — an opaque string, **not** a JWT.
+        case publishable
+        /// The legacy `anon` key, a genuine HS256 JWT.
+        case legacyJWT
+        case unknown
+
+        var label: String {
+            switch self {
+            case .publishable: return "publishable (sb_publishable_…)"
+            case .legacyJWT: return "anon heredada (JWT)"
+            case .unknown: return "formato no reconocido"
+            }
+        }
+    }
+
+    static func format(of key: String) -> KeyFormat {
+        if key.hasPrefix("sb_publishable_") { return .publishable }
+        if key.split(separator: ".").count == 3 { return .legacyJWT }
+        return .unknown
+    }
+
+    /// The headers Supabase expects for a keyed, unauthenticated request.
+    ///
+    /// This is the whole subtlety of the new key system. The API key always travels in
+    /// `apikey`. `Authorization: Bearer …` is reserved for a **user session JWT**, and the new
+    /// publishable keys are not JWTs — sending one as a bearer token makes the gateway try to
+    /// parse it as a JWT, fail, and answer 401 even though the key is perfectly valid for the
+    /// project. A legacy `anon` key *is* a JWT, which is why the same code used to work.
+    ///
+    /// So: `apikey` always; `Authorization` only for the legacy JWT shape.
+    static func requestHeaders(for credentials: Credentials) -> [String: String] {
+        var headers = ["apikey": credentials.publishableKey]
+        if format(of: credentials.publishableKey) == .legacyJWT {
+            headers["Authorization"] = "Bearer \(credentials.publishableKey)"
+        }
+        return headers
+    }
+
     private static func jwtRole(of key: String) -> String? {
         let parts = key.split(separator: ".")
         guard parts.count == 3 else { return nil }
@@ -240,20 +280,64 @@ enum SupabaseBridge {
 
 /// Minimal proof that this device can talk to the Supabase project.
 ///
-/// It asks the REST root (`/rest/v1/`) rather than any table, so it works before a single
+/// It asks the Data API root (`/rest/v1/`) rather than any table, so it works before a single
 /// table exists and it never reads or writes operational data. What it proves is exactly the
 /// three things worth proving at this stage: the URL resolves, the network reaches it, and
-/// the publishable key is accepted.
+/// the key is accepted by the gateway.
 @MainActor
 enum SupabaseHealth {
+    /// What a refusal actually tells us. A 401 has several possible causes and they are not
+    /// interchangeable, so the check reports only what the response supports — never a guess.
+    enum Rejection: Equatable {
+        /// The gateway tried to read the key as a JWT. Evidence of a header/format mismatch,
+        /// not of an invalid key.
+        case notAJWT
+        /// The project explicitly said the key is not one of its keys.
+        case invalidAPIKey
+        /// The legacy `anon`/`service_role` keys have been disabled for this project.
+        case legacyKeysDisabled
+        /// Refused, but the response does not say why. We do not invent a reason.
+        case undetermined(String?)
+
+        var summary: String {
+            switch self {
+            case .notAJWT:
+                return "La puerta de enlace intentó leer la clave como JWT."
+            case .invalidAPIKey:
+                return "El proyecto declara que esta clave no le pertenece o fue revocada."
+            case .legacyKeysDisabled:
+                return "Las claves heredadas (anon/service_role) están deshabilitadas en este proyecto."
+            case .undetermined(let body):
+                if let body, !body.isEmpty {
+                    return "El proyecto rechazó la petición sin indicar una causa reconocible: \(body)"
+                }
+                return "El proyecto rechazó la petición sin indicar una causa."
+            }
+        }
+
+        /// What to do about it. Deliberately avoids blaming the key unless there is evidence.
+        var advice: String {
+            switch self {
+            case .notAJWT:
+                return "Es un problema de cabeceras, no de la clave: la clave publishable debe viajar sólo en apikey."
+            case .invalidAPIKey:
+                return "Verifica en Supabase → Settings → API Keys que la clave siga activa y sea la de este proyecto."
+            case .legacyKeysDisabled:
+                return "Usa la clave publishable (sb_publishable_…) en lugar de la anon heredada."
+            case .undetermined:
+                return "No hay evidencia suficiente para atribuirlo a la clave. Revisa el estado del proyecto en Supabase."
+            }
+        }
+    }
+
     enum Outcome: Equatable {
         case idle
         case checking
         case notConfigured(SupabaseConfig.Problem)
         /// Reached and the key was accepted. Latency in milliseconds.
         case connected(milliseconds: Int, projectRef: String)
-        /// Reached, but the project refused the key.
-        case rejected(status: Int)
+        /// Reached, but the project refused the request.
+        case rejected(status: Int, rejection: Rejection)
         case unreachable(reason: String)
 
         var isConclusive: Bool {
@@ -279,12 +363,13 @@ enum SupabaseHealth {
             var request = URLRequest(url: credentials.url.appendingPathComponent("rest/v1/"))
             request.httpMethod = "GET"
             request.timeoutInterval = 12
-            request.setValue(credentials.publishableKey, forHTTPHeaderField: "apikey")
-            request.setValue("Bearer \(credentials.publishableKey)", forHTTPHeaderField: "Authorization")
+            for (field, value) in SupabaseConfig.requestHeaders(for: credentials) {
+                request.setValue(value, forHTTPHeaderField: field)
+            }
 
             let started = ContinuousClock.now
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 let elapsed = ContinuousClock.now - started
                 let milliseconds = Int(elapsed / .milliseconds(1))
 
@@ -295,8 +380,16 @@ enum SupabaseHealth {
                 switch http.statusCode {
                 case 200..<300:
                     return .connected(milliseconds: milliseconds, projectRef: credentials.projectRef)
+
+                case 404:
+                    // The gateway validated the key and handed the request to PostgREST,
+                    // which simply does not expose an OpenAPI root. The key was accepted,
+                    // which is what this check exists to prove.
+                    return .connected(milliseconds: milliseconds, projectRef: credentials.projectRef)
+
                 case 401, 403:
-                    return .rejected(status: http.statusCode)
+                    return .rejected(status: http.statusCode, rejection: classify(body: data))
+
                 default:
                     return .unreachable(reason: "El proyecto respondió con estado \(http.statusCode).")
                 }
@@ -306,5 +399,31 @@ enum SupabaseHealth {
                 return .unreachable(reason: error.localizedDescription)
             }
         }
+    }
+
+    /// Reads the refusal from the response body instead of inferring it from the status code.
+    private static func classify(body: Data) -> Rejection {
+        guard let text = String(data: body, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return .undetermined(nil)
+        }
+
+        let lowered = text.lowercased()
+
+        if lowered.contains("invalid jwt")
+            || lowered.contains("bad_jwt")
+            || lowered.contains("invalid_jwt_format")
+            || lowered.contains("invalid token") {
+            return .notAJWT
+        }
+        if lowered.contains("legacy") && lowered.contains("disabled") {
+            return .legacyKeysDisabled
+        }
+        if lowered.contains("invalid api key") || lowered.contains("invalid_api_key") {
+            return .invalidAPIKey
+        }
+
+        // Keep the excerpt short: it is a diagnostic, not a log dump.
+        return .undetermined(String(text.prefix(160)))
     }
 }

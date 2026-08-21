@@ -178,7 +178,12 @@ struct LabSystemView: View {
                 VStack(spacing: 7) {
                     LabRow(title: credentials.projectRef, subtitle: "Proyecto", symbol: "cylinder.split.1x2.fill", tint: LabTone.muted)
                     LabRow(title: credentials.url.absoluteString, subtitle: "URL", symbol: "link", tint: LabTone.muted)
-                    LabRow(title: credentials.maskedKey, subtitle: "Publishable key", symbol: "key.fill", tint: LabTone.muted)
+                    LabRow(
+                        title: credentials.maskedKey,
+                        subtitle: "Clave \(SupabaseConfig.format(of: credentials.publishableKey).label)",
+                        symbol: "key.fill",
+                        tint: LabTone.muted
+                    )
                 }
             } else {
                 VStack(alignment: .leading, spacing: 5) {
@@ -241,13 +246,19 @@ struct LabSystemView: View {
                 symbol: "checkmark.seal.fill",
                 tint: LabTone.accent
             )
-        case .rejected(let status):
-            LabRow(
-                title: "Clave rechazada",
-                subtitle: "El proyecto respondió \(status). Revisa que la publishable key corresponda a esta URL.",
-                symbol: "xmark.seal.fill",
-                tint: Palette.danger
-            )
+        case .rejected(let status, let rejection):
+            VStack(alignment: .leading, spacing: 7) {
+                LabRow(
+                    title: "Petición rechazada (\(status))",
+                    subtitle: rejection.summary,
+                    symbol: "xmark.seal.fill",
+                    tint: Palette.danger
+                )
+                Text(rejection.advice)
+                    .font(.caption)
+                    .foregroundStyle(LabTone.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         case .unreachable(let reason):
             LabRow(title: "Sin alcance", subtitle: reason, symbol: "wifi.slash", tint: Palette.danger)
         }
