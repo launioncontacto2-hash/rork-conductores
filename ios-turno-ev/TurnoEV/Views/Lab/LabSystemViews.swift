@@ -177,6 +177,7 @@ struct LabSystemView: View {
             if case .success(let credentials) = SupabaseConfig.resolve() {
                 VStack(spacing: 7) {
                     LabRow(title: credentials.projectRef, subtitle: "Proyecto", symbol: "cylinder.split.1x2.fill", tint: LabTone.muted)
+                    LabRow(title: credentials.url.absoluteString, subtitle: "URL", symbol: "link", tint: LabTone.muted)
                     LabRow(title: credentials.maskedKey, subtitle: "Publishable key", symbol: "key.fill", tint: LabTone.muted)
                 }
             } else {
@@ -188,6 +189,16 @@ struct LabSystemView: View {
                     Text(SupabaseConfig.keyVariable)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(LabTone.accent)
+
+                    // The URL is public information: showing it verbatim is the fastest way
+                    // to spot a truncated, quoted or altered value.
+                    Divider().overlay(LabTone.muted.opacity(0.3)).padding(.vertical, 4)
+                    LabCaps(text: "Valor recibido en la app")
+                    Text(receivedURLDisplay)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(LabTone.muted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
@@ -205,6 +216,12 @@ struct LabSystemView: View {
         }
         .padding(16)
         .labPanel()
+    }
+
+    /// The raw URL as the build injected it, or an explicit mark when it arrived empty.
+    private var receivedURLDisplay: String {
+        let raw = SupabaseConfig.rawURL
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(vacío)" : raw
     }
 
     @ViewBuilder
