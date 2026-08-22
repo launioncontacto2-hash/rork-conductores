@@ -94,8 +94,8 @@ struct BonusesView: View {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    let now = context.date.addingTimeInterval(TimeInterval(store.clockOffsetMinutes * 60))
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    let now = store.now
                     let evaluations = store.bonusEvaluations(reference: now)
                     let lost = evaluations.filter(\.isLost)
 

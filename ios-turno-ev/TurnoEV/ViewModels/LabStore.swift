@@ -27,7 +27,10 @@ final class LabStore {
     var mode: LabMode { world.mode }
     var isTest: Bool { world.mode == .test }
 
-    var now: Date { AppClock.now() }
+    var now: Date {
+        _ = ClockSignal.shared.generation
+        return AppClock.now()
+    }
 
     func setMode(_ mode: LabMode) {
         guard world.mode != mode else { return }

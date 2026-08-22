@@ -174,6 +174,20 @@ final class SharedClockSync {
     private(set) var channelState: String = "sin canal"
     private(set) var lastError: String?
 
+    // MARK: Diagnostics
+    //
+    // These exist to answer one question during a two-device test: did the UPDATE never
+    // arrive, or did it arrive and the interface fail to redraw? `received` counts what
+    // Realtime handed us; `applied` counts what actually became the hour of this device.
+
+    private(set) var remoteEventsReceived: Int = 0
+    private(set) var remoteEventsApplied: Int = 0
+    /// Revision carried by the last Realtime payload, applied or not.
+    private(set) var lastRemoteRevision: Int64 = 0
+    private(set) var lastRemoteEventAt: Date?
+    /// True once the channel reported `subscribed`.
+    private(set) var isSubscribed: Bool = false
+
     /// Called after a remote change has been adopted, so the modules that read the hour
     /// re-evaluate without anybody refreshing a screen.
     var onRemoteChange: (() -> Void)?
@@ -227,23 +241,26 @@ final class SharedClockSync {
                 guard let self else { return }
                 self.channelState = String(describing: state)
                 if case .subscribed = state {
+                    self.isSubscribed = true
                     if self.lastSyncedAt != nil { self.status = .synced }
                 } else if self.isRunning {
+                    self.isSubscribed = false
                     self.status = .connecting
                 }
             }
         }
 
+        // The stream is consumed in its own task started *before* `subscribe()`. Previously
+        // the loop only began after subscribing and after an awaited network read, leaving a
+        // window in which the first UPDATE was handed to nobody.
         listenTask = Task { [weak self] in
-            await channel.subscribe()
-            // The first authoritative value comes from a plain read: a device that joins an
-            // already-running simulation must not wait for somebody to move the clock.
-            await self?.refresh()
-
             for await update in updates {
                 guard let self else { return }
+                self.remoteEventsReceived += 1
+                self.lastRemoteEventAt = Date()
                 do {
                     let row = try update.decodeRecord(as: SharedClockRow.self, decoder: SupabaseCoding.decoder)
+                    self.lastRemoteRevision = row.revision
                     guard row.environmentId == environment else { continue }
                     self.applyRealtime(row)
                 } catch {
@@ -251,10 +268,18 @@ final class SharedClockSync {
                 }
             }
         }
+
+        Task { [weak self] in
+            await channel.subscribe()
+            // The first authoritative value comes from a plain read: a device that joins an
+            // already-running simulation must not wait for somebody to move the clock.
+            await self?.refresh()
+        }
     }
 
     private func stop() {
         isRunning = false
+        isSubscribed = false
         listenTask?.cancel()
         statusTask?.cancel()
         listenTask = nil
@@ -305,6 +330,7 @@ final class SharedClockSync {
     private func applyRealtime(_ row: SharedClockRow) {
         guard row.revision > revision else { return }
         adopt(row)
+        remoteEventsApplied += 1
     }
 
     private func adopt(_ row: SharedClockRow) {
@@ -312,6 +338,8 @@ final class SharedClockSync {
         revision = row.revision
         lastSyncedAt = Date()
         status = .synced
+        // Persisting bumps `ClockSignal.generation`, and that is what actually invalidates
+        // every view showing or computing with the hour.
         SimulationClock.adopt(row.asLocalState)
         onRemoteChange?()
     }

@@ -148,7 +148,15 @@ final class FleetStore {
     /// Time the app obeys. It never comes from the phone: in production it is real time
     /// and in a simulation it is the logical time of the test environment, shared by every
     /// role and every device.
-    var now: Date { AppClock.now() }
+    ///
+    /// Reading `ClockSignal.generation` here is deliberate and load-bearing: it is what
+    /// registers the SwiftUI dependency. Without it every screen calling `store.now` was
+    /// reading a static enum with nothing observable behind it, so a clock adopted from
+    /// another device changed the value but invalidated no view.
+    var now: Date {
+        _ = ClockSignal.shared.generation
+        return AppClock.now()
+    }
 
     var activeVehicle: Vehicle? {
         guard let shift = activeShift else { return nil }
@@ -350,8 +358,12 @@ final class FleetStore {
         persist()
     }
 
-    /// Republishes the logical hour so every screen that watches the clock re-evaluates
-    /// its rules on the spot — no refresh, no sign-out.
+    /// Keeps the persisted offset in step with the logical hour.
+    ///
+    /// This is **not** the invalidation mechanism any more. An integer number of minutes
+    /// cannot express a second, a speed, a pause or a new revision landing on the same
+    /// minute, so driving the interface from it left every one of those changes invisible.
+    /// `ClockSignal` does the invalidating; this only maintains stored state.
     func syncSimulationClock() {
         let offset = AppClock.offsetMinutes()
         guard clockOffsetMinutes != offset else { return }

@@ -23,8 +23,10 @@ struct ShiftView: View {
                 // The screen refreshes on a slow beat: only the stopwatch needs a second
                 // hand, and rebuilding the whole stack once per second churned every
                 // image and gesture on the page.
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    let now = context.date.addingTimeInterval(TimeInterval(store.clockOffsetMinutes * 60))
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    // Derived from the anchors, not from a minute offset: at x10 the offset
+                    // grows while the simulation runs and the two stop agreeing.
+                    let now = store.now
 
                     ScrollView {
                         EditorStack(screen: .driverShift, blocks: blocks(now: now), sample: sample)
@@ -377,8 +379,8 @@ private struct ShiftStopwatch: View {
     let store: FleetStore
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let now = context.date.addingTimeInterval(TimeInterval(store.clockOffsetMinutes * 60))
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let now = store.now
             Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
                 .font(.system(size: 42, weight: .black))
                 .monospacedDigit()

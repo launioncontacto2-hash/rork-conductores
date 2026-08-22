@@ -188,8 +188,20 @@ nonisolated enum SimulationClock {
         cache = state
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(state) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        if let data = try? encoder.encode(state) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+        // Single choke point: every path that changes the clock — set, shift, setSpeed,
+        // reset, adopt — lands here, so the observable signal can never fall out of step.
+        announce(state)
+    }
+
+    private static func announce(_ state: SimulationClockState) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { ClockSignal.shared.adopted(state) }
+        } else {
+            Task { @MainActor in ClockSignal.shared.adopted(state) }
+        }
     }
 
     /// The hour the simulation is standing on.
@@ -231,8 +243,12 @@ nonisolated enum SimulationClock {
         save(SimulationClockState.fresh(environmentId: localEnvironmentId))
     }
 
-    /// Builds an instant from a date and a time of day, which is what the picker gives.
-    static func combine(day: Date, time: Date) -> Date {
+    /// Builds an instant from a date, a time of day and a second.
+    ///
+    /// The wheel picker only yields hours and minutes, so the second arrives separately.
+    /// It is kept: standing on 05:59:50 is the whole point of testing a boundary, and
+    /// silently zeroing it made an exact instant impossible to reach.
+    static func combine(day: Date, time: Date, second: Int = 0) -> Date {
         let calendar = ShiftRules.calendar
         let dayParts = calendar.dateComponents([.year, .month, .day], from: day)
         let timeParts = calendar.dateComponents([.hour, .minute], from: time)
@@ -242,7 +258,46 @@ nonisolated enum SimulationClock {
         parts.day = dayParts.day
         parts.hour = timeParts.hour
         parts.minute = timeParts.minute
+        parts.second = min(max(second, 0), 59)
         return calendar.date(from: parts) ?? day
+    }
+
+    /// Second of the minute an instant stands on, to preload the picker.
+    static func second(of date: Date) -> Int {
+        ShiftRules.calendar.component(.second, from: date)
+    }
+}
+
+// MARK: - Observable signal
+
+/// The one thing SwiftUI is allowed to watch to know the logical hour moved.
+///
+/// `SimulationClock` is a static enum: nothing about it is observable, so a view that read
+/// `AppClock.now()` had no dependency to invalidate and simply kept its last render. This
+/// type is the missing dependency. `generation` changes on **every** adopted state — local
+/// or remote — whether or not the minute, the offset or anything else visibly changed.
+@MainActor
+@Observable
+final class ClockSignal {
+    static let shared = ClockSignal()
+
+    /// Bumped once per adopted state. Views read it to register the dependency.
+    private(set) var generation: Int = 0
+    /// Revision of the shared row currently in force on this device.
+    private(set) var revision: Int64 = 0
+    /// Mirror of the clock speed. Observable, so the selector highlights the right button
+    /// the moment another device changes the pace.
+    private(set) var speed: SimulationSpeed = .paused
+
+    private init() {
+        speed = SimulationClock.speed
+        revision = SimulationClock.load().revision
+    }
+
+    func adopted(_ state: SimulationClockState) {
+        speed = state.speed
+        revision = state.revision
+        generation &+= 1
     }
 }
 

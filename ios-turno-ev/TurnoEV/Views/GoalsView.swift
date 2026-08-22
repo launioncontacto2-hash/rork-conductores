@@ -11,8 +11,8 @@ struct GoalsView: View {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: .now, by: 30)) { context in
-                    let now = context.date.addingTimeInterval(TimeInterval(store.clockOffsetMinutes * 60))
+                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                    let now = store.now
                     let goals = store.goals
                     let earnedToday = store.earnedToday(reference: now)
                     let earnedWeek = store.earnedThisWeek(reference: now)

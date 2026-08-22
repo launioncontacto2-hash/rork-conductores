@@ -254,12 +254,26 @@ struct LabSystemView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 auditLine("Entorno", sync.environmentId)
-                auditLine("Revisión", sync.revision == 0 ? "—" : "\(sync.revision)")
+                auditLine(
+                    "Canal Realtime",
+                    sync.isSubscribed ? "subscribed" : "disconnected"
+                )
+                auditLine("Estado interno del canal", sync.channelState)
+                auditLine("Revisión aplicada localmente", sync.revision == 0 ? "—" : "\(sync.revision)")
+                auditLine(
+                    "Última revisión por Realtime",
+                    sync.lastRemoteRevision == 0 ? "—" : "\(sync.lastRemoteRevision)"
+                )
+                auditLine(
+                    "Último evento Realtime",
+                    sync.lastRemoteEventAt.map { Fmt.clockSeconds($0) } ?? "ninguno"
+                )
+                auditLine("Eventos recibidos", "\(sync.remoteEventsReceived)")
+                auditLine("Eventos aplicados", "\(sync.remoteEventsApplied)")
                 auditLine(
                     "Última sincronización",
-                    sync.lastSyncedAt.map { Fmt.clock($0) } ?? "nunca"
+                    sync.lastSyncedAt.map { Fmt.clockSeconds($0) } ?? "nunca"
                 )
-                auditLine("Canal Realtime", sync.channelState)
 
                 if let error = sync.lastError {
                     Text(error)
@@ -271,6 +285,11 @@ struct LabSystemView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .labFlat()
+
+            Text("Un cambio hecho en otro dispositivo debe llegar solo. Si «Eventos recibidos» no sube al mover el reloj allá, el UPDATE no llegó a este teléfono; si sube y la hora no cambia, llegó y no se aplicó. Releer es sólo una herramienta de diagnóstico.")
+                .font(.caption)
+                .foregroundStyle(LabTone.muted)
+                .fixedSize(horizontal: false, vertical: true)
 
             Button("Releer del entorno") {
                 Task { await SharedClockSync.shared.refresh() }

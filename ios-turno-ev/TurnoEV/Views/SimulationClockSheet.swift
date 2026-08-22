@@ -11,10 +11,25 @@ struct SimulationClockSheet: View {
 
     @State private var pickedDay: Date = Date()
     @State private var pickedTime: Date = Date()
+    @State private var pickedSecond: Int = 0
     @State private var isPickerPresented: Bool = false
-    @State private var tick: Int = 0
 
-    private var speed: SimulationSpeed { SimulationClock.speed }
+    /// Observable mirror of the clock. Reading the speed from here — instead of from the
+    /// static `SimulationClock` — is what makes the selector highlight move the instant the
+    /// pace changes, including when the change came from the other device.
+    private var signal: ClockSignal { ClockSignal.shared }
+
+    private var speed: SimulationSpeed { signal.speed }
+
+    /// Real seconds between redraws. Purely local: it only repaints, it never writes.
+    ///
+    /// The period is divided by the pace so one tick advances roughly one simulated second.
+    /// At x10 that is a redraw every 0.1 s real, which is what makes the acceleration
+    /// visible instead of leaving the reading apparently frozen.
+    private var tickInterval: Double {
+        guard !speed.isPaused else { return 60 }
+        return max(0.1, 1.0 / Double(speed.rawValue))
+    }
 
     var body: some View {
         NavigationStack {
@@ -55,25 +70,28 @@ struct SimulationClockSheet: View {
 
     private var readings: some View {
         // While the clock runs the panel has to breathe with it; paused it stays still.
-        TimelineView(.periodic(from: .now, by: speed.isPaused ? 60 : 1)) { _ in
+        // `.id(signal.generation)` rebuilds the schedule whenever a state is adopted, so a
+        // pause or a speed change coming from the other device restarts the cadence instead
+        // of leaving the old one running.
+        TimelineView(.periodic(from: .now, by: tickInterval)) { _ in
             VStack(spacing: 10) {
                 HStack(spacing: 10) {
                     reading(
                         caption: "Hora real",
-                        value: Fmt.clock(AppClock.realNow()),
+                        value: Fmt.clockSeconds(AppClock.realNow()),
                         tone: Palette.textMuted
                     )
 
                     // The hour itself is the control: tapping it jumps straight to any
                     // point of the simulation instead of pressing +1 h over and over.
                     Button {
-                        pickedDay = store.now
-                        pickedTime = store.now
-                        isPickerPresented = true
+                        openPicker()
                     } label: {
                         reading(
                             caption: "Hora de prueba",
-                            value: Fmt.clock(store.now),
+                            // Always with seconds: a boundary test is decided in the last
+                            // ten of them, and HH:mm hid exactly that.
+                            value: Fmt.clockSeconds(store.now),
                             tone: Palette.amber,
                             isEditable: true
                         )
@@ -101,6 +119,7 @@ struct SimulationClockSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .panel()
         }
+        .id(signal.generation)
     }
 
     private func reading(
@@ -235,9 +254,7 @@ struct SimulationClockSheet: View {
     private var configureButton: some View {
         VStack(spacing: 9) {
             BigButton(title: "Configurar fecha y hora", symbol: "calendar.badge.clock", tone: .outline) {
-                pickedDay = store.now
-                pickedTime = store.now
-                isPickerPresented = true
+                openPicker()
             }
 
             Button("Volver a la hora real") {
@@ -260,12 +277,39 @@ struct SimulationClockSheet: View {
                         .datePickerStyle(.graphical)
                         .tint(Palette.amber)
 
-                    DatePicker("Hora", selection: $pickedTime, displayedComponents: .hourAndMinute)
-                        .datePickerStyle(.wheel)
-                        .labelsHidden()
+                    // Hour and minute keep the system wheel; the second is its own wheel
+                    // beside it, in this same sheet. The picker offers no seconds component,
+                    // so without this an exact instant simply could not be entered.
+                    HStack(spacing: 0) {
+                        DatePicker("Hora", selection: $pickedTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(.wheel)
+                            .labelsHidden()
+
+                        Picker("Segundos", selection: $pickedSecond) {
+                            ForEach(0..<60, id: \.self) { value in
+                                Text(String(format: "%02d", value))
+                                    .monospacedDigit()
+                                    .tag(value)
+                            }
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(width: 84)
+                    }
+
+                    HStack(spacing: 6) {
+                        Text("SE APLICARÁ")
+                            .font(.system(size: 9, weight: .black))
+                            .tracking(0.8)
+                            .foregroundStyle(Palette.textMuted)
+                        Text(Fmt.clockSeconds(pendingInstant))
+                            .font(.system(size: 16, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Palette.amber)
+                        Spacer(minLength: 0)
+                    }
 
                     BigButton(title: "Aplicar al entorno de prueba", symbol: "checkmark.circle.fill") {
-                        SimulationClock.set(SimulationClock.combine(day: pickedDay, time: pickedTime))
+                        SimulationClock.set(pendingInstant)
                         publish()
                         isPickerPresented = false
                     }
@@ -295,6 +339,7 @@ struct SimulationClockSheet: View {
 
             // Said plainly, so no two-device test is run on a false assumption.
             syncNotice
+            realtimeDiagnostic
         }
         .frame(maxWidth: .infinity)
     }
@@ -335,10 +380,80 @@ struct SimulationClockSheet: View {
         .background((isShared ? Palette.volt : Palette.info).opacity(0.08), in: .rect(cornerRadius: 13))
     }
 
-    /// Publishes the new hour so every module re-evaluates its rules without a refresh.
+    /// End-to-end trace of the shared clock, visible during the two-device test.
+    ///
+    /// It separates the two failures that look identical from the outside: `recibidos = 0`
+    /// means the UPDATE never reached this phone, while `recibidos > 0` with a stale reading
+    /// means it arrived and the interface did not redraw.
+    private var realtimeDiagnostic: some View {
+        let sync = SharedClockSync.shared
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+                Text("DIAGNÓSTICO REALTIME")
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(0.8)
+                    .foregroundStyle(Palette.textMuted)
+                Spacer(minLength: 0)
+                Text(sync.isSubscribed ? "subscribed" : "disconnected")
+                    .font(.system(size: 9, weight: .black))
+                    .foregroundStyle(sync.isSubscribed ? Palette.volt : Palette.amber)
+            }
+
+            diagnosticLine("Canal", sync.channelState)
+            diagnosticLine("Revisión aplicada", sync.revision == 0 ? "—" : "\(sync.revision)")
+            diagnosticLine(
+                "Revisión Realtime",
+                sync.lastRemoteRevision == 0 ? "—" : "\(sync.lastRemoteRevision)"
+            )
+            diagnosticLine(
+                "Último evento",
+                sync.lastRemoteEventAt.map { Fmt.clockSeconds($0) } ?? "ninguno"
+            )
+            diagnosticLine(
+                "Eventos recibidos / aplicados",
+                "\(sync.remoteEventsReceived) / \(sync.remoteEventsApplied)"
+            )
+            diagnosticLine("Generación de vista", "\(signal.generation)")
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surfaceRaised.opacity(0.5), in: .rect(cornerRadius: 13))
+    }
+
+    private func diagnosticLine(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundStyle(Palette.textMuted)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.system(size: 10, weight: .bold))
+                .monospacedDigit()
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    /// Instant the picker is currently describing, seconds included.
+    private var pendingInstant: Date {
+        SimulationClock.combine(day: pickedDay, time: pickedTime, second: pickedSecond)
+    }
+
+    private func openPicker() {
+        let current = store.now
+        pickedDay = current
+        pickedTime = current
+        pickedSecond = SimulationClock.second(of: current)
+        isPickerPresented = true
+    }
+
+    /// Follow-up to a local change. It performs **no** write of its own: the single logical
+    /// publication already happened inside `SimulationClock.save`, which handed the state to
+    /// `SharedSimulationClock.publish` and from there to one RPC call. This only keeps the
+    /// stored offset in step and confirms the tap.
     private func publish() {
         store.syncSimulationClock()
-        tick += 1
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 }
@@ -531,6 +646,9 @@ struct EnvironmentSheet: View {
 
     private func apply(_ mode: LabMode) {
         lab.setMode(mode)
+        // Stop the shared clock *before* resetting, so leaving test mode on this phone does
+        // not publish a reset that would drag the shared environment back to the real hour.
+        SharedClockSync.shared.update(isTest: mode == .test)
         // Production always runs on safe real time: any simulated hour is dropped.
         if mode == .production { SimulationClock.reset() }
         store.syncSimulationClock()

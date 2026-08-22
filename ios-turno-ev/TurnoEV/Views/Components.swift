@@ -564,6 +564,21 @@ struct DemoClockButton: View {
         }
     }
 
+    /// Observable mirror of the clock, so the chip repaints when another device changes the
+    /// pace or pauses the simulation.
+    private var signal: ClockSignal { ClockSignal.shared }
+
+    /// Local redraw cadence. It only repaints; it never writes anything.
+    private var tickInterval: Double {
+        guard isTest, !signal.speed.isPaused else { return 30 }
+        return max(0.1, 1.0 / Double(signal.speed.rawValue))
+    }
+
+    /// Seconds are shown throughout the simulation: a boundary test is decided in them.
+    private var reading: String {
+        isTest ? Fmt.clockSeconds(store.now) : Fmt.clock(store.now)
+    }
+
     var body: some View {
         Button {
             guard isInteractive else { return }
@@ -575,36 +590,41 @@ struct DemoClockButton: View {
                 isEnvironmentPresented = true
             }
         } label: {
-            HStack(spacing: 5) {
-                Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
-                Text(Fmt.clock(store.now))
-                    .monospacedDigit()
-                if let badge {
-                    Text(badge)
-                        .font(.system(size: 8, weight: .black))
+            // Without a ticker this chip only redrew when something else on the page
+            // happened to change, which is what made an accelerated clock look frozen.
+            TimelineView(.periodic(from: .now, by: tickInterval)) { _ in
+                HStack(spacing: 5) {
+                    Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
+                    Text(reading)
+                        .monospacedDigit()
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 8, weight: .black))
+                    }
+                    // Whether a second device is standing on this same hour.
+                    if isTest {
+                        Circle()
+                            .fill(syncTint)
+                            .frame(width: 5, height: 5)
+                            .accessibilityHidden(true)
+                    }
                 }
-                // Whether a second device is standing on this same hour.
-                if isTest {
-                    Circle()
-                        .fill(syncTint)
-                        .frame(width: 5, height: 5)
-                        .accessibilityHidden(true)
+                .font(.system(.caption, weight: .semibold))
+                .foregroundStyle(isTest ? Palette.amber : Color.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Palette.surfaceRaised, in: .capsule)
+                .overlay {
+                    Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
                 }
             }
-            .font(.system(.caption, weight: .semibold))
-            .foregroundStyle(isTest ? Palette.amber : Color.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Palette.surfaceRaised, in: .capsule)
-            .overlay {
-                Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
-            }
+            .id(signal.generation)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
             isTest
-                ? "Reloj de prueba, \(Fmt.clock(store.now)). Abrir controles de tiempo."
-                : "Producción, \(Fmt.clock(store.now)). Abrir selector de entorno."
+                ? "Reloj de prueba, \(reading). Abrir controles de tiempo."
+                : "Producción, \(reading). Abrir selector de entorno."
         )
         .sheet(isPresented: $isClockPresented) {
             SimulationClockSheet()
