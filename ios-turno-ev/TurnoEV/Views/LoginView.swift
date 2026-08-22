@@ -401,13 +401,38 @@ struct LoginView: View {
     }
 
     /// Shows the identified role for a beat, then opens that role's interface only.
+    ///
+    /// The pause is cosmetic and the sign-in must never depend on it. This runs from a
+    /// sheet that dismisses in the same gesture, so the beat can be interrupted; a second
+    /// longer watchdog guarantees the overlay is always retired. The transition may be
+    /// slow, but it can never stay on screen forever.
     private func grantAccess(to account: StaffAccount, method: SignInMethod) {
         handoffAccount = account
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(1_150))
-            store.signIn(account: account, method: method)
-            handoffAccount = nil
+            completeHandoff(to: account, method: method, reason: "beat")
         }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            completeHandoff(to: account, method: method, reason: "watchdog")
+        }
+    }
+
+    /// Single exit of the handoff. Idempotent: whichever path arrives first opens the
+    /// session and retires the overlay, the other finds nothing left to do. If no session
+    /// resulted, the access screen comes back with a readable reason instead of hanging.
+    private func completeHandoff(to account: StaffAccount, method: SignInMethod, reason: String) {
+        guard handoffAccount != nil else { return }
+        if store.session == nil {
+            store.signIn(account: account, method: method)
+        }
+        handoffAccount = nil
+        let opened = store.session != nil
+        if !opened {
+            mode = .credentials
+            errorMessage = "No se pudo abrir la sesión de \(account.role.label). Intenta de nuevo."
+        }
+        print("[login] handoff \(reason) · rol=\(account.role.label) · sesión=\(opened)")
     }
 
     // MARK: - Recovery
