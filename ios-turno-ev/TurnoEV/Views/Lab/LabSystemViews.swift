@@ -23,6 +23,7 @@ struct LabSystemView: View {
             clockCard
             previewCard
             connectionCard
+            sharedClockCard
         }
         .sheet(item: $previewTarget) { user in LabPreviewSheet(user: user) }
         .onAppear { config = lab.world.shiftConfig }
@@ -229,6 +230,82 @@ struct LabSystemView: View {
     private var receivedURLDisplay: String {
         let raw = SupabaseConfig.rawURL
         return raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(vacío)" : raw
+    }
+
+    /// State of the shared logical clock: which environment, which revision, when it last
+    /// agreed with the environment and what the Realtime channel is doing.
+    private var sharedClockCard: some View {
+        let sync = SharedClockSync.shared
+
+        return VStack(alignment: .leading, spacing: 12) {
+            LabCaps(text: "Reloj compartido")
+
+            Text("El reloj del entorno de prueba vive en Supabase como un ancla, no como una hora que corre: cada dispositivo deriva la hora localmente y sólo se escribe cuando alguien la mueve, la pausa o cambia su velocidad.")
+                .font(.caption)
+                .foregroundStyle(LabTone.muted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            LabRow(
+                title: sync.status.label,
+                subtitle: syncSubtitle(sync.status),
+                symbol: syncSymbol(sync.status),
+                tint: syncTint(sync.status)
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                auditLine("Entorno", sync.environmentId)
+                auditLine("Revisión", sync.revision == 0 ? "—" : "\(sync.revision)")
+                auditLine(
+                    "Última sincronización",
+                    sync.lastSyncedAt.map { Fmt.clock($0) } ?? "nunca"
+                )
+                auditLine("Canal Realtime", sync.channelState)
+
+                if let error = sync.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(Palette.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .labFlat()
+
+            Button("Releer del entorno") {
+                Task { await SharedClockSync.shared.refresh() }
+            }
+            .buttonStyle(LabButtonStyle(kind: .ghost))
+        }
+        .padding(16)
+        .labPanel()
+    }
+
+    private func syncSubtitle(_ status: SharedClockSync.Status) -> String {
+        switch status {
+        case .synced:
+            return "Todos los dispositivos conectados están en esta misma hora lógica."
+        case .connecting:
+            return "Contactando al entorno de prueba."
+        case .offline:
+            return "Sin fuente compartida. La hora sigue calculándose desde la última ancla recibida, pero este dispositivo está solo."
+        }
+    }
+
+    private func syncSymbol(_ status: SharedClockSync.Status) -> String {
+        switch status {
+        case .synced: return "antenna.radiowaves.left.and.right"
+        case .connecting: return "arrow.triangle.2.circlepath"
+        case .offline: return "iphone.gen3.slash"
+        }
+    }
+
+    private func syncTint(_ status: SharedClockSync.Status) -> Color {
+        switch status {
+        case .synced: return LabTone.accent
+        case .connecting: return Palette.info
+        case .offline: return Palette.amber
+        }
     }
 
     /// Character-level portrait of the injected key. Shows shape, never content: a length, the

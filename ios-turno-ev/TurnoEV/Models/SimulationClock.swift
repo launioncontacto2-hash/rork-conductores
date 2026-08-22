@@ -58,6 +58,16 @@ nonisolated enum SimulationSpeed: Int, Codable, CaseIterable, Identifiable, Send
     }
 
     var isPaused: Bool { self == .paused }
+
+    /// Closest selectable speed to a numeric pace. The shared table stores speed as a
+    /// `double precision`, so a value written by another client (or edited by hand in
+    /// Supabase) still lands on a speed this app can display.
+    static func nearest(to value: Double) -> SimulationSpeed {
+        let running = allCases.filter { !$0.isPaused }
+        return running.min {
+            abs(Double($0.rawValue) - value) < abs(Double($1.rawValue) - value)
+        } ?? .realTime
+    }
 }
 
 /// State of the simulated clock. It is anchored rather than stored as a running number:
@@ -75,6 +85,10 @@ nonisolated struct SimulationClockState: Codable, Sendable, Equatable {
     var environmentId: String
     /// Last write, used to resolve which device wrote most recently.
     var updatedAt: Date
+    /// Monotonic counter of the shared clock. A device must never replace what it holds with
+    /// a state carrying a lower revision — that is how a slow network is prevented from
+    /// resurrecting an hour the environment already left behind.
+    var revision: Int64
 
     /// Hour this state stands on right now.
     func current(realNow: Date = Date()) -> Date {
@@ -92,8 +106,37 @@ nonisolated struct SimulationClockState: Codable, Sendable, Equatable {
             pinnedAt: now,
             speed: .paused,
             environmentId: environmentId,
-            updatedAt: now
+            updatedAt: now,
+            revision: 0
         )
+    }
+
+    init(
+        anchor: Date,
+        pinnedAt: Date,
+        speed: SimulationSpeed,
+        environmentId: String,
+        updatedAt: Date,
+        revision: Int64
+    ) {
+        self.anchor = anchor
+        self.pinnedAt = pinnedAt
+        self.speed = speed
+        self.environmentId = environmentId
+        self.updatedAt = updatedAt
+        self.revision = revision
+    }
+
+    /// Hand-written so a state stored before the shared clock existed still decodes: it
+    /// simply has no revision yet and starts at zero.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        anchor = try container.decode(Date.self, forKey: .anchor)
+        pinnedAt = try container.decode(Date.self, forKey: .pinnedAt)
+        speed = try container.decode(SimulationSpeed.self, forKey: .speed)
+        environmentId = try container.decode(String.self, forKey: .environmentId)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        revision = try container.decodeIfPresent(Int64.self, forKey: .revision) ?? 0
     }
 }
 
@@ -129,15 +172,24 @@ nonisolated enum SimulationClock {
     private static func save(_ state: SimulationClockState) {
         var updated = state
         updated.updatedAt = Date()
-        cache = updated
+        persist(updated)
+
+        // Hand the same state to the shared layer, which publishes it to the environment.
+        SharedSimulationClock.publish(updated)
+    }
+
+    /// Stores a state **without** publishing it. Used when the value came from the shared
+    /// environment: echoing it straight back would loop two devices against each other.
+    static func adopt(_ state: SimulationClockState) {
+        persist(state)
+    }
+
+    private static func persist(_ state: SimulationClockState) {
+        cache = state
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(updated) else { return }
+        guard let data = try? encoder.encode(state) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
-
-        // Hand the same state to the shared layer. Today it only keeps it; when the
-        // backend exists this is the single line that starts publishing it.
-        SharedSimulationClock.publish(updated)
     }
 
     /// The hour the simulation is standing on.
@@ -156,7 +208,13 @@ nonisolated enum SimulationClock {
     /// Shifts the logical time. Negative values go back, which is legitimate for testing
     /// and never rewrites what already happened.
     static func shift(minutes: Int) {
-        set(current().addingTimeInterval(TimeInterval(minutes * 60)))
+        shift(seconds: minutes * 60)
+    }
+
+    /// Second-level nudge. Needed to stand exactly on a boundary — 05:59:50 → 06:00:00 is
+    /// the moment a late driver becomes an absence.
+    static func shift(seconds: Int) {
+        set(current().addingTimeInterval(TimeInterval(seconds)))
     }
 
     static func setSpeed(_ speed: SimulationSpeed) {
@@ -190,38 +248,38 @@ nonisolated enum SimulationClock {
 
 // MARK: - Shared clock (pending backend)
 
-/// Where the simulated clock will live once the test environment has a shared backend, so
-/// an iPhone running Supervisor and an Android running Conductor stand on the same hour.
+/// Seam between the synchronous clock and the shared environment.
 ///
-/// **It is not connected yet.** There is no server behind it: `UserDefaults` cannot cross
-/// devices, and pretending otherwise would make every two-device test a lie. Until the
-/// backend exists this type only holds the last local state and reports honestly that it
-/// is not synchronised.
+/// `AppClock.now()` is called from everywhere and must answer instantly, so it can never
+/// await the network. This type keeps a nonisolated mirror of the sync engine's status for
+/// those callers, and forwards local changes to it.
 ///
-/// Wiring it later touches exactly two places: `publish` sends the state, and `remote`
-/// returns what the environment last published. `SimulationClockState` already carries the
-/// `environmentId` and `updatedAt` such a service needs.
+/// The engine itself — `SharedClockSync` — owns the Supabase row and the Realtime channel.
 nonisolated enum SharedSimulationClock {
-    /// True only when a real shared source is answering. Deliberately false today.
-    static var isConnected: Bool { false }
+    /// Mirror of `SharedClockSync.status`, readable from non-isolated code.
+    nonisolated(unsafe) private static var connected: Bool = false
 
-    nonisolated(unsafe) private static var lastPublished: SimulationClockState?
+    /// True only when a real shared source is answering.
+    static var isConnected: Bool { connected }
 
-    /// Last state this device wrote. With a backend, this is what would be sent.
+    static func setConnected(_ value: Bool) {
+        connected = value
+    }
+
+    /// Sends a locally produced state to the environment. Does nothing when the shared clock
+    /// is not running, which is exactly the old single-device behaviour.
     static func publish(_ state: SimulationClockState) {
-        lastPublished = state
+        Task { @MainActor in
+            SharedClockSync.shared.push(state)
+        }
     }
 
-    /// The hour the environment agrees on. Nil while there is no shared source, which is
-    /// what tells callers to fall back to the local clock.
-    static func remote() -> SimulationClockState? {
-        guard isConnected else { return nil }
-        return lastPublished
-    }
-
-    /// Shown in the clock panel so nobody assumes a second device is following along.
+    /// Shown in the clock panel while no second device can be following along.
     static let pendingNotice =
-        "Este reloj gobierna todos los roles de este dispositivo. Compartirlo con un segundo teléfono requiere el backend del entorno de pruebas, que aún no está conectado."
+        "Este reloj sólo gobierna este dispositivo. Para compartirlo con un segundo teléfono hace falta conexión con el entorno de pruebas."
+
+    static let sharedNotice =
+        "Este reloj es el del entorno de prueba compartido: cualquier cambio aquí se aplica en todos los dispositivos conectados."
 }
 
 // MARK: - Authorization

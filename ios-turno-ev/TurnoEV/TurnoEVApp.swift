@@ -34,12 +34,19 @@ struct TurnoEVApp: App {
                     lab.attach(fleet: store)
                     coverage.attach(fleet: store)
                     store.adoptEnvironment()
+
+                    // A clock change arriving from another device has to re-evaluate the
+                    // rules here too, without anybody refreshing a screen.
+                    SharedClockSync.shared.onRemoteChange = { store.syncSimulationClock() }
+                    SharedClockSync.shared.update(isTest: lab.isTest)
                 }
                 .onChange(of: lab.mode) { _, _ in
                     // Test and production never share coverage records.
                     coverage.clear()
                     // Production is never editable from a device.
                     if lab.mode == .production { visualEditor.deactivate() }
+                    // Production has no shared clock: time there is real and untouchable.
+                    SharedClockSync.shared.update(isTest: lab.isTest)
                 }
         }
     }

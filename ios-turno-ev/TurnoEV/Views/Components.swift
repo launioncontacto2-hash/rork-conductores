@@ -555,6 +555,15 @@ struct DemoClockButton: View {
 
     private var tint: Color { isTest ? Palette.amber : Palette.textMuted }
 
+    /// Colour of the shared-clock dot. Only meaningful inside the simulation.
+    private var syncTint: Color {
+        switch SharedClockSync.shared.status {
+        case .synced: return Palette.volt
+        case .connecting: return Palette.info
+        case .offline: return Palette.textMuted
+        }
+    }
+
     var body: some View {
         Button {
             guard isInteractive else { return }
@@ -573,6 +582,13 @@ struct DemoClockButton: View {
                 if let badge {
                     Text(badge)
                         .font(.system(size: 8, weight: .black))
+                }
+                // Whether a second device is standing on this same hour.
+                if isTest {
+                    Circle()
+                        .fill(syncTint)
+                        .frame(width: 5, height: 5)
+                        .accessibilityHidden(true)
                 }
             }
             .font(.system(.caption, weight: .semibold))

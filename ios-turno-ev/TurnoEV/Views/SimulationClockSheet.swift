@@ -146,14 +146,20 @@ struct SimulationClockSheet: View {
             CapsLabel(text: "Mover el tiempo")
 
             HStack(spacing: 7) {
-                step("-1 h", minutes: -60)
-                step("-10 min", minutes: -10)
-                step("-1 min", minutes: -1)
+                step("-1 h", seconds: -3600)
+                step("-10 min", seconds: -600)
+                step("-1 min", seconds: -60)
             }
             HStack(spacing: 7) {
-                step("+1 min", minutes: 1)
-                step("+10 min", minutes: 10)
-                step("+1 h", minutes: 60)
+                step("+1 min", seconds: 60)
+                step("+10 min", seconds: 600)
+                step("+1 h", seconds: 3600)
+            }
+            // Second-level nudges: standing exactly on 05:59:50 is what lets a boundary be
+            // crossed on purpose instead of jumped over.
+            HStack(spacing: 7) {
+                step("-10 s", seconds: -10)
+                step("+10 s", seconds: 10)
             }
 
             Text("Con el reloj pausado la hora solo cambia cuando la mueves aquí. Es el modo indicado para probar un límite exacto: 05:59 → 06:00 convierte un demorado en ausente y dispara la búsqueda de sustituto.")
@@ -166,24 +172,24 @@ struct SimulationClockSheet: View {
         .panel()
     }
 
-    private func step(_ title: String, minutes: Int) -> some View {
+    private func step(_ title: String, seconds: Int) -> some View {
         Button {
-            SimulationClock.shift(minutes: minutes)
+            SimulationClock.shift(seconds: seconds)
             publish()
         } label: {
             Text(title)
                 .font(.system(.footnote, weight: .black))
                 .monospacedDigit()
-                .foregroundStyle(minutes < 0 ? Palette.info : Palette.volt)
+                .foregroundStyle(seconds < 0 ? Palette.info : Palette.volt)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .background(
-                    (minutes < 0 ? Palette.info : Palette.volt).opacity(0.12),
+                    (seconds < 0 ? Palette.info : Palette.volt).opacity(0.12),
                     in: .rect(cornerRadius: 14)
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke((minutes < 0 ? Palette.info : Palette.volt).opacity(0.35), lineWidth: 1)
+                        .stroke((seconds < 0 ? Palette.info : Palette.volt).opacity(0.35), lineWidth: 1)
                 }
         }
         .buttonStyle(.plain)
@@ -288,22 +294,35 @@ struct SimulationClockSheet: View {
                 .multilineTextAlignment(.center)
 
             // Said plainly, so no two-device test is run on a false assumption.
-            if !SharedSimulationClock.isConnected {
-                HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: "iphone.gen3.slash")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Palette.info)
-                    Text(SharedSimulationClock.pendingNotice)
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(11)
-                .background(Palette.info.opacity(0.08), in: .rect(cornerRadius: 13))
-            }
+            syncNotice
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// State of the shared clock, in one compact line.
+    private var syncNotice: some View {
+        let sync = SharedClockSync.shared
+        let isShared = sync.status == .synced
+
+        return HStack(alignment: .top, spacing: 7) {
+            Circle()
+                .fill(isShared ? Palette.volt : (sync.status == .connecting ? Palette.info : Palette.textMuted))
+                .frame(width: 6, height: 6)
+                .padding(.top, 3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sync.status.label)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(isShared ? Palette.volt : Palette.textMuted)
+                Text(isShared ? SharedSimulationClock.sharedNotice : SharedSimulationClock.pendingNotice)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(11)
+        .background((isShared ? Palette.volt : Palette.info).opacity(0.08), in: .rect(cornerRadius: 13))
     }
 
     /// Publishes the new hour so every module re-evaluates its rules without a refresh.
