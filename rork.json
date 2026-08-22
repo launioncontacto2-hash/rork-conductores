@@ -6,7 +6,8 @@
       "path": "ios-turno-ev",
       "framework": "swift",
       "settings": {
-        "iosBundleId": "com.turnoev.mobility"
+        "iosBundleId": "com.turnoev.mobility",
+        "displayName": "TurnoEV"
       }
     },
     {
