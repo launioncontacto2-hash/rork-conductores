@@ -1234,7 +1234,14 @@ nonisolated enum LabRules {
     static func generateVin(seed: Int) -> String {
         let letters = Array("ABCDEFGHJKLMNPRSTUVWXYZ")
         let prefix = "LGX"
-        let body = (0..<8).map { index in String(letters[(seed / (index + 1) + index * 7) % letters.count]) }.joined()
+        let alphabetCount: Int = letters.count
+        var body = ""
+        for index in 0..<8 {
+            let divided: Int = seed / (index + 1)
+            let offset: Int = index * 7
+            let position: Int = (divided + offset) % alphabetCount
+            body.append(letters[position])
+        }
         return prefix + body + String(format: "%06d", seed % 999_999)
     }
 

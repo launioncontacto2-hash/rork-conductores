@@ -72,11 +72,12 @@ nonisolated struct LabWorld: Codable, Sendable {
     }
 
     var totalRecords: Int {
-        stations.count + users.count + vehicles.count + employeeFiles.count + prospects.count
-            + campaigns.count + appointments.count + assets.count + orders.count + incidents.count
-            + credits.count + bonuses.count + goals.count + settlements.count + bankAccounts.count
-            + transfers.count + documents.count + alerts.count + faults.count
-            + uberFeeds.count + telemetry.count
+        let core: Int = stations.count + users.count + vehicles.count + employeeFiles.count + prospects.count
+        let operations: Int = campaigns.count + appointments.count + assets.count + orders.count + incidents.count
+        let finance: Int = credits.count + bonuses.count + goals.count + settlements.count + bankAccounts.count
+        let paperwork: Int = transfers.count + documents.count + alerts.count + faults.count
+        let feeds: Int = uberFeeds.count + telemetry.count
+        return core + operations + finance + paperwork + feeds
     }
 
     func station(id: String?) -> LabStation? {
