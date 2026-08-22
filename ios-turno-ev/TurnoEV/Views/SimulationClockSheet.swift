@@ -318,6 +318,16 @@ struct SimulationClockSheet: View {
                     .font(.system(size: 10))
                     .foregroundStyle(Palette.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // A rejected write is said here, where the change was made — not only in
+                // the laboratory diagnostic.
+                if let error = sync.lastError {
+                    Text(error)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.amber)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                }
             }
             Spacer(minLength: 0)
         }

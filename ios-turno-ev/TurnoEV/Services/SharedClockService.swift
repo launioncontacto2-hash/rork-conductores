@@ -112,21 +112,26 @@ nonisolated struct SharedClockRow: Decodable, Sendable, Equatable {
     }
 }
 
-/// The single write this phase performs. Anchors, speed, pause and revision travel together:
-/// one row, one statement, never a value per second.
-nonisolated struct SharedClockWrite: Encodable, Sendable {
+/// Arguments of `update_test_clock`, the single write this phase performs.
+///
+/// There is no `revision` field on purpose: the final number is assigned by Postgres under a
+/// row lock. `expectedRevision` is the opposite — it declares which revision this device was
+/// standing on, so the server can refuse to overwrite a change it never saw.
+nonisolated struct SharedClockCommand: Encodable, Sendable {
+    let environmentId: String
     let anchorSimulatedAt: String
     let anchorRealAt: String
     let speed: Double
     let isPaused: Bool
-    let revision: Int64
+    let expectedRevision: Int64?
 
     enum CodingKeys: String, CodingKey {
-        case anchorSimulatedAt = "anchor_simulated_at"
-        case anchorRealAt = "anchor_real_at"
-        case speed
-        case isPaused = "is_paused"
-        case revision
+        case environmentId = "p_environment_id"
+        case anchorSimulatedAt = "p_anchor_simulated_at"
+        case anchorRealAt = "p_anchor_real_at"
+        case speed = "p_speed"
+        case isPaused = "p_is_paused"
+        case expectedRevision = "p_expected_revision"
     }
 }
 
@@ -316,53 +321,89 @@ final class SharedClockSync {
     /// Publishes a locally produced state.
     ///
     /// The caller has already done the re-anchoring — `SimulationClock` computes the current
-    /// simulated hour, pins it to the real instant and only then hands the state over. Here we
-    /// bump the revision and issue exactly one UPDATE.
+    /// simulated hour, pins it to the real instant and only then hands the state over. This
+    /// device never chooses the resulting revision: it sends the anchors plus the revision it
+    /// was standing on, and Postgres decides the rest.
     func push(_ state: SimulationClockState) {
         guard isRunning, SupabaseBridge.client != nil else { return }
 
-        let next = max(revision, state.revision) + 1
         let isPaused = state.speed.isPaused
         let speed = isPaused ? resumeSpeed : Double(state.speed.rawValue)
         if !isPaused { resumeSpeed = speed }
 
-        // Optimistic: the echo of our own write arrives with this same revision and is
-        // dropped by the `>` guard instead of re-applying what we already have.
-        revision = next
-
-        let write = SharedClockWrite(
+        let command = SharedClockCommand(
+            environmentId: LabEnvironment.sharedTestId,
             anchorSimulatedAt: SupabaseCoding.text(from: state.anchor),
             anchorRealAt: SupabaseCoding.text(from: state.pinnedAt),
             speed: speed,
             isPaused: isPaused,
-            revision: next
+            // Zero means this device has not read an authoritative row yet, so it cannot claim
+            // to know what it is overwriting. The server then just appends a revision.
+            expectedRevision: revision > 0 ? revision : nil
         )
 
-        Task { await send(write) }
+        Task { await send(command) }
     }
 
-    private func send(_ write: SharedClockWrite) async {
+    private func send(_ command: SharedClockCommand) async {
         guard let client = SupabaseBridge.client else { return }
         do {
-            _ = try await client
-                .from("test_clock")
-                .update(write)
-                .eq("environment_id", value: LabEnvironment.sharedTestId)
-                // Optimistic concurrency: the row only moves forward. A slower device whose
-                // revision has been overtaken writes nothing instead of resurrecting an old
-                // hour.
-                .lt("revision", value: String(write.revision))
+            let response = try await client
+                .rpc("update_test_clock", params: command)
                 .execute()
 
+            let row = try Self.decodeRow(from: response.data)
+            // Guarded on purpose: the Realtime echo of this very write can arrive before the
+            // call returns, and re-adopting the same state would notify every module twice.
+            applyRealtime(row)
             lastSyncedAt = Date()
             status = .synced
             lastError = nil
         } catch {
-            status = .offline
-            lastError = "No se pudo publicar el reloj: \(error.localizedDescription)"
-            // Our optimistic revision never landed. Re-read so this device stops believing it
-            // holds a state the environment never saw.
+            let notice: String
+            if Self.isRevisionConflict(error) {
+                notice = "Otro dispositivo movió el reloj en el mismo instante. Se adoptó el estado del entorno; vuelve a aplicar tu cambio si sigue haciendo falta."
+            } else {
+                status = .offline
+                notice = "No se pudo publicar el reloj: \(error.localizedDescription)"
+            }
+            // Either way this device stops believing in a state the environment never saw.
             await refresh()
+            lastError = notice
+        }
+    }
+
+    /// True when Postgres refused the write because the row had already moved on.
+    /// Raised by `update_test_clock` as SQLSTATE 40001 with a named message.
+    private static func isRevisionConflict(_ error: Error) -> Bool {
+        if let postgrest = error as? PostgrestError {
+            if postgrest.code == "40001" { return true }
+            if postgrest.message.contains("revision_conflict") { return true }
+        }
+        return String(describing: error).contains("revision_conflict")
+    }
+
+    /// `update_test_clock` returns one composite row. Accept the array shape too, so a
+    /// PostgREST version that wraps it does not break the write path.
+    private static func decodeRow(from data: Data) throws -> SharedClockRow {
+        if let row = try? SupabaseCoding.decoder.decode(SharedClockRow.self, from: data) {
+            return row
+        }
+        let rows = try SupabaseCoding.decoder.decode([SharedClockRow].self, from: data)
+        guard let row = rows.first else {
+            throw SharedClockError.emptyResponse
+        }
+        return row
+    }
+}
+
+nonisolated enum SharedClockError: LocalizedError {
+    case emptyResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .emptyResponse:
+            return "El entorno no devolvió el reloj actualizado."
         }
     }
 }
