@@ -4,7 +4,10 @@
     {
       "name": "Turno EV",
       "path": "ios-turno-ev",
-      "framework": "swift"
+      "framework": "swift",
+      "settings": {
+        "iosBundleId": "com.turnoev.mobility"
+      }
     },
     {
       "name": "Turno EV Web",
