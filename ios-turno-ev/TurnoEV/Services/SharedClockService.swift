@@ -200,6 +200,9 @@ final class SharedClockSync {
     private var listenTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
     private var isRunning: Bool = false
+    /// Topic of the channel in use. Shown in the diagnostic so it is visible that each start
+    /// gets a brand-new channel rather than a recycled one.
+    private(set) var channelTopic: String = "—"
 
     private init() {}
 
@@ -229,7 +232,18 @@ final class SharedClockSync {
         status = .connecting
         lastError = nil
 
-        let channel = client.channel("lab-shared-clock")
+        // A fresh topic on every start, and this is not cosmetic.
+        //
+        // `client.channel(topic)` hands back the *cached* channel for a topic it has already
+        // seen. Postgres callbacks may only be attached to a channel that has not subscribed
+        // yet: the SDK either traps outright or drops the registration and keeps the channel
+        // silent. So the second time the simulation was switched on — Prueba → Producción →
+        // Prueba — this code was re-attaching to an already-subscribed channel. A unique topic
+        // makes that state unreachable.
+        let topic = "lab-shared-clock-\(UUID().uuidString.lowercased())"
+        channelTopic = topic
+
+        let channel = client.channel(topic)
         self.channel = channel
 
         // Postgres change callbacks must be registered *before* subscribing, otherwise the
@@ -285,10 +299,14 @@ final class SharedClockSync {
         listenTask = nil
         statusTask = nil
 
-        if let channel {
-            Task { await channel.unsubscribe() }
+        if let channel, let client = SupabaseBridge.client {
+            // `unsubscribe()` on its own leaves the topic registered inside the client, so the
+            // next start would be handed this very instance back. Removing it unsubscribes and
+            // drops it from the registry.
+            Task { await client.removeChannel(channel) }
         }
         channel = nil
+        channelTopic = "—"
         status = .offline
         channelState = "sin canal"
     }
