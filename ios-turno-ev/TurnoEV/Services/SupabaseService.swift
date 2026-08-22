@@ -387,12 +387,39 @@ enum SupabaseBridge {
 
 /// Minimal proof that this device can talk to the Supabase project.
 ///
-/// It asks the Data API root (`/rest/v1/`) rather than any table, so it works before a single
-/// table exists and it never reads or writes operational data. What it proves is exactly the
-/// three things worth proving at this stage: the URL resolves, the network reaches it, and
-/// the key is accepted by the gateway.
+/// It asks the Auth service health endpoint (`/auth/v1/health`) — the endpoint Supabase
+/// publishes for exactly this purpose. It is a better probe than the Data API root: it does
+/// not depend on any table, schema or PostgREST exposure setting, it reads and writes nothing
+/// operational, and it answers with the service identity so the check can prove *which*
+/// service replied instead of merely that something did.
+///
+/// What it proves is the three things worth proving at this stage: the URL resolves, the
+/// network reaches it, and the gateway accepts the key.
 @MainActor
 enum SupabaseHealth {
+    /// Path of the official health endpoint, kept in one place so the diagnostic and the
+    /// request can never drift apart.
+    static let healthPath = "auth/v1/health"
+
+    /// Identity of the service that answered, when it reports one.
+    ///
+    /// `nonisolated` because it is pure data decoded off the main actor.
+    nonisolated struct ServiceInfo: Codable, Equatable {
+        let name: String?
+        let version: String?
+        let description: String?
+
+        /// Short label for the screen, e.g. "GoTrue v2.180.0". Nil when nothing usable came back.
+        var label: String? {
+            switch (name, version) {
+            case let (name?, version?): return "\(name) \(version)"
+            case let (name?, nil): return name
+            case let (nil, version?): return version
+            default: return nil
+            }
+        }
+    }
+
     /// What a refusal actually tells us. A 401 has several possible causes and they are not
     /// interchangeable, so the check reports only what the response supports — never a guess.
     enum Rejection: Equatable {
@@ -441,8 +468,9 @@ enum SupabaseHealth {
         case idle
         case checking
         case notConfigured(SupabaseConfig.Problem)
-        /// Reached and the key was accepted. Latency in milliseconds.
-        case connected(milliseconds: Int, projectRef: String)
+        /// Reached and the key was accepted. Latency in milliseconds, plus the service
+        /// identity when the endpoint reports one.
+        case connected(milliseconds: Int, projectRef: String, service: ServiceInfo?)
         /// Reached, but the project refused the request.
         case rejected(status: Int, rejection: Rejection)
         case unreachable(reason: String)
@@ -467,12 +495,13 @@ enum SupabaseHealth {
                 return .unreachable(reason: "No se pudo construir el cliente de Supabase.")
             }
 
-            var request = URLRequest(url: credentials.url.appendingPathComponent("rest/v1/"))
+            var request = URLRequest(url: credentials.url.appendingPathComponent(healthPath))
             request.httpMethod = "GET"
             request.timeoutInterval = 12
-            for (field, value) in SupabaseConfig.requestHeaders(for: credentials) {
-                request.setValue(value, forHTTPHeaderField: field)
-            }
+            // The API key travels in `apikey` and nowhere else. No `Authorization` header is
+            // set here: that one carries a signed-in user's JWT, and a publishable key is not
+            // a JWT — sending it as a bearer token is what made the gateway answer 401.
+            request.setValue(credentials.publishableKey, forHTTPHeaderField: "apikey")
 
             let started = ContinuousClock.now
             do {
@@ -485,14 +514,12 @@ enum SupabaseHealth {
                 }
 
                 switch http.statusCode {
-                case 200..<300:
-                    return .connected(milliseconds: milliseconds, projectRef: credentials.projectRef)
-
-                case 404:
-                    // The gateway validated the key and handed the request to PostgREST,
-                    // which simply does not expose an OpenAPI root. The key was accepted,
-                    // which is what this check exists to prove.
-                    return .connected(milliseconds: milliseconds, projectRef: credentials.projectRef)
+                case 200:
+                    return .connected(
+                        milliseconds: milliseconds,
+                        projectRef: credentials.projectRef,
+                        service: try? JSONDecoder().decode(ServiceInfo.self, from: data)
+                    )
 
                 case 401, 403:
                     return .rejected(status: http.statusCode, rejection: classify(body: data))

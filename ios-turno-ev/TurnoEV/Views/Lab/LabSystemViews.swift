@@ -302,10 +302,10 @@ struct LabSystemView: View {
             LabRow(title: "Contactando al proyecto…", subtitle: "Esto no modifica ningún dato", symbol: "antenna.radiowaves.left.and.right", tint: LabTone.muted)
         case .notConfigured(let problem):
             LabRow(title: "Sin configurar", subtitle: problem.message, symbol: "exclamationmark.triangle.fill", tint: Palette.amber)
-        case .connected(let milliseconds, let projectRef):
+        case .connected(let milliseconds, let projectRef, let service):
             LabRow(
                 title: "Conexión confirmada",
-                subtitle: "\(projectRef) respondió correctamente",
+                subtitle: service?.label.map { "\(projectRef) · \($0)" } ?? "\(projectRef) respondió correctamente",
                 detail: "\(milliseconds) ms",
                 symbol: "checkmark.seal.fill",
                 tint: LabTone.accent
