@@ -259,7 +259,6 @@ struct LabSystemView: View {
                     sync.isSubscribed ? "subscribed" : "disconnected"
                 )
                 auditLine("Estado interno del canal", sync.channelState)
-                auditLine("Topic del canal", sync.channelTopic)
                 auditLine("Revisión aplicada localmente", sync.revision == 0 ? "—" : "\(sync.revision)")
                 auditLine(
                     "Última revisión por Realtime",
