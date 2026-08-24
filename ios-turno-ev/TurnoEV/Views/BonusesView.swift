@@ -9,6 +9,9 @@ struct BonusesView: View {
     @State private var alert: BonusAlert?
     @State private var expanded: Set<String> = []
 
+    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
+    @State private var timelineAnchor: Date = .now
+
     /// Guard bonuses come from cobertura de turnos and follow one rule only: the turn has
     /// to have been worked. Accepting a guard never pays.
     @ViewBuilder
@@ -94,7 +97,7 @@ struct BonusesView: View {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                TimelineView(.periodic(from: timelineAnchor, by: 60)) { _ in
                     let now = store.now
                     let evaluations = store.bonusEvaluations(reference: now)
                     let lost = evaluations.filter(\.isLost)

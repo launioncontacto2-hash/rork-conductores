@@ -7,6 +7,16 @@ struct ShiftView: View {
     @State private var route: ShiftRoute?
     @State private var areNoticesPresented: Bool = false
 
+    /// Fixed origin of the periodic schedule.
+    ///
+    /// This used to be `.now`, read inline in `body`. That is a new `Date` on every body
+    /// pass, so the `TimelineView` value changed on every pass, its schedule was rebuilt,
+    /// and the rebuilt schedule started in the past — which makes it emit an entry
+    /// immediately instead of in 30 s. The immediate entry re-rendered the content, and the
+    /// graph never settled. Anchoring in `@State` fixes the origin for the lifetime of the
+    /// view, so the schedule is a stable value and only fires on its real cadence.
+    @State private var timelineAnchor: Date = .now
+
     private enum ShiftRoute: Hashable, Identifiable {
         case start
         case incident
@@ -23,7 +33,7 @@ struct ShiftView: View {
                 // The screen refreshes on a slow beat: only the stopwatch needs a second
                 // hand, and rebuilding the whole stack once per second churned every
                 // image and gesture on the page.
-                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
                     // Derived from the anchors, not from a minute offset: at x10 the offset
                     // grows while the simulation runs and the two stop agreeing.
                     let now = store.now
@@ -378,8 +388,11 @@ struct ShiftView: View {
 private struct ShiftStopwatch: View {
     let store: FleetStore
 
+    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
+    @State private var anchor: Date = .now
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
+        TimelineView(.periodic(from: anchor, by: 1)) { _ in
             let now = store.now
             Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
                 .font(.system(size: 42, weight: .black))

@@ -6,12 +6,15 @@ struct GoalsView: View {
 
     @State private var isIncomePresented: Bool = false
 
+    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
+    @State private var timelineAnchor: Date = .now
+
     var body: some View {
         NavigationStack {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: .now, by: 30)) { _ in
+                TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
                     let now = store.now
                     let goals = store.goals
                     let earnedToday = store.earnedToday(reference: now)

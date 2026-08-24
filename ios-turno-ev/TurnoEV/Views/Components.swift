@@ -533,6 +533,10 @@ struct DemoClockButton: View {
     @State private var isClockPresented: Bool = false
     @State private var isEnvironmentPresented: Bool = false
 
+    /// Fixed origin of the tick schedule. Reading `.now` inline rebuilt the schedule on
+    /// every body pass, and a schedule whose origin is already in the past fires at once.
+    @State private var tickAnchor: Date = .now
+
     private var isTest: Bool { EnvironmentControl.showsTestBadge(mode: lab.mode) }
 
     /// Turning the simulation on happens *from* production, so this must not depend on
@@ -592,7 +596,7 @@ struct DemoClockButton: View {
         } label: {
             // Without a ticker this chip only redrew when something else on the page
             // happened to change, which is what made an accelerated clock look frozen.
-            TimelineView(.periodic(from: .now, by: tickInterval)) { _ in
+            TimelineView(.periodic(from: tickAnchor, by: tickInterval)) { _ in
                 HStack(spacing: 5) {
                     Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
                     Text(reading)
@@ -618,7 +622,6 @@ struct DemoClockButton: View {
                     Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
                 }
             }
-            .id(signal.generation)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
