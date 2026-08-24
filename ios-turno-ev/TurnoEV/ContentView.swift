@@ -15,8 +15,16 @@ struct ContentView: View {
                 LoginView()
             case .some(let account) where account.role == .driver:
                 if store.hasAccess(to: .driver) {
-                    RootTabView()
-                        .editorFloatingAccess(.driverShift)
+                    // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
+                    //
+                    // `RootTabView()` sigue intacto más abajo; sólo se deja de montar en
+                    // esta ruta para saber si el watchdog vive dentro del árbol del
+                    // conductor o antes de él. Se restituye en cuanto el experimento
+                    // responda. Original:
+                    //
+                    //     RootTabView()
+                    //         .editorFloatingAccess(.driverShift)
+                    DriverDiagnosticView()
                 } else {
                     AccessDeniedView()
                 }
@@ -116,6 +124,30 @@ struct RootTabView: View {
                 .tint(Palette.volt)
             } else {
                 AccessDeniedView()
+            }
+        }
+    }
+}
+
+/// DIAGNÓSTICO TEMPORAL — se elimina en cuanto el aislamiento concluya.
+///
+/// Ocupa el lugar de `RootTabView` en la ruta `.driver` para atribuir la terminación por
+/// watchdog. Deliberadamente inerte: no lee ningún store, no abre navegación, no arranca
+/// temporizador y no toca el reloj de simulación. Si esta pantalla abre, el ciclo de
+/// invalidación está dentro del árbol del conductor; si aun así muere, está antes.
+struct DriverDiagnosticView: View {
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                Text("CONDUCTOR OK")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(.white)
+                Text("Build de diagnóstico")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
             }
         }
     }
