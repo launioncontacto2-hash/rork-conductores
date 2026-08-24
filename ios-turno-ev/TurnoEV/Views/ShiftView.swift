@@ -17,6 +17,16 @@ struct ShiftView: View {
     /// view, so the schedule is a stable value and only fires on its real cadence.
     @State private var timelineAnchor: Date = .now
 
+    /// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. No es el comportamiento final.
+    ///
+    /// Instante único capturado al construir la vista. `AppClock.now()` devuelve el reloj
+    /// lógico — real en producción, simulado en prueba — pero vive en un enum estático:
+    /// leerlo aquí no registra ninguna dependencia observable, al contrario que `store.now`,
+    /// que lee `ClockSignal.generation` deliberadamente. Mientras dure el experimento toda
+    /// la pantalla se dibuja contra este valor, de modo que ningún avance del reloj — local
+    /// o adoptado desde otro dispositivo — puede invalidar este árbol.
+    @State private var frozenNow: Date = AppClock.now()
+
     private enum ShiftRoute: Hashable, Identifiable {
         case start
         case incident
@@ -30,20 +40,24 @@ struct ShiftView: View {
             ZStack {
                 StationBackground()
 
-                // The screen refreshes on a slow beat: only the stopwatch needs a second
-                // hand, and rebuilding the whole stack once per second churned every
-                // image and gesture on the page.
-                TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
-                    // Derived from the anchors, not from a minute offset: at x10 the offset
-                    // grows while the simulation runs and the two stop agreeing.
-                    let now = store.now
-
-                    ScrollView {
-                        EditorStack(screen: .driverShift, blocks: blocks(now: now), sample: sample)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .padding(.bottom, 28)
-                    }
+                // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. El contenido se dibuja directamente
+                // contra `frozenNow`, sin planificación periódica de ningún tipo.
+                // Original:
+                //
+                //     TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
+                //         let now = store.now
+                //         ScrollView {
+                //             EditorStack(screen: .driverShift, blocks: blocks(now: now), sample: sample)
+                //                 .padding(.horizontal, 16)
+                //                 .padding(.top, 8)
+                //                 .padding(.bottom, 28)
+                //         }
+                //     }
+                ScrollView {
+                    EditorStack(screen: .driverShift, blocks: blocks(now: frozenNow), sample: sample)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 28)
                 }
             }
             .navigationTitle("Turno")
@@ -54,7 +68,14 @@ struct ShiftView: View {
                     SessionMenuButton()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    DemoClockButton()
+                    // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. `DemoClockButton()` queda fuera de
+                    // esta pantalla: monta su propio `TimelineView` con cadencia de hasta
+                    // 0,1 s en simulación acelerada, lee `store.now` y observa
+                    // `ClockSignal`. Se sustituye por una etiqueta inerte del mismo
+                    // tamaño. El componente real no se ha modificado. Original:
+                    //
+                    //     DemoClockButton()
+                    FrozenClockChip(now: frozenNow)
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -151,7 +172,8 @@ struct ShiftView: View {
     /// Real value behind any metric the editor can point a card at, so a duplicated or
     /// re-pointed indicator still shows a true number.
     private func sample(_ metric: EditorMetric) -> EditorMetricSample {
-        let now = store.now
+        // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Original: `let now = store.now`.
+        let now = frozenNow
         let goals = store.goals
         switch metric {
         case .earningsToday:
@@ -261,7 +283,9 @@ struct ShiftView: View {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
                         CapsLabel(text: "Tiempo transcurrido")
-                        ShiftStopwatch(store: store)
+                        // DIAGNÓSTICO TEMPORAL — CLOCK-OFF.
+                        // Original: `ShiftStopwatch(store: store)`.
+                        ShiftStopwatch(store: store, now: now)
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 2) {
@@ -385,22 +409,57 @@ struct ShiftView: View {
 
 /// The only thing on the shift screen that has to tick once per second. Keeping it in its
 /// own view means the second hand never drags the rest of the page through a rebuild.
+///
+/// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Congelado: recibe el instante ya resuelto y lo pinta
+/// una sola vez. Sin `TimelineView`, sin `Timer`, sin `Task` repetitiva y sin lectura de
+/// `store.now`. La lectura sigue siendo real, simplemente no avanza. Original:
+///
+///     @State private var anchor: Date = .now
+///
+///     var body: some View {
+///         TimelineView(.periodic(from: anchor, by: 1)) { _ in
+///             let now = store.now
+///             Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
+///                 …
+///         }
+///     }
 private struct ShiftStopwatch: View {
     let store: FleetStore
-
-    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
-    @State private var anchor: Date = .now
+    let now: Date
 
     var body: some View {
-        TimelineView(.periodic(from: anchor, by: 1)) { _ in
-            let now = store.now
-            Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
-                .font(.system(size: 42, weight: .black))
+        Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
+            .font(.system(size: 42, weight: .black))
+            .monospacedDigit()
+            .foregroundStyle(Palette.volt)
+            .minimumScaleFactor(0.6)
+            .lineLimit(1)
+    }
+}
+
+/// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Se elimina al concluir el aislamiento.
+///
+/// Ocupa el sitio de `DemoClockButton` en la barra de esta pantalla conservando su forma,
+/// para no alterar la métrica de disposición mientras se mide. Deliberadamente inerte: no
+/// abre hojas, no toca `SimulationClock`, no observa `ClockSignal` y no redibuja.
+private struct FrozenClockChip: View {
+    let now: Date
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "clock")
+            Text(Fmt.clock(now))
                 .monospacedDigit()
-                .foregroundStyle(Palette.volt)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
+            Text("FIJO")
+                .font(.system(size: 8, weight: .black))
         }
+        .font(.system(.caption, weight: .semibold))
+        .foregroundStyle(Palette.textMuted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Palette.surfaceRaised, in: .capsule)
+        .overlay { Capsule().stroke(Palette.hairline, lineWidth: 1) }
+        .accessibilityLabel("Reloj congelado para diagnóstico, \(Fmt.clock(now)).")
     }
 }
 
