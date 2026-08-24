@@ -15,16 +15,13 @@ struct ContentView: View {
                 LoginView()
             case .some(let account) where account.role == .driver:
                 if store.hasAccess(to: .driver) {
-                    // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
-                    //
-                    // `RootTabView()` sigue intacto más abajo; sólo se deja de montar en
-                    // esta ruta para saber si el watchdog vive dentro del árbol del
-                    // conductor o antes de él. Se restituye en cuanto el experimento
-                    // responda. Original:
+                    // DIAGNÓSTICO TEMPORAL — `RootTabView` ya está restituido, pero el
+                    // acceso flotante del editor sigue fuera: monta GeometryReader más
+                    // tres stores y contaminaría la medición del contenedor. Original:
                     //
                     //     RootTabView()
                     //         .editorFloatingAccess(.driverShift)
-                    DriverDiagnosticView()
+                    RootTabView()
                 } else {
                     AccessDeniedView()
                 }
@@ -98,56 +95,46 @@ struct RootTabView: View {
     var body: some View {
         Group {
             if store.hasAccess(to: .driver) {
+                // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
+                //
+                // El contenedor (`TabView` + selección + tinte) se mantiene tal cual; sólo
+                // se deja de montar el contenido de las pestañas, para separar el
+                // contenedor de sus dependencias. Si esto abre estable, el ciclo de
+                // invalidación está en una pestaña y se reincorporan de una en una,
+                // empezando por `ShiftView`. Las pestañas originales quedan abajo,
+                // literales, para restituirlas sin reescribir nada.
                 TabView(selection: $selection) {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
-                        ShiftView()
-                    }
-                    Tab(value: 1) {
-                        DriverShiftsView()
-                    } label: {
-                        Label("Turnos", systemImage: "calendar")
-                    }
-                    .badge(availableGuardCount)
-                    Tab("Metas", systemImage: "target", value: 2) {
-                        GoalsView()
-                    }
-                    Tab("Bonos", systemImage: "rosette", value: 3) {
-                        BonusesView()
-                    }
-                    Tab("Cartera", systemImage: "banknote.fill", value: 4) {
-                        WalletView()
-                    }
-                    Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
-                        HistoryView()
+                        Text("TAB OK")
                     }
                 }
                 .tint(Palette.volt)
+
+                // Pestañas originales, fuera de servicio mientras dura el experimento:
+                //
+                //     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
+                //         ShiftView()
+                //     }
+                //     Tab(value: 1) {
+                //         DriverShiftsView()
+                //     } label: {
+                //         Label("Turnos", systemImage: "calendar")
+                //     }
+                //     .badge(availableGuardCount)
+                //     Tab("Metas", systemImage: "target", value: 2) {
+                //         GoalsView()
+                //     }
+                //     Tab("Bonos", systemImage: "rosette", value: 3) {
+                //         BonusesView()
+                //     }
+                //     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
+                //         WalletView()
+                //     }
+                //     Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
+                //         HistoryView()
+                //     }
             } else {
                 AccessDeniedView()
-            }
-        }
-    }
-}
-
-/// DIAGNÓSTICO TEMPORAL — se elimina en cuanto el aislamiento concluya.
-///
-/// Ocupa el lugar de `RootTabView` en la ruta `.driver` para atribuir la terminación por
-/// watchdog. Deliberadamente inerte: no lee ningún store, no abre navegación, no arranca
-/// temporizador y no toca el reloj de simulación. Si esta pantalla abre, el ciclo de
-/// invalidación está dentro del árbol del conductor; si aun así muere, está antes.
-struct DriverDiagnosticView: View {
-    var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
-
-            VStack(spacing: 10) {
-                Text("CONDUCTOR OK")
-                    .font(.system(size: 28, weight: .black))
-                    .foregroundStyle(.white)
-                Text("Build de diagnóstico")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.55))
             }
         }
     }
