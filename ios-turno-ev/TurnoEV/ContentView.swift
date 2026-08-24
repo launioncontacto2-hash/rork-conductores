@@ -97,15 +97,15 @@ struct RootTabView: View {
             if store.hasAccess(to: .driver) {
                 // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
                 //
-                // El contenedor (`TabView` + selección + tinte) se mantiene tal cual; sólo
-                // se deja de montar el contenido de las pestañas, para separar el
-                // contenedor de sus dependencias. Si esto abre estable, el ciclo de
-                // invalidación está en una pestaña y se reincorporan de una en una,
-                // empezando por `ShiftView`. Las pestañas originales quedan abajo,
-                // literales, para restituirlas sin reescribir nada.
+                // El contenedor quedó descartado en la medición anterior: `TabView`,
+                // `selection` y el tinte abrieron estables con una pestaña inerte. Ahora
+                // se monta únicamente `ShiftView` en esa misma pestaña, sin las otras
+                // cinco y sin el badge, para atribuir el watchdog a una sola vista. Las
+                // pestañas originales quedan abajo, literales, para restituirlas sin
+                // reescribir nada.
                 TabView(selection: $selection) {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
-                        Text("TAB OK")
+                        ShiftView()
                     }
                 }
                 .tint(Palette.volt)
