@@ -26,7 +26,14 @@ final class AbsenceResolutionStore {
     var policy: AbsencePolicy { AbsenceResolutionConfig.policy }
     var reservePolicy: ReservePolicy { AbsenceResolutionConfig.reservePolicy(stationId: stationId) }
 
-    private var now: Date { supervision?.now ?? Date() }
+    /// Logical time as the engine reads it, with no SwiftUI dependency attached.
+    ///
+    /// This used to hop to `SupervisionStore.now` and from there to `FleetStore.now`, which
+    /// reads `ClockSignal.generation` — so a store whose `now` is almost entirely write
+    /// timestamps (`detectedAt`, `acceptedAt`, `assignedAt`, `closedAt`, the sweep) was
+    /// quietly subscribing its readers to every adopted clock state. The screens that show
+    /// live minutes now register that dependency themselves, one case card at a time.
+    private var now: Date { AppClock.now() }
 
     init(stationId: String) {
         self.stationId = stationId

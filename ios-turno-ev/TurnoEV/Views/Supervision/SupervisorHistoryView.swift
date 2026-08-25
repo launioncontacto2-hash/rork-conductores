@@ -87,7 +87,7 @@ struct SupervisorHistoryView: View {
                 )
             } else {
                 ForEach(closed) { incident in
-                    IncidentRow(incident: incident, now: supervision.now, onStatus: nil)
+                    IncidentRow(incident: incident, onStatus: nil)
                 }
             }
         }

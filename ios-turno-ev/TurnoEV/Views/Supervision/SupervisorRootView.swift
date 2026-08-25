@@ -76,7 +76,6 @@ struct SupervisorRootView: View {
             account: account,
             station: supervision.station,
             slot: supervision.slot,
-            now: fleet.now,
             pendingCount: supervision.pendingTickets.count,
             alertCount: alertCount,
             onSignOut: { fleet.signOut() },

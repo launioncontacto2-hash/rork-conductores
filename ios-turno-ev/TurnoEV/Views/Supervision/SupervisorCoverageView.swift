@@ -163,10 +163,7 @@ struct SupervisorCoverageView: View {
     // MARK: - Summary
 
     private var summarySection: some View {
-        let boards = coverage.slotBoards(station: station, on: coverage.now)
         let critical = coverage.criticalVacancies(stationId: station.id)
-        let upcoming = coverage.absences(stationId: station.id)
-            .filter { $0.date >= ShiftRules.calendar.startOfDay(for: coverage.now) && $0.status.isOpen }
 
         return VStack(spacing: 14) {
             if !critical.isEmpty {
@@ -187,13 +184,14 @@ struct SupervisorCoverageView: View {
                 HStack {
                     CapsLabel(text: "Cobertura de hoy")
                     Spacer(minLength: 0)
-                    Text(Fmt.dateShort(coverage.now).capitalized)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Palette.textMuted)
+                    // The date of the board, alone. The heading beside it never moves.
+                    TimeScope(.minute) { now in
+                        Text(Fmt.dateShort(now).capitalized)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(Palette.textMuted)
+                    }
                 }
-                ForEach(boards) { board in
-                    CoverageMeter(board: board)
-                }
+                StationSlotMeters(station: station)
                 Text("Los requeridos salen de las \(station.vehicleCapacity) unidades autorizadas de \(station.code). Un asiento vacío no baja la meta: la reparte entre quienes sí llegaron.")
                     .font(.caption2)
                     .foregroundStyle(Palette.textMuted)
@@ -202,13 +200,7 @@ struct SupervisorCoverageView: View {
             .panel()
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                StatTile(
-                    label: "Ausencias próximas",
-                    value: "\(upcoming.count)",
-                    hint: "En proceso",
-                    tone: upcoming.isEmpty ? .neutral : .amber,
-                    symbol: "calendar.badge.minus"
-                )
+                UpcomingAbsencesTile(station: station)
                 StatTile(
                     label: "Vacantes abiertas",
                     value: "\(coverage.openVacancies(stationId: station.id).count)",
@@ -328,7 +320,10 @@ struct SupervisorCoverageView: View {
 
             HStack(spacing: 8) {
                 CoverageFact(label: "Tipo", value: request.kind.shortLabel)
-                CoverageFact(label: "Aviso", value: Fmt.relative(request.createdAt, from: coverage.now))
+                // One fact of one card: how long ago the driver gave notice.
+                TimeScope(.minute) { now in
+                    CoverageFact(label: "Aviso", value: Fmt.relative(request.createdAt, from: now))
+                }
                 CoverageFact(
                     label: "Evidencia",
                     value: request.hasEvidence ? "Adjunta" : "Sin adjuntar",
@@ -433,7 +428,7 @@ struct SupervisorCoverageView: View {
                     Button {
                         route = .vacancy(vacancy.id)
                     } label: {
-                        VacancyCard(vacancy: vacancy, now: coverage.now)
+                        VacancyCard(vacancy: vacancy)
                     }
                     .buttonStyle(PressableCardStyle())
                 }
@@ -532,7 +527,7 @@ struct SupervisorCoverageView: View {
                     Button {
                         route = .vacancy(vacancy.id)
                     } label: {
-                        VacancyCard(vacancy: vacancy, now: coverage.now)
+                        VacancyCard(vacancy: vacancy)
                     }
                     .buttonStyle(PressableCardStyle())
                 }
@@ -705,7 +700,7 @@ struct SupervisorCoverageView: View {
                 Text(entry.action)
                     .font(.system(.caption, weight: .black))
                 Spacer(minLength: 6)
-                Text(Fmt.relative(entry.createdAt, from: coverage.now))
+                RelativeTime(date: entry.createdAt)
                     .font(.system(size: 10))
                     .foregroundStyle(Palette.textMuted)
             }
@@ -737,6 +732,49 @@ struct SupervisorCoverageView: View {
     }
 }
 
+// MARK: - Day-scoped leaves of the summary
+
+/// The three shift meters of today, and only them.
+///
+/// The board of a station is derived from a day, so this reading has to stay alive across
+/// midnight. Extracting it into its own view is what keeps the scope honest: the meters
+/// are the entire content, so nothing above them — the panel, its heading, the caption,
+/// the `LazyVGrid` of tiles underneath, the `ScrollView` of the whole module — is inside.
+private struct StationSlotMeters: View {
+    let station: Station
+
+    @Environment(CoverageStore.self) private var coverage
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            ForEach(coverage.slotBoards(station: station, on: now)) { board in
+                CoverageMeter(board: board)
+            }
+        }
+    }
+}
+
+/// Count of absences from today onwards. One tile, one number.
+private struct UpcomingAbsencesTile: View {
+    let station: Station
+
+    @Environment(CoverageStore.self) private var coverage
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            let upcoming = coverage.absences(stationId: station.id)
+                .filter { $0.date >= ShiftRules.calendar.startOfDay(for: now) && $0.status.isOpen }
+            StatTile(
+                label: "Ausencias próximas",
+                value: "\(upcoming.count)",
+                hint: "En proceso",
+                tone: upcoming.isEmpty ? .neutral : .amber,
+                symbol: "calendar.badge.minus"
+            )
+        }
+    }
+}
+
 // MARK: - Vacancy detail
 
 /// The approval card: the turn, the titular, the substitute, the thirteen checks and the
@@ -759,7 +797,7 @@ struct SupervisorVacancyDetailView: View {
                 SupervisionBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        VacancyCard(vacancy: live, now: coverage.now)
+                        VacancyCard(vacancy: live)
 
                         if let substituteId = live.substituteId,
                            let profile = coverage.profile(id: substituteId) {
@@ -865,9 +903,11 @@ struct SupervisorVacancyDetailView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(claim.driverName)
                             .font(.system(.caption, weight: .bold))
-                        Text("Se anotó \(Fmt.relative(claim.claimedAt, from: coverage.now))")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Palette.textMuted)
+                        TimeScope(.minute) { now in
+                            Text("Se anotó \(Fmt.relative(claim.claimedAt, from: now))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Palette.textMuted)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
@@ -1111,6 +1151,13 @@ struct SupervisorCoverageForecastView: View {
 
     @State private var horizon: Int = 7
 
+    /// The day the projection is measured from, captured when the sheet opens.
+    ///
+    /// `forecast(station:days:from:)` feeds a `ForEach` of up to thirty rows inside a
+    /// `ScrollView`; none of that may sit in a `TimeScope`. It does not need to: a
+    /// projection is read in one sitting and re-anchored the next time it is opened.
+    @State private var origin: Date = AppClock.now()
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -1145,7 +1192,7 @@ struct SupervisorCoverageForecastView: View {
     }
 
     private var list: some View {
-        let days = coverage.forecast(station: station, days: horizon, from: coverage.now)
+        let days = coverage.forecast(station: station, days: horizon, from: origin)
         let deficits = days.filter(\.hasDeficit)
 
         return VStack(alignment: .leading, spacing: 12) {

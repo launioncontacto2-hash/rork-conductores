@@ -800,11 +800,7 @@ struct AbsenceRequestFormView: View {
             if let vacancy = coverage.vacancy(id: stored.vacancyId) {
                 VStack(alignment: .leading, spacing: 10) {
                     CapsLabel(text: "Vacante temporal generada")
-                    // The card reads the clock for a single line — the urgency label of a
-                    // critical seat. The scope covers that card and nothing around it.
-                    TimeScope(.minute) { now in
-                        VacancyCard(vacancy: vacancy, now: now, showsTitular: false)
-                    }
+                    VacancyCard(vacancy: vacancy, showsTitular: false)
                     Text("El sistema detectó la estación, la fecha, el horario, el turno y tu unidad sin que tuvieras que capturarlos.")
                         .font(.caption2)
                         .foregroundStyle(Palette.textMuted)
@@ -945,9 +941,7 @@ struct GuardDetailView: View {
                 StationBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        TimeScope(.minute) { now in
-                            VacancyCard(vacancy: vacancy, now: now)
-                        }
+                        VacancyCard(vacancy: vacancy)
 
                         if !blockers.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
@@ -1261,11 +1255,7 @@ struct MyReplacementsView: View {
             } else {
                 ForEach(active) { vacancy in
                     VStack(alignment: .leading, spacing: 10) {
-                        // One scope per row, wrapping that row's card only. The section
-                        // heading, the empty state and the cancel button stay outside.
-                        TimeScope(.minute) { now in
-                            VacancyCard(vacancy: vacancy, now: now)
-                        }
+                        VacancyCard(vacancy: vacancy)
                         Button {
                             cancelling = vacancy
                         } label: {

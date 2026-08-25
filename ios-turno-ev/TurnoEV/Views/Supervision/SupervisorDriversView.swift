@@ -537,7 +537,7 @@ struct SupervisorDriverDetailView: View {
                     .foregroundStyle(Palette.textMuted)
             } else {
                 ForEach(incidents) { incident in
-                    IncidentRow(incident: incident, now: supervision.now, onStatus: nil)
+                    IncidentRow(incident: incident, onStatus: nil)
                 }
             }
         }

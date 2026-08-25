@@ -72,7 +72,6 @@ struct SupervisorHeader: View {
     let account: StaffAccount
     let station: Station
     let slot: ShiftSlot
-    let now: Date
     let pendingCount: Int
     /// Everything the exception board is holding right now.
     var alertCount: Int = 0

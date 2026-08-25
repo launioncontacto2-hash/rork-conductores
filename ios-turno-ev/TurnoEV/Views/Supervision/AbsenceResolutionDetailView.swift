@@ -29,12 +29,18 @@ struct AbsenceResolutionDetailView: View {
                             )
                         } else {
                             ForEach(cases) { record in
-                                CaseCard(
-                                    record: record,
-                                    now: supervision.now,
-                                    policy: resolution.policy,
-                                    onAcknowledge: { acknowledging = record }
-                                )
+                                // One scope per case. Inside a card the clock drives live
+                                // minutes and hold windows, so the card is the unit; the
+                                // `ScrollView`, the reserve strip and the empty state are
+                                // all outside it.
+                                TimeScope(.minute) { now in
+                                    CaseCard(
+                                        record: record,
+                                        now: now,
+                                        policy: resolution.policy,
+                                        onAcknowledge: { acknowledging = record }
+                                    )
+                                }
                             }
                         }
                     }

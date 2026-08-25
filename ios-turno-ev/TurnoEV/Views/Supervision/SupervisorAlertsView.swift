@@ -98,7 +98,6 @@ struct SupervisorAlertsView: View {
                 ForEach(alerts) { alert in
                     AlertRow(
                         alert: alert,
-                        now: supervision.now,
                         onResolve: { supervision.resolveAlert(id: alert.id) },
                         action: {
                             if let ticketId = alert.ticketId {
@@ -153,7 +152,6 @@ struct SupervisorAlertsView: View {
                 ForEach(incidents) { incident in
                     IncidentRow(
                         incident: incident,
-                        now: supervision.now,
                         onStatus: incident.id.hasPrefix("live-")
                             ? nil
                             : { status in supervision.setIncidentStatus(id: incident.id, status: status) }
@@ -165,9 +163,11 @@ struct SupervisorAlertsView: View {
 }
 
 /// Incident card with severity, evidence count and status control.
+///
+/// Like `AlertRow`, it keeps its own clock: only the age caption moves, and it moves
+/// inside `RelativeTime`.
 struct IncidentRow: View {
     let incident: StationIncident
-    let now: Date
     let onStatus: ((IncidentStatus) -> Void)?
 
     var body: some View {
@@ -214,7 +214,7 @@ struct IncidentRow: View {
                     tone: incident.status == .closed ? SupTone.good : SupTone.warn,
                     compact: true
                 )
-                Text(Fmt.relative(incident.createdAt, from: now))
+                RelativeTime(date: incident.createdAt)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Palette.textMuted)
                 Spacer(minLength: 0)

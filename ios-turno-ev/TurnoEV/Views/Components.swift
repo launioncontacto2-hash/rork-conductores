@@ -667,6 +667,23 @@ private struct DemoClockChip: View {
     }
 }
 
+/// "hace 12 min", and nothing else.
+///
+/// Every list that prints how long ago something happened used to take a `now` from its
+/// screen's store, which subscribed the whole screen — its `ScrollView`, its rows, their
+/// photos — to the clock in order to keep one caption honest. This leaf owns that
+/// dependency instead: a section with forty rows invalidates forty captions on the minute,
+/// and nothing around them.
+struct RelativeTime: View {
+    let date: Date
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            Text(Fmt.relative(date, from: now))
+        }
+    }
+}
+
 /// The hour, and the only part of the button that follows the clock.
 ///
 /// `TimeScope` is where the dependency is registered, so invalidation stops at this `Text`.

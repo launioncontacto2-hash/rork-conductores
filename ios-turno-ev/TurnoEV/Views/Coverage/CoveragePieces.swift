@@ -158,9 +158,13 @@ struct AbsencePipelineRail: View {
 
 /// A seat, read the same way by everybody: when it is, where it is, who is missing,
 /// what it pays and how far along it is.
+///
+/// The card owns the freshness of its own temporal data. Exactly one line of it follows
+/// the clock — the urgency of a critical seat — so that line carries the `TimeScope` and
+/// the caller hands over no `now` at all. A section listing thirty vacancies therefore
+/// invalidates at most thirty small labels on the minute, never thirty whole cards.
 struct VacancyCard: View {
     let vacancy: CoverageVacancy
-    let now: Date
     var showsTitular: Bool = true
 
     var body: some View {
@@ -186,8 +190,10 @@ struct VacancyCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.octagon.fill")
                         .font(.system(size: 10, weight: .bold))
-                    Text(CoverageRules.urgencyLabel(hoursUntilStart: vacancy.hoursUntilStart(now: now)))
-                        .font(.system(size: 11, weight: .bold))
+                    TimeScope(.minute) { now in
+                        Text(CoverageRules.urgencyLabel(hoursUntilStart: vacancy.hoursUntilStart(now: now)))
+                            .font(.system(size: 11, weight: .bold))
+                    }
                 }
                 .foregroundStyle(CovTone.blocking)
                 .padding(.horizontal, 9)

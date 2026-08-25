@@ -528,9 +528,11 @@ struct HandoverRow: View {
 }
 
 /// Automatic alert row used by the dashboard and the alerts module.
+///
+/// The age of the alert is the only thing here that moves on its own, and `RelativeTime`
+/// carries it, so the row takes no clock from its caller.
 struct AlertRow: View {
     let alert: StationAlert
-    let now: Date
     var onResolve: (() -> Void)?
     let action: () -> Void
 
@@ -559,7 +561,7 @@ struct AlertRow: View {
                     .multilineTextAlignment(.leading)
 
                 HStack {
-                    Text(Fmt.relative(alert.createdAt, from: now))
+                    RelativeTime(date: alert.createdAt)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Palette.textMuted)
                     Spacer(minLength: 0)
