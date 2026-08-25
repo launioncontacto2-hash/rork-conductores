@@ -108,9 +108,9 @@ struct RootTabView: View {
     var body: some View {
         Group {
             if store.hasAccess(to: .driver) {
-                // Values 2 and 3 stay reserved for Metas and Bonos, which are still on
-                // `TimelineView`. Keeping the numbering means restoring them later does not
-                // renumber — and does not silently move a driver to another tab.
+                // Value 3 stays reserved for Bonos, still on `TimelineView`. Keeping the
+                // numbering means restoring it later does not renumber — and does not
+                // silently move a driver to another tab.
                 TabView(selection: $selection) {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
                         ShiftView()
@@ -121,6 +121,9 @@ struct RootTabView: View {
                         Label("Turnos", systemImage: "calendar")
                     }
                     // .badge(availableGuardCount) — see the property above.
+                    Tab("Metas", systemImage: "target", value: 2) {
+                        GoalsView()
+                    }
                     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
                         WalletView()
                     }
@@ -130,11 +133,8 @@ struct RootTabView: View {
                 }
                 .tint(Palette.volt)
 
-                // Pendientes de migración temporal, no de esta fase:
+                // Pendiente de migración temporal, no de esta fase:
                 //
-                //     Tab("Metas", systemImage: "target", value: 2) {
-                //         GoalsView()
-                //     }
                 //     Tab("Bonos", systemImage: "rosette", value: 3) {
                 //         BonusesView()
                 //     }

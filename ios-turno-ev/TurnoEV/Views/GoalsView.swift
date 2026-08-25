@@ -1,46 +1,50 @@
 import SwiftUI
 
 /// Weekly money and trip goals, compared against the driver's live performance.
+///
+/// Nothing on this screen is driven by a periodic producer. Every figure here is a
+/// consequence of what the store holds — incomes, history, the open shift — and changes
+/// when that changes. Only two of them genuinely follow the clock, and each carries its
+/// own `TimeScope(.minute)` where it is drawn.
 struct GoalsView: View {
     @Environment(FleetStore.self) private var store
 
     @State private var isIncomePresented: Bool = false
-
-    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
-    @State private var timelineAnchor: Date = .now
 
     var body: some View {
         NavigationStack {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
-                    let now = store.now
-                    let goals = store.goals
-                    let earnedToday = store.earnedToday(reference: now)
-                    let earnedWeek = store.earnedThisWeek(reference: now)
-                    let tripsToday = store.tripsToday(reference: now)
-                    let missingToday = max(0, goals.dailyMxn - earnedToday)
-                    let missingTrips = max(0, goals.tripsPerDay - tripsToday)
+                // Reference hour for the day and week windows. `AppClock.now()` is a pure
+                // read of a plain enum: it registers no dependency, so this body is
+                // invalidated by the store and by nothing else. The windows it decides —
+                // which day is today, which week is current — are the same for hours.
+                let reference = AppClock.now()
+                let goals = store.goals
+                let earnedToday = store.earnedToday(reference: reference)
+                let earnedWeek = store.earnedThisWeek(reference: reference)
+                let tripsToday = store.tripsToday(reference: reference)
+                let missingToday = max(0, goals.dailyMxn - earnedToday)
+                let missingTrips = max(0, goals.tripsPerDay - tripsToday)
 
-                    ScrollView {
-                        EditorStack(
-                            screen: .driverGoals,
-                            blocks: blocks(
-                                goals: goals,
-                                earnedToday: earnedToday,
-                                earnedWeek: earnedWeek,
-                                tripsToday: tripsToday,
-                                missingToday: missingToday,
-                                missingTrips: missingTrips,
-                                now: now
-                            ),
-                            sample: { metric in metricSample(metric, now: now) }
-                        )
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 28)
-                    }
+                ScrollView {
+                    EditorStack(
+                        screen: .driverGoals,
+                        blocks: blocks(
+                            goals: goals,
+                            earnedToday: earnedToday,
+                            earnedWeek: earnedWeek,
+                            tripsToday: tripsToday,
+                            missingToday: missingToday,
+                            missingTrips: missingTrips,
+                            reference: reference
+                        ),
+                        sample: metricSample
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 28)
                 }
             }
             .navigationTitle("Metas")
@@ -73,16 +77,20 @@ struct GoalsView: View {
         tripsToday: Int,
         missingToday: Int,
         missingTrips: Int,
-        now: Date
+        reference: Date
     ) -> [EditorBlock] {
-        let days = store.weeklyEarningsByDay(reference: now)
+        let days = store.weeklyEarningsByDay(reference: reference)
 
+        // The composition is fixed: these five blocks exist at every hour, and no
+        // condition here is temporal. There is no phase to derive — only figures inside
+        // the blocks move, which is why the clock is consumed in the leaves below and not
+        // in this list.
         return [
             .custom("goals.ring", "Meta del día", kind: .progress) {
-                dailyRing(earnedToday: earnedToday, goals: goals, missingToday: missingToday, now: now)
+                dailyRing(earnedToday: earnedToday, goals: goals, missingToday: missingToday)
             },
             .custom("goals.telemetry", "Recorrido y batería del turno", kind: .kpi) {
-                shiftTelemetrySection(now: now)
+                shiftTelemetrySection(reference: reference)
             },
             .chart(
                 "goals.weekly",
@@ -100,14 +108,20 @@ struct GoalsView: View {
                 tripsSection(tripsToday: tripsToday, missingTrips: missingTrips, goals: goals)
             },
             .custom("goals.late", "Atrasos de la semana", kind: .notice) {
-                lateSection(now: now)
+                lateSection(reference: reference)
             },
         ]
     }
 
     /// Real value behind any metric of the controlled list, so a card the administrator
     /// re-pointed still shows a true number.
-    private func metricSample(_ metric: EditorMetric, now: Date) -> EditorMetricSample {
+    ///
+    /// The hour is read here, inside the closure, and never captured from outside. This
+    /// runs within `EditorStack`, so a live reading would hand the entire stack a
+    /// dependency on the clock — the exact defect this migration removes. `AppClock.now()`
+    /// is a pure read: correct figures on every pass, without any of them causing one.
+    private func metricSample(_ metric: EditorMetric) -> EditorMetricSample {
+        let now = AppClock.now()
         let goals = store.goals
         switch metric {
         case .earningsToday:
@@ -161,8 +175,7 @@ struct GoalsView: View {
     private func dailyRing(
         earnedToday: Int,
         goals: ShiftRules.Goals,
-        missingToday: Int,
-        now: Date
+        missingToday: Int
     ) -> some View {
         VStack(spacing: 14) {
             RingGauge(
@@ -181,34 +194,40 @@ struct GoalsView: View {
             .font(.system(.subheadline, weight: .bold))
             .foregroundStyle(missingToday == 0 ? Palette.volt : Palette.amber)
 
+            // The running target climbs with the shift: `hourlyMxn / 60` pesos every
+            // logical minute. It is one of the two genuinely temporal figures on the
+            // screen, so the scope wraps this panel and nothing above it. Without an open
+            // shift there is no pace to keep, and no scope is mounted at all.
             if let shift = store.activeShift {
-                let paceTarget = ShiftRules.paceTargetMxn(
-                    group: shift.group,
-                    elapsedMinutes: Double(store.elapsedSeconds(at: now)) / 60
-                )
-                let delta = earnedToday - paceTarget
-
-                VStack(spacing: 8) {
-                    HStack {
-                        CapsLabel(text: "Ritmo por hora")
-                        Spacer()
-                        Text("\(delta >= 0 ? "+" : "−")\(Fmt.mxn(abs(delta))) vs objetivo")
-                            .font(.system(.caption, weight: .bold))
-                            .monospacedDigit()
-                            .foregroundStyle(delta >= 0 ? Palette.volt : Palette.amber)
-                    }
-                    ProgressTrack(
-                        value: Double(earnedToday),
-                        goal: Double(goals.dailyMxn),
-                        marker: Double(paceTarget)
+                TimeScope(.minute) { now in
+                    let paceTarget = ShiftRules.paceTargetMxn(
+                        group: shift.group,
+                        elapsedMinutes: Double(store.elapsedSeconds(at: now)) / 60
                     )
-                    Text("Objetivo acumulado \(Fmt.mxn(paceTarget)) · \(Fmt.mxn(goals.hourlyMxn)) por hora")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    let delta = earnedToday - paceTarget
+
+                    VStack(spacing: 8) {
+                        HStack {
+                            CapsLabel(text: "Ritmo por hora")
+                            Spacer()
+                            Text("\(delta >= 0 ? "+" : "−")\(Fmt.mxn(abs(delta))) vs objetivo")
+                                .font(.system(.caption, weight: .bold))
+                                .monospacedDigit()
+                                .foregroundStyle(delta >= 0 ? Palette.volt : Palette.amber)
+                        }
+                        ProgressTrack(
+                            value: Double(earnedToday),
+                            goal: Double(goals.dailyMxn),
+                            marker: Double(paceTarget)
+                        )
+                        Text("Objetivo acumulado \(Fmt.mxn(paceTarget)) · \(Fmt.mxn(goals.hourlyMxn)) por hora")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Palette.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(12)
+                    .panelFlat()
                 }
-                .padding(12)
-                .panelFlat()
             }
         }
         .padding(18)
@@ -218,12 +237,12 @@ struct GoalsView: View {
     /// What the unit did during the turn: distance covered and the two battery
     /// readings. While the turn is open the closing charge is still unknown; once it
     /// closes, the three numbers stay in the shift log for later analysis.
-    private func shiftTelemetrySection(now: Date) -> some View {
+    private func shiftTelemetrySection(reference: Date) -> some View {
         let active = store.activeShift
-        let todayRecords = store.history.filter { ShiftRules.isSameDay($0.startedAt, now) }
+        let todayRecords = store.history.filter { ShiftRules.isSameDay($0.startedAt, reference) }
         let closedToday = todayRecords.first
-        let kmToday = todayRecords.reduce(0) { $0 + $1.kmDriven }
-            + (active != nil ? store.estimatedKmDriven(at: now) : 0)
+        /// Distance already closed and filed today. Moves on store events only.
+        let closedKmToday = todayRecords.reduce(0) { $0 + $1.kmDriven }
 
         let startBattery = active?.startBatteryPct ?? closedToday?.startBatteryPct
         let endBattery = active == nil ? closedToday?.endBatteryPct : nil
@@ -244,12 +263,26 @@ struct GoalsView: View {
             // Three readings side by side: at a glance, without scrolling and without
             // a single label breaking into two lines.
             HStack(spacing: 8) {
-                ReadingTile(
-                    label: "Km",
-                    value: Fmt.km(kmToday),
-                    hint: startOdometer.map { "Desde \(Fmt.km($0))" } ?? "Sin lectura",
-                    tone: Palette.volt
-                )
+                // The only tile that moves by itself: with the shift open the estimate
+                // adds 0.32 km per logical minute. The scope covers this tile alone — the
+                // two battery readings beside it are store events and stay out of it.
+                if active != nil {
+                    TimeScope(.minute) { now in
+                        ReadingTile(
+                            label: "Km",
+                            value: Fmt.km(closedKmToday + store.estimatedKmDriven(at: now)),
+                            hint: startOdometer.map { "Desde \(Fmt.km($0))" } ?? "Sin lectura",
+                            tone: Palette.volt
+                        )
+                    }
+                } else {
+                    ReadingTile(
+                        label: "Km",
+                        value: Fmt.km(closedKmToday),
+                        hint: startOdometer.map { "Desde \(Fmt.km($0))" } ?? "Sin lectura",
+                        tone: Palette.volt
+                    )
+                }
                 ReadingTile(
                     label: "Bat. inicio",
                     value: startBattery.map { "\($0)%" } ?? "—",
@@ -265,7 +298,9 @@ struct GoalsView: View {
             }
 
             if let startBattery, let endBattery {
-                Text("Consumo del turno: \(max(0, startBattery - endBattery)) puntos de carga para \(Fmt.km(closedToday?.kmDriven ?? kmToday)).")
+                // Reachable only with the shift closed — `endBattery` is filed on
+                // delivery — so the distance here is the recorded one, never an estimate.
+                Text("Consumo del turno: \(max(0, startBattery - endBattery)) puntos de carga para \(Fmt.km(closedToday?.kmDriven ?? closedKmToday)).")
                     .font(.caption2)
                     .foregroundStyle(Palette.textMuted)
             } else {
@@ -314,8 +349,8 @@ struct GoalsView: View {
         .panel()
     }
 
-    private func lateSection(now: Date) -> some View {
-        let debt = store.weeklyLateDebt(reference: now)
+    private func lateSection(reference: Date) -> some View {
+        let debt = store.weeklyLateDebt(reference: reference)
         return NoticeBanner(
             symbol: "timer",
             title: debt > 0 ? "Debes \(debt) minutos esta semana" : "Sin atrasos esta semana",
