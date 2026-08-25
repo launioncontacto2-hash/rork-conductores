@@ -47,7 +47,6 @@ struct RecruitmentRootView: View {
         RecruitHeader(
             account: account,
             station: recruit.stations.first,
-            now: fleet.now,
             vacancies: recruit.totalVacancies,
             alertCount: recruit.alerts.count,
             onRegenerate: { recruit.regenerate() },

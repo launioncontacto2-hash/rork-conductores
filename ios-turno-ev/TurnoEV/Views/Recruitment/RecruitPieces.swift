@@ -129,7 +129,6 @@ private struct FunnelGrid: View {
 struct RecruitHeader: View {
     let account: StaffAccount
     let station: Station?
-    let now: Date
     let vacancies: Int
     let alertCount: Int
     let onRegenerate: () -> Void
@@ -206,9 +205,14 @@ struct RecruitHeader: View {
 
                 Spacer(minLength: 0)
 
-                Text(Fmt.dateShort(now))
-                    .font(.system(.caption2, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
+                // The only reading of the clock in the header, and it is a date: it turns
+                // at midnight and at nothing else. The station line, the vacancy strip,
+                // the bell, the menu and the session control never hear from the clock.
+                TimeScope(.day) { now in
+                    Text(Fmt.dateShort(now))
+                        .font(.system(.caption2, weight: .semibold))
+                        .foregroundStyle(Palette.textMuted)
+                }
             }
         }
         .padding(14)
@@ -281,9 +285,17 @@ struct RecRing: View {
 // MARK: - Prospect row
 
 /// One person in the funnel: who, for which station and block, and how long they wait.
+///
+/// The row keeps its own temporal freshness. One line of it follows the clock — the detail
+/// caption and the colour it turns when a lead goes past its contact window — so that line
+/// carries the scope and the caller hands over no `now`. A funnel of two hundred prospects
+/// invalidates two hundred captions, never two hundred rows.
+///
+/// The cadence is `.minute` and not `.day` even though the caption sometimes counts days:
+/// for a lead it reports minutes of waiting and crosses the service level at an arbitrary
+/// hour. When two semantics share one leaf, the finer one governs.
 struct ProspectRow: View {
     let prospect: Prospect
-    let now: Date
     var showStation: Bool = true
     let action: () -> Void
 
@@ -326,10 +338,12 @@ struct ProspectRow: View {
                             .font(.system(size: 10))
                             .foregroundStyle(Palette.textMuted)
                     }
-                    Text(detail)
-                        .font(.system(size: 10))
-                        .foregroundStyle(prospect.isOverdueContact(now: now) ? RecTone.bad : Palette.textMuted)
-                        .lineLimit(1)
+                    TimeScope(.minute) { now in
+                        Text(detail(now: now))
+                            .font(.system(size: 10))
+                            .foregroundStyle(prospect.isOverdueContact(now: now) ? RecTone.bad : Palette.textMuted)
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer(minLength: 4)
@@ -353,7 +367,7 @@ struct ProspectRow: View {
 }
 
 private extension ProspectRow {
-    var detail: String {
+    func detail(now: Date) -> String {
         if prospect.stage == .lead {
             let minutes = prospect.waitingMinutes(now: now)
             return minutes > RecruitRules.contactSlaMinutes
@@ -490,9 +504,12 @@ struct RecruitAlertCard: View {
 // MARK: - Demand
 
 /// One station: units, plantilla required, available drivers and the resulting vacancies.
+///
+/// Units, plantilla and coverage are all store facts. The single line that moves on its own
+/// is the countdown to the next incorporation, and it counts days — so that line carries a
+/// `.day` scope and the card takes no clock from its caller.
 struct StationDemandCard: View {
     let demand: StationDemand
-    let now: Date
     var action: (() -> Void)?
 
     private var tone: Color {
@@ -538,11 +555,15 @@ struct StationDemandCard: View {
             )
             .frame(height: 8)
 
-            if demand.incomingVehicles > 0, let days = demand.daysToNextIncorporation(now: now) {
-                Text("\(demand.incomingVehicles) unidades por incorporarse · \(demand.futureDrivers) conductores adicionales · la más próxima opera en \(max(0, days)) días")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(RecTone.warn)
-                    .fixedSize(horizontal: false, vertical: true)
+            if demand.incomingVehicles > 0 {
+                TimeScope(.day) { now in
+                    if let days = demand.daysToNextIncorporation(now: now) {
+                        Text("\(demand.incomingVehicles) unidades por incorporarse · \(demand.futureDrivers) conductores adicionales · la más próxima opera en \(max(0, days)) días")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(RecTone.warn)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         .padding(14)
@@ -586,9 +607,14 @@ struct DemandFigure: View {
 
 // MARK: - Appointments
 
+/// One appointment of the desk agenda.
+///
+/// Nothing here follows the clock: the hour, the day number, the person, the kind and the
+/// status are all read straight off the record. It used to declare a `now` that no line of
+/// its body ever read — an inert parameter that nonetheless made every mounted row a
+/// subscriber of `RecruitmentStore.now`.
 struct AppointmentRow: View {
     let appointment: Appointment
-    let now: Date
     var action: (() -> Void)?
 
     private var station: Station? { StaffDirectory.station(id: appointment.stationId) }
@@ -652,9 +678,13 @@ struct AppointmentRow: View {
 
 // MARK: - Campaigns
 
+/// One campaign with what it spent and what it produced.
+///
+/// Only the subtitle moves on its own, and only while the campaign is still active: it
+/// counts the days left to its end date. A count of days is a calendar fact, so the leaf
+/// listens by the day.
 struct CampaignCard: View {
     let performance: CampaignPerformance
-    let now: Date
 
     private var campaign: RecruitCampaign { performance.campaign }
     private var station: Station? { StaffDirectory.station(id: campaign.stationId) }
@@ -674,9 +704,17 @@ struct CampaignCard: View {
                     Text(campaign.name)
                         .font(.system(.subheadline, weight: .bold))
                         .multilineTextAlignment(.leading)
-                    Text("\(station?.code ?? "—") · \(campaign.isActive ? "activa, termina en \(max(0, campaign.daysLeft(now: now))) días" : "finalizada")")
-                        .font(.caption2)
-                        .foregroundStyle(Palette.textMuted)
+                    Group {
+                        if campaign.isActive {
+                            TimeScope(.day) { now in
+                                Text("\(station?.code ?? "—") · activa, termina en \(max(0, campaign.daysLeft(now: now))) días")
+                            }
+                        } else {
+                            Text("\(station?.code ?? "—") · finalizada")
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textMuted)
                 }
                 Spacer(minLength: 0)
             }

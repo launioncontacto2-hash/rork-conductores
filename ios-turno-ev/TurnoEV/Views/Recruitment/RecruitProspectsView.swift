@@ -11,8 +11,6 @@ struct RecruitProspectsView: View {
     @State private var search: String = ""
     @State private var stationId: String?
 
-    private var now: Date { recruit.now }
-
     enum ProspectFilter: String, CaseIterable, Identifiable, Hashable {
         case all
         case contacted
@@ -91,7 +89,7 @@ struct RecruitProspectsView: View {
                         )
                     } else {
                         ForEach(rows) { prospect in
-                            ProspectRow(prospect: prospect, now: now, showStation: stationId == nil) {
+                            ProspectRow(prospect: prospect, showStation: stationId == nil) {
                                 onOpenProspect(prospect.id)
                             }
                         }
@@ -158,7 +156,6 @@ struct ProspectDetailView: View {
     @State private var filing: DossierDocument?
     @State private var dossierVersion: Int = 0
 
-    private var now: Date { recruit.now }
     private var prospect: Prospect? { recruit.prospect(id: prospectId) }
 
     var body: some View {
@@ -236,7 +233,8 @@ struct ProspectDetailView: View {
                     subjectId: DossierBook.driverSubjectId(email: prospect.email, fallback: prospect.id),
                     subjectLabel: prospect.name,
                     deskName: recruit.account.name,
-                    now: now,
+                    // Action time: the instant the desk opens the filing form.
+                    now: recruit.now,
                     onSaved: { dossierVersion += 1 }
                 )
             }
@@ -262,7 +260,6 @@ struct ProspectDetailView: View {
                 DossierDeskRow(
                     kind: kind,
                     document: DossierBook.document(kind: kind, subjectId: subjectId),
-                    now: now,
                     accent: RecTone.accent
                 ) {
                     filing = kind
@@ -307,18 +304,26 @@ struct ProspectDetailView: View {
             }
 
             HStack(spacing: 8) {
-                DemandFigure(value: "\(prospect.daysInProcess(now: now))", caption: "Días en proceso")
+                // Days in process and the expediente percentage are both answers to a
+                // date. Each carries its own leaf; the two figures between them are store
+                // facts and never hear from the clock.
+                TimeScope(.day) { now in
+                    DemandFigure(value: "\(prospect.daysInProcess(now: now))", caption: "Días en proceso")
+                }
                 DemandFigure(value: "\(prospect.experienceYears)", caption: "Años manejando", tone: RecTone.cool)
                 DemandFigure(
                     value: prospect.interviewScorePct.map { "\($0)" } ?? "—",
                     caption: "Entrevista",
                     tone: prospect.interviewScorePct != nil ? RecTone.good : Palette.textMuted
                 )
-                DemandFigure(
-                    value: "\(prospect.documentPct(now: now)) %",
-                    caption: "Expediente",
-                    tone: prospect.documentPct(now: now) == 100 ? RecTone.good : RecTone.warn
-                )
+                TimeScope(.day) { now in
+                    let pct = prospect.documentPct(now: now)
+                    DemandFigure(
+                        value: "\(pct) %",
+                        caption: "Expediente",
+                        tone: pct == 100 ? RecTone.good : RecTone.warn
+                    )
+                }
             }
 
             if prospect.stage == .lost, let reason = prospect.lossReason {
@@ -415,12 +420,16 @@ struct ProspectDetailView: View {
                 value: prospect.hasLicense ? "Vigente" : "Sin licencia",
                 tone: prospect.hasLicense ? RecTone.good : RecTone.bad
             )
-            MetricLine(
-                label: "Primer contacto",
-                value: prospect.firstContactMinutes.map { Fmt.durationText($0) } ?? "Pendiente",
-                detail: prospect.contactedAt.map { "Registrado \(Fmt.relative($0, from: now))" },
-                tone: prospect.contactedAt == nil ? RecTone.warn : RecTone.cool
-            )
+            // `firstContactMinutes` is frozen at the moment of contact — a store fact.
+            // Only the "registrado hace X" caption keeps counting, so the line is the leaf.
+            TimeScope(.minute) { now in
+                MetricLine(
+                    label: "Primer contacto",
+                    value: prospect.firstContactMinutes.map { Fmt.durationText($0) } ?? "Pendiente",
+                    detail: prospect.contactedAt.map { "Registrado \(Fmt.relative($0, from: now))" },
+                    tone: prospect.contactedAt == nil ? RecTone.warn : RecTone.cool
+                )
+            }
         }
         .padding(15)
         .panel()
@@ -522,17 +531,24 @@ struct ProspectDetailView: View {
 
     private func documentsCard(_ prospect: Prospect) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            SupSectionHeader(
-                title: "Expediente inicial",
-                subtitle: "\(prospect.documentPct(now: now)) % completo",
-                accent: RecTone.accent
-            )
-            ProgressTrack(
-                value: Double(prospect.documentPct(now: now)),
-                goal: 100,
-                tone: prospect.documentPct(now: now) == 100 ? RecTone.good : RecTone.warn
-            )
-            .frame(height: 8)
+            // Heading and bar read the same percentage and move together, so they share
+            // one leaf. The checklist below them is toggled by hand, never by the clock.
+            TimeScope(.day) { now in
+                let pct = prospect.documentPct(now: now)
+                VStack(alignment: .leading, spacing: 10) {
+                    SupSectionHeader(
+                        title: "Expediente inicial",
+                        subtitle: "\(pct) % completo",
+                        accent: RecTone.accent
+                    )
+                    ProgressTrack(
+                        value: Double(pct),
+                        goal: 100,
+                        tone: pct == 100 ? RecTone.good : RecTone.warn
+                    )
+                    .frame(height: 8)
+                }
+            }
 
             ForEach(DocumentKind.recruitmentChecklist) { kind in
                 let document = prospect.documents.first { $0.kind == kind }
@@ -582,7 +598,7 @@ struct ProspectDetailView: View {
             if let hiredAt = prospect.hiredAt {
                 HStack(spacing: 10) {
                     StatePill(text: "Contratado", symbol: "steeringwheel", tone: RecTone.good)
-                    Text(Fmt.relative(hiredAt, from: now))
+                    RelativeTime(date: hiredAt)
                         .font(.system(size: 10))
                         .foregroundStyle(Palette.textMuted)
                     Spacer(minLength: 0)
@@ -607,21 +623,29 @@ struct ProspectDetailView: View {
                         .foregroundStyle(Palette.textMuted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            } else if prospect.isReadyToHire(now: now) {
-                BigButton(title: "Firmar alta y contratar", symbol: "signature", tone: .volt) {
-                    isHiring = true
-                }
-                Text("Genera el expediente laboral en \(StaffDirectory.station(id: prospect.stationId)?.code ?? "la estación") y libera el turno solicitado.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.textMuted)
             } else {
-                let missing = prospect.missingDocuments(now: now)
-                Text(prospect.passedEvaluation()
-                    ? "Falta cerrar el expediente inicial: \(missing.map(\.label).joined(separator: ", "))."
-                    : "Para firmar el alta necesitas precalificación apta, la entrevista firmada y el expediente inicial completo.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Readiness to hire is decided by document expiry, so it turns on a date:
+                // the button appears — and the list of what is missing shrinks — at
+                // logical midnight. Only this branch is inside the scope; the heading, the
+                // hired state and the rejected state above it stay out.
+                TimeScope(.day) { now in
+                    if prospect.isReadyToHire(now: now) {
+                        BigButton(title: "Firmar alta y contratar", symbol: "signature", tone: .volt) {
+                            isHiring = true
+                        }
+                        Text("Genera el expediente laboral en \(StaffDirectory.station(id: prospect.stationId)?.code ?? "la estación") y libera el turno solicitado.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Palette.textMuted)
+                    } else {
+                        let missing = prospect.missingDocuments(now: now)
+                        Text(prospect.passedEvaluation()
+                            ? "Falta cerrar el expediente inicial: \(missing.map(\.label).joined(separator: ", "))."
+                            : "Para firmar el alta necesitas precalificación apta, la entrevista firmada y el expediente inicial completo.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
         .padding(15)
@@ -635,7 +659,7 @@ struct ProspectDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     SupSectionHeader(title: "Citas", accent: RecTone.accent)
                     ForEach(appointments) { appointment in
-                        AppointmentRow(appointment: appointment, now: now)
+                        AppointmentRow(appointment: appointment)
                     }
                 }
                 .padding(15)

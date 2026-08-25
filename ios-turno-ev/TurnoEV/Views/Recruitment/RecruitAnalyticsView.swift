@@ -161,7 +161,7 @@ struct RecruitAnalyticsView: View {
                     accent: RecTone.accent
                 )
                 ForEach(recruit.campaignPerformance) { performance in
-                    CampaignCard(performance: performance, now: now)
+                    CampaignCard(performance: performance)
                 }
             }
 

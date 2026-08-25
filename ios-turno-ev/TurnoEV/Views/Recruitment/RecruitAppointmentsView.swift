@@ -10,8 +10,6 @@ struct RecruitAppointmentsView: View {
 
     @State private var selected: Appointment?
 
-    private var now: Date { recruit.now }
-
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -69,7 +67,10 @@ struct RecruitAppointmentsView: View {
 
     private var todaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SupSectionHeader(title: "Hoy", subtitle: Fmt.dateLong(now), accent: RecTone.accent)
+            // Only the subtitle is a date; the heading beside it never moves.
+            TimeScope(.day) { now in
+                SupSectionHeader(title: "Hoy", subtitle: Fmt.dateLong(now), accent: RecTone.accent)
+            }
             if recruit.todayAppointments.isEmpty {
                 RecEmptyState(
                     symbol: "calendar",
@@ -78,27 +79,16 @@ struct RecruitAppointmentsView: View {
                 )
             } else {
                 ForEach(recruit.todayAppointments) { appointment in
-                    AppointmentRow(appointment: appointment, now: now) { selected = appointment }
+                    AppointmentRow(appointment: appointment) { selected = appointment }
                 }
             }
         }
     }
 
     private var upcomingSection: some View {
-        let upcoming = recruit.upcomingAppointments.filter { !$0.isToday(now: now) }
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Próximas", subtitle: "Confirma un día antes", accent: RecTone.accent)
-            if upcoming.isEmpty {
-                RecEmptyState(
-                    symbol: "calendar.badge.plus",
-                    title: "Agenda libre",
-                    message: "No hay entrevistas programadas para los próximos días."
-                )
-            } else {
-                ForEach(upcoming) { appointment in
-                    AppointmentRow(appointment: appointment, now: now) { selected = appointment }
-                }
-            }
+            UpcomingAppointmentsList(recruit: recruit) { selected = $0 }
         }
     }
 
@@ -107,7 +97,36 @@ struct RecruitAppointmentsView: View {
         return VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Historial", subtitle: "Asistencias e inasistencias", accent: RecTone.accent)
             ForEach(past) { appointment in
-                AppointmentRow(appointment: appointment, now: now) { selected = appointment }
+                AppointmentRow(appointment: appointment) { selected = appointment }
+            }
+        }
+    }
+}
+
+/// Appointments scheduled for a day that is not today.
+///
+/// The filter is `!isToday(now:)`, so a calendar rollover moves an appointment out of this
+/// list and into "Hoy" above — the clock decides membership, not a label. The list is
+/// therefore extracted into its own view and the scope wraps its whole content, at day
+/// cadence because that is the unit the filter compares. The `ScrollView`, the header, the
+/// summary and the history section stay outside. Declared exception to the leaf rule.
+private struct UpcomingAppointmentsList: View {
+    let recruit: RecruitmentStore
+    let onSelect: (Appointment) -> Void
+
+    var body: some View {
+        TimeScope(.day) { now in
+            let upcoming = recruit.upcomingAppointments.filter { !$0.isToday(now: now) }
+            if upcoming.isEmpty {
+                RecEmptyState(
+                    symbol: "calendar.badge.plus",
+                    title: "Agenda libre",
+                    message: "No hay entrevistas programadas para los próximos días."
+                )
+            } else {
+                ForEach(upcoming) { appointment in
+                    AppointmentRow(appointment: appointment) { onSelect(appointment) }
+                }
             }
         }
     }

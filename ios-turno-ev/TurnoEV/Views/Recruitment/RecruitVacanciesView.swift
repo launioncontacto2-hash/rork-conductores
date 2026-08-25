@@ -8,8 +8,6 @@ struct RecruitVacanciesView: View {
 
     @State private var expanded: Set<String> = []
 
-    private var now: Date { recruit.now }
-
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -97,7 +95,7 @@ struct RecruitVacanciesView: View {
 
             ForEach(recruit.demands.sorted { $0.vacancies > $1.vacancies }) { demand in
                 VStack(spacing: 10) {
-                    StationDemandCard(demand: demand, now: now) {
+                    StationDemandCard(demand: demand) {
                         if expanded.contains(demand.id) {
                             expanded.remove(demand.id)
                         } else {
@@ -144,13 +142,20 @@ struct RecruitVacanciesView: View {
                 )
             } else {
                 ForEach(recruit.upcomingIncorporations) { incorporation in
-                    incorporationCard(incorporation)
+                    // The whole card is derived from one calendar count — days to
+                    // operation feeds the projected hires, the gap and the risk level that
+                    // tints it — so the card is the smallest honest unit and it moves once
+                    // per logical midnight. The `ScrollView`, the section heading and the
+                    // other panels of the screen stay outside.
+                    TimeScope(.day) { now in
+                        incorporationCard(incorporation, now: now)
+                    }
                 }
             }
         }
     }
 
-    private func incorporationCard(_ incorporation: VehicleIncorporation) -> some View {
+    private func incorporationCard(_ incorporation: VehicleIncorporation, now: Date) -> some View {
         let station = StaffDirectory.station(id: incorporation.stationId)
         let days = max(0, incorporation.daysToOperation(now: now))
         let projected = recruit.projectedHires(days: days)

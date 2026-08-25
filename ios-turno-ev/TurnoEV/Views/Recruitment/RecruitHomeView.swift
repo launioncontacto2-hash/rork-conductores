@@ -281,7 +281,7 @@ struct RecruitHomeView: View {
                 accent: RecTone.accent
             )
             ForEach(recruit.demands.sorted { $0.vacancies > $1.vacancies }) { demand in
-                StationDemandCard(demand: demand, now: now, action: onOpenVacancies)
+                StationDemandCard(demand: demand, action: onOpenVacancies)
             }
         }
     }

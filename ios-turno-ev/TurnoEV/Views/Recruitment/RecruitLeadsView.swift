@@ -12,8 +12,6 @@ struct RecruitLeadsView: View {
     @State private var simulated: Prospect?
     @State private var showsSimulator: Bool = false
 
-    private var now: Date { recruit.now }
-
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -108,30 +106,19 @@ struct RecruitLeadsView: View {
                 accent: RecTone.bad
             )
             ForEach(recruit.overdueLeads) { prospect in
-                ProspectRow(prospect: prospect, now: now) { onOpenProspect(prospect.id) }
+                ProspectRow(prospect: prospect) { onOpenProspect(prospect.id) }
             }
         }
     }
 
     private var freshSection: some View {
-        let fresh = recruit.newLeads.filter { !$0.isOverdueContact(now: now) }
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "Recientes",
                 subtitle: "Ordenados por hora de llegada",
                 accent: RecTone.accent
             )
-            if fresh.isEmpty {
-                RecEmptyState(
-                    symbol: "tray",
-                    title: "Bandeja limpia",
-                    message: "Cada lead que entró ya tuvo un primer contacto registrado."
-                )
-            } else {
-                ForEach(fresh) { prospect in
-                    ProspectRow(prospect: prospect, now: now) { onOpenProspect(prospect.id) }
-                }
-            }
+            FreshLeadsList(recruit: recruit, onOpenProspect: onOpenProspect)
         }
     }
 
@@ -182,6 +169,8 @@ struct RecruitLeadsView: View {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         guard let station = recruit.stations.randomElement() else { return }
         let campaign = recruit.campaigns.first { $0.stationId == station.id && $0.platform == .facebook }
+        // Action time: the instant the desk fires the simulated webhook.
+        let now = recruit.now
         let stamp = Int(now.timeIntervalSince1970) % 10_000
         let payload = LeadAdPayload(
             leadgenId: "\(stamp)",
@@ -204,6 +193,39 @@ struct RecruitLeadsView: View {
             simulated = prospect
         } else {
             showsSimulator = true
+        }
+    }
+}
+
+// MARK: - Fresh leads
+
+/// Leads that have not yet gone past their contact window.
+///
+/// This is the one place in the module where the clock changes *membership* rather than a
+/// caption: a lead leaves this list the minute it crosses the service level, and reappears
+/// in "Fuera de tiempo" above. A filter like that cannot be pushed into a leaf, so the list
+/// is extracted into a view of its own and the scope wraps its entire content. That is what
+/// keeps it contained: the `ScrollView`, the header, the intake card, the overdue section
+/// and the integration note are all outside it. Declared exception to the leaf rule, on the
+/// same terms as `ImmediateAttentionPanel` and `PendingSignatureTile`.
+private struct FreshLeadsList: View {
+    let recruit: RecruitmentStore
+    let onOpenProspect: (String) -> Void
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            let fresh = recruit.newLeads.filter { !$0.isOverdueContact(now: now) }
+            if fresh.isEmpty {
+                RecEmptyState(
+                    symbol: "tray",
+                    title: "Bandeja limpia",
+                    message: "Cada lead que entró ya tuvo un primer contacto registrado."
+                )
+            } else {
+                ForEach(fresh) { prospect in
+                    ProspectRow(prospect: prospect) { onOpenProspect(prospect.id) }
+                }
+            }
         }
     }
 }

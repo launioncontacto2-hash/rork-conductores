@@ -8,6 +8,8 @@ struct DossierFilingSheet: View {
     let subjectId: String
     let subjectLabel: String
     let deskName: String
+    /// Instant the form was opened with. Action time, not a cadence: it preloads the issue
+    /// date of a blank form and stamps the record on save. No `TimeScope` belongs here.
     var now: Date = Date()
     var onSaved: (() -> Void)?
 
@@ -168,14 +170,25 @@ struct DossierFilingSheet: View {
 }
 
 /// Desk-side row: one document of a file, with what is missing said out loud.
+///
+/// The row owns the freshness of its own temporal data. Both things the clock decides here
+/// — the status pill and the expiry caption — are answers to a date, and they change
+/// together, which makes the row the smallest honest unit. It registers that dependency
+/// itself at `.day` cadence, so neither desk that shows it has to hand over a clock: a car
+/// file of nine documents invalidates nine rows once per logical midnight.
 struct DossierDeskRow: View {
     let kind: DossierDocument
     let document: FiledDocument?
-    let now: Date
     let accent: Color
     let action: () -> Void
 
     var body: some View {
+        TimeScope(.day) { now in
+            row(now: now)
+        }
+    }
+
+    private func row(now: Date) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 ZStack {
@@ -190,7 +203,7 @@ struct DossierDeskRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(kind.title)
                         .font(.system(.footnote, weight: .bold))
-                    Text(detail)
+                    Text(detail(now: now))
                         .font(.system(size: 10))
                         .foregroundStyle(Palette.textMuted)
                         .lineLimit(1)
@@ -219,7 +232,7 @@ struct DossierDeskRow: View {
         .buttonStyle(.plain)
     }
 
-    private var detail: String {
+    private func detail(now: Date) -> String {
         guard let document else { return "Pendiente de cargar" }
         return "\(document.kind.referenceLabel) \(document.reference) · \(document.expiryText(now: now))"
     }

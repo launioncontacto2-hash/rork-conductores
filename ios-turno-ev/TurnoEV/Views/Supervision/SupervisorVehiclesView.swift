@@ -259,7 +259,6 @@ struct SupervisorVehicleDetailView: View {
                 DossierDeskRow(
                     kind: kind,
                     document: filed.first { $0.0 == kind }?.1,
-                    now: supervision.now,
                     accent: SupTone.accent
                 ) {
                     filing = kind
