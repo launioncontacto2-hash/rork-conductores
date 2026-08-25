@@ -1,31 +1,20 @@
 import SwiftUI
 
 /// Main screen: driver identity, assigned vehicle, shift clock and live metrics.
+///
+/// The clock is live again, but it no longer drives the page. The composition depends on
+/// `ShiftPhase` — a handful of booleans that change twice a day — while the hour itself is
+/// read inside the few leaves that display it, through `TimeScope`. Nothing that ticks can
+/// reach the `ScrollView`, the `EditorStack` or the navigation stack.
 struct ShiftView: View {
     @Environment(FleetStore.self) private var store
 
     @State private var route: ShiftRoute?
     @State private var areNoticesPresented: Bool = false
 
-    /// Fixed origin of the periodic schedule.
-    ///
-    /// This used to be `.now`, read inline in `body`. That is a new `Date` on every body
-    /// pass, so the `TimelineView` value changed on every pass, its schedule was rebuilt,
-    /// and the rebuilt schedule started in the past — which makes it emit an entry
-    /// immediately instead of in 30 s. The immediate entry re-rendered the content, and the
-    /// graph never settled. Anchoring in `@State` fixes the origin for the lifetime of the
-    /// view, so the schedule is a stable value and only fires on its real cadence.
-    @State private var timelineAnchor: Date = .now
-
-    /// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. No es el comportamiento final.
-    ///
-    /// Instante único capturado al construir la vista. `AppClock.now()` devuelve el reloj
-    /// lógico — real en producción, simulado en prueba — pero vive en un enum estático:
-    /// leerlo aquí no registra ninguna dependencia observable, al contrario que `store.now`,
-    /// que lee `ClockSignal.generation` deliberadamente. Mientras dure el experimento toda
-    /// la pantalla se dibuja contra este valor, de modo que ningún avance del reloj — local
-    /// o adoptado desde otro dispositivo — puede invalidar este árbol.
-    @State private var frozenNow: Date = AppClock.now()
+    /// Structural state of the screen. Written only from the resolvers below, never from
+    /// `body`. `nil` until the first resolution lands.
+    @State private var phase: ShiftPhase?
 
     private enum ShiftRoute: Hashable, Identifiable {
         case start
@@ -35,31 +24,30 @@ struct ShiftView: View {
         var id: Self { self }
     }
 
+    /// The phase the screen is drawn against.
+    ///
+    /// The fallback is a pure computation, not a state write: it gives the very first
+    /// paint a correct arrangement instead of a placeholder frame, and `AppClock` is a
+    /// static enum, so reading it here registers no dependency on the clock.
+    private var currentPhase: ShiftPhase {
+        phase ?? resolvedPhase(at: AppClock.now())
+    }
+
     var body: some View {
-        NavigationStack {
+        let phase = currentPhase
+
+        return NavigationStack {
             ZStack {
                 StationBackground()
 
-                // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. El contenido se dibuja directamente
-                // contra `frozenNow`, sin planificación periódica de ningún tipo.
-                // Original:
-                //
-                //     TimelineView(.periodic(from: timelineAnchor, by: 30)) { _ in
-                //         let now = store.now
-                //         ScrollView {
-                //             EditorStack(screen: .driverShift, blocks: blocks(now: now), sample: sample)
-                //                 .padding(.horizontal, 16)
-                //                 .padding(.top, 8)
-                //                 .padding(.bottom, 28)
-                //         }
-                //     }
                 ScrollView {
-                    EditorStack(screen: .driverShift, blocks: blocks(now: frozenNow), sample: sample)
+                    EditorStack(screen: .driverShift, blocks: blocks(phase: phase), sample: sample)
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         .padding(.bottom, 28)
                 }
             }
+            .background(phaseTicker)
             .navigationTitle("Turno")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -68,14 +56,7 @@ struct ShiftView: View {
                     SessionMenuButton()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. `DemoClockButton()` queda fuera de
-                    // esta pantalla: monta su propio `TimelineView` con cadencia de hasta
-                    // 0,1 s en simulación acelerada, lee `store.now` y observa
-                    // `ClockSignal`. Se sustituye por una etiqueta inerte del mismo
-                    // tamaño. El componente real no se ha modificado. Original:
-                    //
-                    //     DemoClockButton()
-                    FrozenClockChip(now: frozenNow)
+                    DemoClockButton()
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -90,8 +71,13 @@ struct ShiftView: View {
             .sheet(isPresented: $areNoticesPresented) {
                 NoticesView()
             }
-            .onAppear { store.reloadAssignment() }
-            .fullScreenCover(item: $route) { destination in
+            .onAppear {
+                store.reloadAssignment()
+                updatePhase()
+            }
+            // Starting, finishing or reporting can change the state of the shift the
+            // instant the sheet closes, well before the next minute arrives.
+            .fullScreenCover(item: $route, onDismiss: updatePhase) { destination in
                 switch destination {
                 case .start: StartShiftView()
                 case .incident: IncidentView()
@@ -102,22 +88,62 @@ struct ShiftView: View {
         .editorScreen(.driverShift)
     }
 
+    // MARK: - Phase
+
+    /// Invisible heartbeat of the composition.
+    ///
+    /// A leaf of zero size whose only job is to hear the minute — and, through
+    /// `TimeScope`, any discontinuous jump of the clock — and hand it to the resolver. The
+    /// dependency is registered inside this leaf, so the cadence cannot invalidate the
+    /// page: it can only run a comparison that usually decides nothing changed.
+    private var phaseTicker: some View {
+        TimeScope(.minute) { _ in
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onChange(of: ClockBeat.shared.minute, initial: true) { _, _ in
+                    updatePhase()
+                }
+        }
+    }
+
+    /// Pure derivation. No state is written and no dependency is registered.
+    private func resolvedPhase(at now: Date) -> ShiftPhase {
+        ShiftPhase.resolve(
+            driver: store.driver,
+            activeShift: store.activeShift,
+            lateDebtMinutes: store.weeklyLateDebt(reference: now),
+            now: now
+        )
+    }
+
+    /// Recomputes the phase and publishes it only if the screen really became a different
+    /// screen. Called from appearance, from the minute heartbeat and after any action that
+    /// can change the shift; never from `body`.
+    private func updatePhase() {
+        let resolved = resolvedPhase(at: AppClock.now())
+        guard resolved != phase else { return }
+        phase = resolved
+    }
+
     // MARK: - Editable layout
 
     /// What this screen is made of, declared once so the visual editor can reorder,
     /// resize, hide or restyle it. The hero and the quick actions carry the shift and the
     /// emergency report, so they are marked critical: they can be restyled, never removed.
-    private func blocks(now: Date) -> [EditorBlock] {
+    ///
+    /// It takes a `ShiftPhase`, never a `Date`. That is the whole point: the arrangement of
+    /// blocks changes when the shift structurally changes, not when a second passes.
+    private func blocks(phase: ShiftPhase) -> [EditorBlock] {
         var blocks: [EditorBlock] = [
             .custom("shift.header", "Identidad del conductor", kind: .card) {
                 driverHeader
             },
             .custom("shift.hero", "Reloj y acciones del turno", kind: .card, isCritical: true) {
-                shiftHero(now: now)
+                shiftHero(phase: phase)
             },
         ]
 
-        if store.activeShift != nil, ShiftRules.isPastClose(slot: store.driver.slot, now: now) {
+        if phase.isActive, phase.isPastClose {
             blocks.append(
                 .custom("shift.closedNotice", "Aviso de jornada cerrada", kind: .notice, isCritical: true) {
                     NoticeBanner(
@@ -130,7 +156,7 @@ struct ShiftView: View {
             )
         }
 
-        if let shift = store.activeShift, shift.lateMinutes > 0 {
+        if let shift = store.activeShift, phase.isLate {
             blocks.append(
                 .custom("shift.lateNotice", "Aviso de atraso", kind: .notice) {
                     NoticeBanner(
@@ -143,22 +169,15 @@ struct ShiftView: View {
             )
         }
 
-        if store.activeShift == nil,
-           ShiftRules.isPaybackWindow(driver: store.driver, now: now),
-           store.weeklyLateDebt(reference: now) > 0 {
+        if !phase.isActive, phase.isPaybackOpen, phase.hasLateDebt {
             blocks.append(
                 .custom("shift.paybackNotice", "Ventana de pago de atraso", kind: .notice) {
-                    NoticeBanner(
-                        symbol: "timer",
-                        title: "Ventana de pago de atraso abierta (\(store.driver.slot.paybackWindowLabel))",
-                        message: "Debes \(store.weeklyLateDebt(reference: now)) min esta semana. Regístralo en Historial.",
-                        tone: .volt
-                    )
+                    paybackNotice
                 }
             )
         }
 
-        if store.activeShift != nil {
+        if phase.isActive {
             blocks.append(
                 .custom("shift.actions", "Acciones rápidas", kind: .button, isCritical: true) {
                     quickActions
@@ -171,9 +190,13 @@ struct ShiftView: View {
 
     /// Real value behind any metric the editor can point a card at, so a duplicated or
     /// re-pointed indicator still shows a true number.
+    ///
+    /// `AppClock.now()` is read directly and on purpose: this closure runs inside
+    /// `EditorStack`, and a live reading here would hand the whole stack a dependency on
+    /// the clock — exactly what this migration removes. It is a pure read, so the figures
+    /// are correct on every pass without any of them causing one.
     private func sample(_ metric: EditorMetric) -> EditorMetricSample {
-        // DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Original: `let now = store.now`.
-        let now = frozenNow
+        let now = AppClock.now()
         let goals = store.goals
         switch metric {
         case .earningsToday:
@@ -253,9 +276,22 @@ struct ShiftView: View {
         }
     }
 
-    private func shiftHero(now: Date) -> some View {
-        let isActive = store.activeShift != nil
-        let canStart = ShiftRules.isCorrectShiftMoment(driver: store.driver, now: now)
+    /// Late time owed this week. The figure moves with the week, so it is read at minute
+    /// cadence inside this banner and nowhere else.
+    private var paybackNotice: some View {
+        TimeScope(.minute) { now in
+            NoticeBanner(
+                symbol: "timer",
+                title: "Ventana de pago de atraso abierta (\(store.driver.slot.paybackWindowLabel))",
+                message: "Debes \(store.weeklyLateDebt(reference: now)) min esta semana. Regístralo en Historial.",
+                tone: .volt
+            )
+        }
+    }
+
+    private func shiftHero(phase: ShiftPhase) -> some View {
+        let isActive = phase.isActive
+        let canStart = phase.canStart
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
@@ -263,9 +299,12 @@ struct ShiftView: View {
                     CapsLabel(text: isActive ? "Turno en curso" : "Próximo turno")
                     Text("\(store.driver.slot.label) · \(store.driver.group.label)")
                         .font(.system(.title3, weight: .black))
-                    Text(Fmt.dateLong(now).capitalized)
-                        .font(.caption)
-                        .foregroundStyle(Palette.textMuted)
+                    // Only the date needs the clock here, and only once a minute.
+                    TimeScope(.minute) { now in
+                        Text(Fmt.dateLong(now).capitalized)
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+                    }
                 }
                 Spacer(minLength: 8)
                 Text(isActive ? "ACTIVO" : canStart ? "PUEDES INICIAR" : "FUERA DE HORARIO")
@@ -278,14 +317,10 @@ struct ShiftView: View {
             }
 
             if let shift = store.activeShift {
-                let elapsed = store.elapsedSeconds(at: now)
-
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
                         CapsLabel(text: "Tiempo transcurrido")
-                        // DIAGNÓSTICO TEMPORAL — CLOCK-OFF.
-                        // Original: `ShiftStopwatch(store: store)`.
-                        ShiftStopwatch(store: store, now: now)
+                        ShiftStopwatch(store: store)
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 2) {
@@ -300,8 +335,12 @@ struct ShiftView: View {
                 }
                 .padding(.top, 18)
 
-                ProgressTrack(value: Double(elapsed) / 60, goal: 9 * 60)
-                    .padding(.top, 14)
+                // The bar measures a nine-hour block: a minute is the finest step that can
+                // move it visibly.
+                TimeScope(.minute) { now in
+                    ProgressTrack(value: Double(store.elapsedSeconds(at: now)) / 60, goal: 9 * 60)
+                }
+                .padding(.top, 14)
 
                 HStack {
                     Text("8 h efectivas + 1 h comida")
@@ -322,7 +361,7 @@ struct ShiftView: View {
                     .monospacedDigit()
                     .padding(.top, 16)
 
-                Text(windowCopy(now: now))
+                Text(windowCopy(phase: phase))
                     .font(.footnote)
                     .foregroundStyle(Palette.textMuted)
                     .padding(.top, 6)
@@ -358,10 +397,13 @@ struct ShiftView: View {
     }
 
     /// Copy under the clock: when the block opens, when it closes for good.
-    private func windowCopy(now: Date) -> String {
-        switch ShiftRules.windowState(driver: store.driver, now: now) {
+    ///
+    /// Reads the window out of the phase. Those boundaries change by the day, so the
+    /// sentence has no reason to be rebuilt by the passing of time.
+    private func windowCopy(phase: ShiftPhase) -> String {
+        switch phase.window {
         case .open:
-            return "Ventana abierta. Cierre de jornada a las \(Fmt.clock(store.startWindow.closesAt)). Tolerancia de 10 minutos después de la hora programada."
+            return "Ventana abierta. Cierre de jornada a las \(Fmt.clock(phase.closesAt)). Tolerancia de 10 minutos después de la hora programada."
         case .early(let opensAt):
             return "Podrás iniciar tu turno a partir de las \(Fmt.clock(opensAt))."
         case .closed(let closedAt):
@@ -407,59 +449,22 @@ struct ShiftView: View {
     }
 }
 
-/// The only thing on the shift screen that has to tick once per second. Keeping it in its
-/// own view means the second hand never drags the rest of the page through a rebuild.
+/// The only thing on the shift screen that has to tick once per second.
 ///
-/// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Congelado: recibe el instante ya resuelto y lo pinta
-/// una sola vez. Sin `TimelineView`, sin `Timer`, sin `Task` repetitiva y sin lectura de
-/// `store.now`. La lectura sigue siendo real, simplemente no avanza. Original:
-///
-///     @State private var anchor: Date = .now
-///
-///     var body: some View {
-///         TimelineView(.periodic(from: anchor, by: 1)) { _ in
-///             let now = store.now
-///             Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
-///                 …
-///         }
-///     }
+/// The `TimeScope` sits around the reading and nothing else, so the second hand invalidates
+/// one `Text` — not the hero, not the card, not the stack, not the page.
 private struct ShiftStopwatch: View {
     let store: FleetStore
-    let now: Date
 
     var body: some View {
-        Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
-            .font(.system(size: 42, weight: .black))
-            .monospacedDigit()
-            .foregroundStyle(Palette.volt)
-            .minimumScaleFactor(0.6)
-            .lineLimit(1)
-    }
-}
-
-/// DIAGNÓSTICO TEMPORAL — CLOCK-OFF. Se elimina al concluir el aislamiento.
-///
-/// Ocupa el sitio de `DemoClockButton` en la barra de esta pantalla conservando su forma,
-/// para no alterar la métrica de disposición mientras se mide. Deliberadamente inerte: no
-/// abre hojas, no toca `SimulationClock`, no observa `ClockSignal` y no redibuja.
-private struct FrozenClockChip: View {
-    let now: Date
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "clock")
-            Text(Fmt.clock(now))
+        TimeScope(.second) { now in
+            Text(Fmt.stopwatch(store.elapsedSeconds(at: now)))
+                .font(.system(size: 42, weight: .black))
                 .monospacedDigit()
-            Text("FIJO")
-                .font(.system(size: 8, weight: .black))
+                .foregroundStyle(Palette.volt)
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
         }
-        .font(.system(.caption, weight: .semibold))
-        .foregroundStyle(Palette.textMuted)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Palette.surfaceRaised, in: .capsule)
-        .overlay { Capsule().stroke(Palette.hairline, lineWidth: 1) }
-        .accessibilityLabel("Reloj congelado para diagnóstico, \(Fmt.clock(now)).")
     }
 }
 
