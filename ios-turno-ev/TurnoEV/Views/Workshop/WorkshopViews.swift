@@ -82,7 +82,7 @@ struct SupervisorWorkshopView: View {
                         subtitle: "El técnico terminó y espera tu firma"
                     )
                     ForEach(orders) { order in
-                        WorkOrderRow(order: order, now: office.now) {
+                        WorkOrderRow(order: order) {
                             route = .detail(order.id)
                         }
                     }
@@ -112,7 +112,7 @@ struct SupervisorWorkshopView: View {
                 )
             } else {
                 ForEach(visible) { order in
-                    WorkOrderRow(order: order, now: office.now) {
+                    WorkOrderRow(order: order) {
                         route = .detail(order.id)
                     }
                 }
@@ -225,9 +225,15 @@ enum OrderFilter: String, CaseIterable, Identifiable, Hashable {
 
 // MARK: - Row
 
+/// One work order in a list.
+///
+/// The row keeps its own temporal freshness. Exactly one element of it follows the clock —
+/// the trailing badge, which is either "fuera de tiempo" or how long ago the order was
+/// assigned — so that element carries the `TimeScope` and the caller hands over no `now`.
+/// A board of forty orders invalidates at most forty small badges on the minute, never
+/// forty rows.
 struct WorkOrderRow: View {
     let order: WorkOrder
-    let now: Date
     let action: () -> Void
 
     var body: some View {
@@ -264,14 +270,16 @@ struct WorkOrderRow: View {
                             .foregroundStyle(Palette.info)
                     }
                     Spacer(minLength: 0)
-                    if order.isOverdue(now: now) {
-                        Label("Fuera de tiempo", systemImage: "clock.badge.exclamationmark.fill")
-                            .font(.system(size: 10, weight: .black))
-                            .foregroundStyle(Palette.danger)
-                    } else {
-                        Text(Fmt.relative(order.assignedAt, from: now))
-                            .font(.system(size: 10))
-                            .foregroundStyle(Palette.textMuted)
+                    TimeScope(.minute) { now in
+                        if order.isOverdue(now: now) {
+                            Label("Fuera de tiempo", systemImage: "clock.badge.exclamationmark.fill")
+                                .font(.system(size: 10, weight: .black))
+                                .foregroundStyle(Palette.danger)
+                        } else {
+                            Text(Fmt.relative(order.assignedAt, from: now))
+                                .font(.system(size: 10))
+                                .foregroundStyle(Palette.textMuted)
+                        }
                     }
                 }
             }
@@ -395,11 +403,14 @@ struct WorkOrderDetailView: View {
                     tone: actual <= order.estimatedMinutes ? Palette.volt : Palette.amber
                 )
             }
-            DetailRow(
-                label: "Compromiso",
-                value: "\(Fmt.dateShort(order.dueAt)) \(Fmt.clock(order.dueAt))",
-                tone: order.isOverdue(now: office.now) ? Palette.danger : .primary
-            )
+            // Only the colour of this one row turns when the commitment is missed.
+            TimeScope(.minute) { now in
+                DetailRow(
+                    label: "Compromiso",
+                    value: "\(Fmt.dateShort(order.dueAt)) \(Fmt.clock(order.dueAt))",
+                    tone: order.isOverdue(now: now) ? Palette.danger : .primary
+                )
+            }
 
             if let reason = order.returnReason {
                 NoticeBanner(symbol: "arrow.uturn.left.circle.fill", title: "Orden devuelta", message: reason, tone: .danger)

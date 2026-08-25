@@ -152,19 +152,7 @@ struct MaintenanceRootView: View {
                 VStack(spacing: 14) {
                     header
 
-                    if !critical.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SupSectionHeader(
-                                title: "Atención inmediata",
-                                subtitle: "Prioridad crítica o fuera de tiempo"
-                            )
-                            ForEach(critical) { order in
-                                WorkOrderRow(order: order, now: office.now) { openOrderId = order.id }
-                            }
-                        }
-                        .padding(16)
-                        .panel()
-                    }
+                    ImmediateAttentionPanel(office: office) { openOrderId = $0 }
 
                     VStack(alignment: .leading, spacing: 10) {
                         FilterScroller(
@@ -184,7 +172,7 @@ struct MaintenanceRootView: View {
                             )
                         } else {
                             ForEach(visibleOrders) { order in
-                                WorkOrderRow(order: order, now: office.now) { openOrderId = order.id }
+                                WorkOrderRow(order: order) { openOrderId = order.id }
                             }
                         }
                     }
@@ -196,10 +184,6 @@ struct MaintenanceRootView: View {
             }
             .scrollIndicators(.hidden)
         }
-    }
-
-    private var critical: [WorkOrder] {
-        office.openOrders.filter { $0.priority == .critical || $0.isOverdue(now: office.now) }
     }
 
     private func count(for filter: OrderFilter) -> Int {
@@ -414,5 +398,41 @@ struct MaintenanceRootView: View {
         }
         .padding(16)
         .panel()
+    }
+}
+
+// MARK: - Immediate attention
+
+/// Orders that cannot wait: critical priority, or past their commitment.
+///
+/// This is the one place in the module where the clock changes *membership* rather than a
+/// label — an order joins the panel the minute it misses its `dueAt`. A filter like that
+/// cannot be pushed into a leaf, so the panel is extracted into a view of its own and the
+/// scope wraps its entire content. That is what keeps it honest: everything outside — the
+/// `ScrollView`, the header, the filter scroller, the main board and its rows — is out of
+/// reach. Declared exception to the leaf rule, on the same terms as the station meters.
+private struct ImmediateAttentionPanel: View {
+    let office: StationOfficeStore
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            let critical = office.openOrders.filter {
+                $0.priority == .critical || $0.isOverdue(now: now)
+            }
+            if !critical.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    SupSectionHeader(
+                        title: "Atención inmediata",
+                        subtitle: "Prioridad crítica o fuera de tiempo"
+                    )
+                    ForEach(critical) { order in
+                        WorkOrderRow(order: order) { onOpen(order.id) }
+                    }
+                }
+                .padding(16)
+                .panel()
+            }
+        }
     }
 }

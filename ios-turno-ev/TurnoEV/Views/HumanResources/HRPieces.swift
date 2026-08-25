@@ -213,14 +213,23 @@ struct PipelineFunnel: View {
 
 // MARK: - Documents
 
+/// One document of a file, with its resolved state.
+///
+/// A document expires on a date, so both the state and the caption underneath it change on
+/// their own — and they change *together*, which makes the row the smallest honest unit.
+/// It registers that dependency itself so the file screen around it does not have to.
 struct DocumentRow: View {
     let document: StaffDocument
-    let now: Date
     var action: (() -> Void)?
 
-    private var status: DocumentStatus { document.resolvedStatus(now: now) }
-
     var body: some View {
+        TimeScope(.minute) { now in
+            row(status: document.resolvedStatus(now: now), now: now)
+        }
+    }
+
+    @ViewBuilder
+    private func row(status: DocumentStatus, now: Date) -> some View {
         let content = HStack(spacing: 12) {
             Image(systemName: status.symbol)
                 .font(.system(.footnote, weight: .bold))
@@ -232,7 +241,7 @@ struct DocumentRow: View {
                 Text(document.kind.label)
                     .font(.system(.footnote, weight: .bold))
                     .multilineTextAlignment(.leading)
-                Text(detail)
+                Text(detail(now: now))
                     .font(.system(size: 10))
                     .foregroundStyle(Palette.textMuted)
                     .multilineTextAlignment(.leading)
@@ -255,7 +264,7 @@ struct DocumentRow: View {
         }
     }
 
-    private var detail: String {
+    private func detail(now: Date) -> String {
         if let days = document.daysToExpiry(now: now) {
             if days < 0 { return "Venció hace \(-days) días" }
             if days < HRRules.documentWarningDays { return "Vence en \(days) días" }

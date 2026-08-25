@@ -99,24 +99,28 @@ struct HRCapacityView: View {
                 )
             } else {
                 ForEach(people) { file in
-                    HStack(spacing: 10) {
-                        Image(systemName: file.status.symbol)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(file.hasCriticalExpired(now: office.now) ? Palette.danger : file.status.tone)
-                            .frame(width: 28, height: 28)
-                            .background(Palette.surfaceRaised, in: .rect(cornerRadius: 9))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.shortName)
-                                .font(.system(.footnote, weight: .bold))
-                            Text("\(file.block.shortLabel) · \(file.unavailableReason(now: office.now) ?? "—")")
-                                .font(.system(size: 10))
-                                .foregroundStyle(Palette.textMuted)
+                    // One scope per row: the icon's colour and the reason line are the two
+                    // things a crossed expiry date changes, and they change together.
+                    TimeScope(.minute) { now in
+                        HStack(spacing: 10) {
+                            Image(systemName: file.status.symbol)
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(file.hasCriticalExpired(now: now) ? Palette.danger : file.status.tone)
+                                .frame(width: 28, height: 28)
+                                .background(Palette.surfaceRaised, in: .rect(cornerRadius: 9))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.shortName)
+                                    .font(.system(.footnote, weight: .bold))
+                                Text("\(file.block.shortLabel) · \(file.unavailableReason(now: now) ?? "—")")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Palette.textMuted)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        Spacer(minLength: 0)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .panelFlat(cornerRadius: 14)
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .panelFlat(cornerRadius: 14)
                 }
             }
         }
@@ -143,7 +147,7 @@ struct HRCapacityView: View {
             }
 
             ForEach(office.incorporations) { incorporation in
-                IncorporationRow(incorporation: incorporation, now: office.now)
+                IncorporationRow(incorporation: incorporation)
             }
         }
         .padding(16)
@@ -152,9 +156,11 @@ struct HRCapacityView: View {
 }
 
 /// One purchase batch on its way to the station.
+///
+/// Only the countdown to the day it starts operating moves on its own; the row carries
+/// that dependency itself.
 struct IncorporationRow: View {
     let incorporation: VehicleIncorporation
-    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -183,9 +189,11 @@ struct IncorporationRow: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(Palette.volt, in: .capsule)
-                Text("en \(incorporation.daysToOperation(now: now)) días")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
+                TimeScope(.minute) { now in
+                    Text("en \(incorporation.daysToOperation(now: now)) días")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.textMuted)
+                }
             }
 
             if !incorporation.note.isEmpty {

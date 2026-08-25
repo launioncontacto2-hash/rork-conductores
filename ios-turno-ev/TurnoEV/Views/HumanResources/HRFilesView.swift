@@ -66,17 +66,7 @@ struct HRFilesView: View {
                         )
                     } else {
                         ForEach(files) { file in
-                            PersonRow(
-                                title: file.shortName,
-                                subtitle: "\(file.employeeNumber) · \(file.block.shortLabel) · \(file.status.label)",
-                                initials: file.initials,
-                                tone: file.status.tone,
-                                trailing: "\(file.completionPct(now: office.now))%",
-                                trailingTone: file.completionPct(now: office.now) == 100 ? Palette.volt : Palette.amber,
-                                isLive: file.isLiveSession
-                            ) {
-                                selected = file.id
-                            }
+                            EmployeeFileRow(file: file) { selected = file.id }
                         }
                     }
                 }
@@ -117,6 +107,33 @@ struct HRFilesView: View {
                 value: "\(office.expiredDocumentFiles.count)",
                 hint: "Bloquean turno",
                 tone: office.expiredDocumentFiles.isEmpty ? .volt : .danger
+            )
+        }
+    }
+}
+
+/// One file in the search list.
+///
+/// The completion percentage is the only thing the clock decides here, and it decides both
+/// the number and its colour — so the row is the unit and it owns the scope. A list of two
+/// hundred employees invalidates two hundred rows at most, and never the `ScrollView`, the
+/// search field, the block filter or the summary tiles above them.
+private struct EmployeeFileRow: View {
+    let file: EmployeeFile
+    let onOpen: () -> Void
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            let pct = file.completionPct(now: now)
+            PersonRow(
+                title: file.shortName,
+                subtitle: "\(file.employeeNumber) · \(file.block.shortLabel) · \(file.status.label)",
+                initials: file.initials,
+                tone: file.status.tone,
+                trailing: "\(pct)%",
+                trailingTone: pct == 100 ? Palette.volt : Palette.amber,
+                isLive: file.isLiveSession,
+                action: onOpen
             )
         }
     }
@@ -234,37 +251,43 @@ struct EmployeeFileView: View {
         .panel()
     }
 
+    /// Percentage, progress bar, missing list and the blocking banner all move together
+    /// when a document crosses its expiry date, so the card is the smallest honest unit and
+    /// the scope stops there. The `ScrollView`, the identity card above and the documents,
+    /// banking and history panels below are never re-evaluated by the clock.
     private func completion(_ file: EmployeeFile) -> some View {
-        let pct = file.completionPct(now: office.now)
-        let missing = file.missingDocuments(now: office.now)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Expediente \(pct) % completo")
-                    .font(.system(.headline, weight: .black))
-                    .foregroundStyle(pct == 100 ? Palette.volt : Palette.amber)
-                Spacer(minLength: 0)
+        TimeScope(.minute) { now in
+            let pct = file.completionPct(now: now)
+            let missing = file.missingDocuments(now: now)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Expediente \(pct) % completo")
+                        .font(.system(.headline, weight: .black))
+                        .foregroundStyle(pct == 100 ? Palette.volt : Palette.amber)
+                    Spacer(minLength: 0)
+                }
+                ProgressTrack(value: Double(pct), goal: 100, tone: pct == 100 ? Palette.volt : Palette.amber)
+                if missing.isEmpty {
+                    Text("Sin documentos faltantes.")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                } else {
+                    Text("Faltan: \(missing.map(\.label).joined(separator: ", "))")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                }
+                if file.hasCriticalExpired(now: now) {
+                    NoticeBanner(
+                        symbol: "calendar.badge.exclamationmark",
+                        title: "Documentación crítica vencida",
+                        message: "No puede tomar turno hasta actualizar licencia o identificación oficial.",
+                        tone: .danger
+                    )
+                }
             }
-            ProgressTrack(value: Double(pct), goal: 100, tone: pct == 100 ? Palette.volt : Palette.amber)
-            if missing.isEmpty {
-                Text("Sin documentos faltantes.")
-                    .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
-            } else {
-                Text("Faltan: \(missing.map(\.label).joined(separator: ", "))")
-                    .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
-            }
-            if file.hasCriticalExpired(now: office.now) {
-                NoticeBanner(
-                    symbol: "calendar.badge.exclamationmark",
-                    title: "Documentación crítica vencida",
-                    message: "No puede tomar turno hasta actualizar licencia o identificación oficial.",
-                    tone: .danger
-                )
-            }
+            .padding(16)
+            .panel()
         }
-        .padding(16)
-        .panel()
     }
 
     private func documents(_ file: EmployeeFile) -> some View {
@@ -278,7 +301,9 @@ struct EmployeeFileView: View {
                             .font(.system(size: 11, weight: .black))
                             .foregroundStyle(Palette.textMuted)
                         ForEach(documents) { document in
-                            DocumentRow(document: document, now: office.now) {
+                            // The row keeps its own clock; the closure is action time — the
+                            // instant the desk toggles the document, not a cadence.
+                            DocumentRow(document: document) {
                                 let status = document.resolvedStatus(now: office.now)
                                 office.setDocument(
                                     document.kind,

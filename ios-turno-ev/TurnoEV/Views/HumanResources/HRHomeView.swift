@@ -204,10 +204,12 @@ struct HRHomeView: View {
             }
 
             if let last = recentHires.first, let hiredAt = last.hiredAt {
-                Text("Última alta: \(last.name) · \(last.block.label) · firmada por \(last.recruiterName) \(Fmt.relative(hiredAt, from: office.now)).")
-                    .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                TimeScope(.minute) { now in
+                    Text("Última alta: \(last.name) · \(last.block.label) · firmada por \(last.recruiterName) \(Fmt.relative(hiredAt, from: now)).")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Text("Tú no entrevistas ni autorizas altas: cuando reclutamiento firma, el expediente aparece solo en tus expedientes y el conductor ya puede tomar turno.")
