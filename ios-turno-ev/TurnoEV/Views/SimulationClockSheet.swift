@@ -306,61 +306,56 @@ struct SimulationClockSheet: View {
 /// The two hours, the date and the pace badge — the only part of the sheet that has to
 /// follow the clock second by second.
 ///
-/// It is a leaf on purpose. Its heartbeat is a private `@State` nobody else observes, so
-/// an accelerated clock repaints this panel and nothing above it. The previous
-/// `TimelineView(.periodic(from: .now, ...))` read `.now` inline, which handed the
-/// schedule a new origin on every body pass: an origin already in the past fires
-/// immediately, and the immediate fire caused the next pass. That loop is gone with it.
+/// The panel itself is static. Each reading registers its own dependency, at its own
+/// cadence, inside its own `TimeScope`, so the passing of time repaints two numbers and a
+/// date — never the panel, the scroll view, the steppers, the speed picker or the
+/// diagnostic section.
+///
+/// Two mechanisms were tried here and both are gone. The original
+/// `TimelineView(.periodic(from: .now, ...))` read `.now` inline, handing the schedule a
+/// new origin on every body pass: an origin already in the past fires immediately, and the
+/// immediate fire caused the next pass. Its replacement, a private `pulse` written by a
+/// `.task` loop, was inert — the body never read it, so the write registered no dependency
+/// and invalidated nothing. The panel only appeared to follow the clock because it is the
+/// surface the commands are pressed on, and every command bumped `ClockSignal.generation`
+/// through `store.now`.
 private struct ClockReadingsPanel: View {
     let onEditHour: () -> Void
 
-    @Environment(FleetStore.self) private var store
-    @Environment(\.scenePhase) private var scenePhase
-
-    /// Heartbeat. Its only job is to invalidate *this* panel; the value is never displayed.
-    ///
-    /// TRANSITORIO — se retira al migrar. Sustituto: envolver el contenido en
-    /// `TimeScope(.second)` y borrar `pulse`, `cadence`, `tickerKey` y la `.task`. Este
-    /// bucle no debe copiarse a ninguna otra vista: `ClockBeat` ya es el único productor.
-    @State private var pulse: Date = .now
-
     private var signal: ClockSignal { ClockSignal.shared }
 
+    /// Episodic, not periodic: the badge changes when the pace is changed, here or on
+    /// another device, and at no other time.
     private var speed: SimulationSpeed { signal.speed }
-
-    /// Real seconds between repaints, divided by the pace so one tick advances roughly one
-    /// simulated second. Paused, the panel still refreshes the real hour, slowly.
-    private var cadence: Double {
-        guard !speed.isPaused else { return 60 }
-        return max(0.1, 1.0 / Double(speed.rawValue))
-    }
-
-    /// Restarting key: a pace change rebuilds the loop — which is what `.id(generation)`
-    /// used to do by destroying the whole panel — and leaving the foreground tears it down.
-    private var tickerKey: String { "\(cadence)-\(scenePhase == .active)" }
 
     var body: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                reading(
-                    caption: "Hora real",
-                    value: Fmt.clockSeconds(AppClock.realNow()),
-                    tone: Palette.textMuted
-                )
+                // The wall clock, not the simulated one, so the instant is read straight
+                // from `AppClock.realNow()`. The scope is here only to supply the cadence.
+                TimeScope(.second) { _ in
+                    reading(
+                        caption: "Hora real",
+                        value: Fmt.clockSeconds(AppClock.realNow()),
+                        tone: Palette.textMuted
+                    )
+                }
 
                 // The hour itself is the control: tapping it jumps straight to any
                 // point of the simulation instead of pressing +1 h over and over.
                 Button {
                     onEditHour()
                 } label: {
-                    reading(
-                        caption: "Hora de prueba",
-                        // Always with seconds: a boundary test is decided in the last
-                        // ten of them, and HH:mm hid exactly that.
-                        value: Fmt.clockSeconds(store.now),
-                        tone: Palette.amber,
-                        isEditable: true
-                    )
+                    TimeScope(.second) { now in
+                        reading(
+                            caption: "Hora de prueba",
+                            // Always with seconds: a boundary test is decided in the last
+                            // ten of them, and HH:mm hid exactly that.
+                            value: Fmt.clockSeconds(now),
+                            tone: Palette.amber,
+                            isEditable: true
+                        )
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -369,8 +364,11 @@ private struct ClockReadingsPanel: View {
                 Image(systemName: "calendar")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(Palette.textMuted)
-                Text("Fecha de prueba · \(Fmt.dateLong(store.now).capitalized)")
-                    .font(.system(.footnote, weight: .semibold))
+                // A date has no business hearing about seconds.
+                TimeScope(.minute) { now in
+                    Text("Fecha de prueba · \(Fmt.dateLong(now).capitalized)")
+                        .font(.system(.footnote, weight: .semibold))
+                }
                 Spacer(minLength: 0)
                 Text(speed.label.uppercased())
                     .font(.system(size: 9, weight: .black))
@@ -384,15 +382,6 @@ private struct ClockReadingsPanel: View {
         .padding(15)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panel()
-        .task(id: tickerKey) {
-            guard scenePhase == .active else { return }
-            let interval = cadence
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(interval))
-                if Task.isCancelled { break }
-                pulse = AppClock.realNow()
-            }
-        }
     }
 
     private func reading(
