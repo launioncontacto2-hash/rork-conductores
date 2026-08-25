@@ -95,40 +95,44 @@ struct RootTabView: View {
     var body: some View {
         Group {
             if store.hasAccess(to: .driver) {
-                // Un conductor autenticado entra a su perfil a cualquier hora. Estar
-                // fuera de la ventana de turno afecta a lo que puede *hacer* en la
-                // pestaña Turno, nunca a lo que puede consultar.
+                // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
                 //
-                // Metas y Bonos siguen fuera por una razón distinta y estrictamente
-                // técnica: son las dos pantallas que aún montan `TimelineView` sobre un
-                // `ScrollView` — y Metas además `EditorStack` —, los productores A1 y A2
-                // del inventario. Vuelven en cuanto migren a `TimeScope`. Literales, para
-                // restituirlas sin reescribir nada:
+                // El contenedor quedó descartado en la medición anterior: `TabView`,
+                // `selection` y el tinte abrieron estables con una pestaña inerte. Ahora
+                // se monta únicamente `ShiftView` en esa misma pestaña, sin las otras
+                // cinco y sin el badge, para atribuir el watchdog a una sola vista. Las
+                // pestañas originales quedan abajo, literales, para restituirlas sin
+                // reescribir nada.
+                TabView(selection: $selection) {
+                    Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
+                        ShiftView()
+                    }
+                }
+                .tint(Palette.volt)
+
+                // Pestañas originales, fuera de servicio mientras dura el experimento:
                 //
+                //     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
+                //         ShiftView()
+                //     }
+                //     Tab(value: 1) {
+                //         DriverShiftsView()
+                //     } label: {
+                //         Label("Turnos", systemImage: "calendar")
+                //     }
+                //     .badge(availableGuardCount)
                 //     Tab("Metas", systemImage: "target", value: 2) {
                 //         GoalsView()
                 //     }
                 //     Tab("Bonos", systemImage: "rosette", value: 3) {
                 //         BonusesView()
                 //     }
-                TabView(selection: $selection) {
-                    Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
-                        ShiftView()
-                    }
-                    Tab(value: 1) {
-                        DriverShiftsView()
-                    } label: {
-                        Label("Turnos", systemImage: "calendar")
-                    }
-                    .badge(availableGuardCount)
-                    Tab("Cartera", systemImage: "banknote.fill", value: 4) {
-                        WalletView()
-                    }
-                    Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
-                        HistoryView()
-                    }
-                }
-                .tint(Palette.volt)
+                //     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
+                //         WalletView()
+                //     }
+                //     Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
+                //         HistoryView()
+                //     }
             } else {
                 AccessDeniedView()
             }
