@@ -79,15 +79,28 @@ struct ContentView: View {
     }
 }
 
-/// Driver interface: five operational tabs. Station notices live behind the bell in
-/// the shift header, not in the tab bar.
+/// Driver interface. Station notices live behind the bell in the shift header, not in the
+/// tab bar.
+///
+/// Being signed in and being on shift are two different states: every tab here is the
+/// driver's own profile and opens at any hour, with or without `activeShift`, inside the
+/// start window or not. Only *starting* a shift is governed by `ShiftRules`.
 struct RootTabView: View {
     @Environment(FleetStore.self) private var store
     @Environment(CoverageStore.self) private var coverage
     @State private var selection: Int = 0
 
-    /// Seats this driver could take right now, shown on the tab so an open guard is never
-    /// missed while the person is on the floor.
+    /// Seats this driver could take right now.
+    ///
+    /// **Deliberately not wired to the tab.** Reading it registers a dependency on the
+    /// global clock signal, and reading it *here* would register it on `RootTabView` —
+    /// invalidating the whole `TabView` and every tab inside it, not just the badge.
+    ///
+    /// The chain: `availableGuards(for:)` → `evaluate(profile:vacancy:)` →
+    /// `context(for:vacancy:)`, which builds an `EligibilityContext` carrying
+    /// `CoverageStore.now` → `fleet.now` → `ClockSignal.generation`. The count itself does
+    /// not depend on the hour at all: `CoverageRules.evaluate` never reads `context.now`.
+    /// It restores once that read is resolved in its own phase.
     private var availableGuardCount: Int {
         coverage.availableGuards(for: coverage.profile(for: store.driver)).count
     }
@@ -95,43 +108,35 @@ struct RootTabView: View {
     var body: some View {
         Group {
             if store.hasAccess(to: .driver) {
-                // DIAGNÓSTICO TEMPORAL — no es el comportamiento final.
-                //
-                // El contenedor quedó descartado en la medición anterior: `TabView`,
-                // `selection` y el tinte abrieron estables con una pestaña inerte. Ahora
-                // se monta únicamente `ShiftView` en esa misma pestaña, sin las otras
-                // cinco y sin el badge, para atribuir el watchdog a una sola vista. Las
-                // pestañas originales quedan abajo, literales, para restituirlas sin
-                // reescribir nada.
+                // Values 2 and 3 stay reserved for Metas and Bonos, which are still on
+                // `TimelineView`. Keeping the numbering means restoring them later does not
+                // renumber — and does not silently move a driver to another tab.
                 TabView(selection: $selection) {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
                         ShiftView()
                     }
+                    Tab(value: 1) {
+                        DriverShiftsView()
+                    } label: {
+                        Label("Turnos", systemImage: "calendar")
+                    }
+                    // .badge(availableGuardCount) — see the property above.
+                    Tab("Cartera", systemImage: "banknote.fill", value: 4) {
+                        WalletView()
+                    }
+                    Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
+                        HistoryView()
+                    }
                 }
                 .tint(Palette.volt)
 
-                // Pestañas originales, fuera de servicio mientras dura el experimento:
+                // Pendientes de migración temporal, no de esta fase:
                 //
-                //     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
-                //         ShiftView()
-                //     }
-                //     Tab(value: 1) {
-                //         DriverShiftsView()
-                //     } label: {
-                //         Label("Turnos", systemImage: "calendar")
-                //     }
-                //     .badge(availableGuardCount)
                 //     Tab("Metas", systemImage: "target", value: 2) {
                 //         GoalsView()
                 //     }
                 //     Tab("Bonos", systemImage: "rosette", value: 3) {
                 //         BonusesView()
-                //     }
-                //     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
-                //         WalletView()
-                //     }
-                //     Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
-                //         HistoryView()
                 //     }
             } else {
                 AccessDeniedView()
