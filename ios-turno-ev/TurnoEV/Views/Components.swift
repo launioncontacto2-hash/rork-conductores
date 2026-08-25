@@ -583,43 +583,13 @@ struct DemoClockButton: View {
 
 /// The visible face of `DemoClockButton`, isolated on purpose.
 ///
-/// It exists so the hour is read at the very tip of the view tree. Its heartbeat is a
-/// private `@State` that nothing else observes, so an advancing clock repaints these few
-/// glyphs and stops there — it does not invalidate the toolbar item, the navigation bar,
-/// or the screen hosting them, which is what an enclosing `TimelineView` used to do.
+/// The chip itself is static: it knows the environment and the sync status, neither of
+/// which follows the clock. The hour lives one level deeper, in `DemoClockReading`, so the
+/// passing of time repaints a single `Text` and reaches neither this capsule nor the
+/// toolbar item, the navigation bar, or the screen hosting them.
 private struct DemoClockChip: View {
     let isTest: Bool
     let badge: String?
-
-    @Environment(FleetStore.self) private var store
-    @Environment(\.scenePhase) private var scenePhase
-
-    /// Heartbeat. Its only job is to invalidate *this* view; the value is never displayed.
-    ///
-    /// TRANSITORIO — se retira al migrar. Sustituto: envolver el contenido en
-    /// `TimeScope(.second)` y borrar `pulse`, `cadence`, `tickerKey` y la `.task`. Este
-    /// bucle no debe copiarse a ninguna otra vista: `ClockBeat` ya es el único productor.
-    @State private var pulse: Date = .now
-
-    /// Observable mirror of the clock, so the chip follows a pause or a pace change made
-    /// on another device. Read here, at the leaf, instead of on the hosting screen.
-    private var signal: ClockSignal { ClockSignal.shared }
-
-    /// Local repaint cadence, matched to the simulated pace so acceleration stays visible.
-    /// A paused or production clock still refreshes, just at the pace it actually needs.
-    private var cadence: Double {
-        guard isTest, !signal.speed.isPaused else { return 30 }
-        return max(0.1, 1.0 / Double(signal.speed.rawValue))
-    }
-
-    /// Restarting key: the loop is rebuilt when the pace changes and torn down when the
-    /// app leaves the foreground, so nothing ticks behind a locked screen.
-    private var tickerKey: String { "\(cadence)-\(scenePhase == .active)" }
-
-    /// Seconds are shown throughout the simulation: a boundary test is decided in them.
-    private var reading: String {
-        isTest ? Fmt.clockSeconds(store.now) : Fmt.clock(store.now)
-    }
 
     /// Colour of the shared-clock dot. Only meaningful inside the simulation.
     private var syncTint: Color {
@@ -633,11 +603,13 @@ private struct DemoClockChip: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
-            Text(reading)
-                .monospacedDigit()
+                .accessibilityHidden(true)
+            DemoClockReading(isTest: isTest)
             if let badge {
                 Text(badge)
                     .font(.system(size: 8, weight: .black))
+                    // The spoken label already says "Reloj de prueba" or "Producción".
+                    .accessibilityHidden(true)
             }
             // Whether a second device is standing on this same hour.
             if isTest {
@@ -655,20 +627,32 @@ private struct DemoClockChip: View {
         .overlay {
             Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            isTest
-                ? "Reloj de prueba, \(reading). Abrir controles de tiempo."
-                : "Producción, \(reading). Abrir selector de entorno."
-        )
-        .task(id: tickerKey) {
-            guard scenePhase == .active else { return }
-            let interval = cadence
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(interval))
-                if Task.isCancelled { break }
-                pulse = AppClock.realNow()
-            }
+    }
+}
+
+/// The hour, and the only part of the button that follows the clock.
+///
+/// `TimeScope` is where the dependency is registered, so invalidation stops at this `Text`.
+/// The cadence matches what is actually written: seconds are shown throughout the
+/// simulation — a boundary test is decided in them — while production reads `HH:mm` and
+/// has no reason to hear about the other fifty-nine.
+///
+/// A jump is covered by the same read: every cadence of `TimeScope` also observes
+/// `phaseEpoch`, which `ClockBeat` raises on any adopted state — a command, a pace change,
+/// an hour set by hand, a clock arriving from another device.
+private struct DemoClockReading: View {
+    let isTest: Bool
+
+    var body: some View {
+        TimeScope(isTest ? .second : .minute) { now in
+            let value = isTest ? Fmt.clockSeconds(now) : Fmt.clock(now)
+            Text(value)
+                .monospacedDigit()
+                .accessibilityLabel(
+                    isTest
+                        ? "Reloj de prueba, \(value). Abrir controles de tiempo."
+                        : "Producción, \(value). Abrir selector de entorno."
+                )
         }
     }
 }
