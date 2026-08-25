@@ -21,16 +21,6 @@ struct SimulationClockSheet: View {
 
     private var speed: SimulationSpeed { signal.speed }
 
-    /// Real seconds between redraws. Purely local: it only repaints, it never writes.
-    ///
-    /// The period is divided by the pace so one tick advances roughly one simulated second.
-    /// At x10 that is a redraw every 0.1 s real, which is what makes the acceleration
-    /// visible instead of leaving the reading apparently frozen.
-    private var tickInterval: Double {
-        guard !speed.isPaused else { return 60 }
-        return max(0.1, 1.0 / Double(speed.rawValue))
-    }
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -38,7 +28,7 @@ struct SimulationClockSheet: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        readings
+                        ClockReadingsPanel(onEditHour: openPicker)
                         steppers
                         speedPicker
                         configureButton
@@ -64,98 +54,6 @@ struct SimulationClockSheet: View {
         .presentationDetents([.large])
         .presentationContentInteraction(.scrolls)
         .preferredColorScheme(.dark)
-    }
-
-    // MARK: - Readings
-
-    private var readings: some View {
-        // While the clock runs the panel has to breathe with it; paused it stays still.
-        // `.id(signal.generation)` rebuilds the schedule whenever a state is adopted, so a
-        // pause or a speed change coming from the other device restarts the cadence instead
-        // of leaving the old one running.
-        TimelineView(.periodic(from: .now, by: tickInterval)) { _ in
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    reading(
-                        caption: "Hora real",
-                        value: Fmt.clockSeconds(AppClock.realNow()),
-                        tone: Palette.textMuted
-                    )
-
-                    // The hour itself is the control: tapping it jumps straight to any
-                    // point of the simulation instead of pressing +1 h over and over.
-                    Button {
-                        openPicker()
-                    } label: {
-                        reading(
-                            caption: "Hora de prueba",
-                            // Always with seconds: a boundary test is decided in the last
-                            // ten of them, and HH:mm hid exactly that.
-                            value: Fmt.clockSeconds(store.now),
-                            tone: Palette.amber,
-                            isEditable: true
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                HStack(spacing: 8) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Palette.textMuted)
-                    Text("Fecha de prueba · \(Fmt.dateLong(store.now).capitalized)")
-                        .font(.system(.footnote, weight: .semibold))
-                    Spacer(minLength: 0)
-                    Text(speed.label.uppercased())
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(0.8)
-                        .foregroundStyle(speed.isPaused ? Palette.info : Palette.amber)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((speed.isPaused ? Palette.info : Palette.amber).opacity(0.15), in: .capsule)
-                }
-            }
-            .padding(15)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .panel()
-        }
-        .id(signal.generation)
-    }
-
-    private func reading(
-        caption: String,
-        value: String,
-        tone: Color,
-        isEditable: Bool = false
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
-                Text(caption.uppercased())
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(0.8)
-                    .foregroundStyle(Palette.textMuted)
-                if isEditable {
-                    Image(systemName: "pencil.circle.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(tone)
-                }
-                Spacer(minLength: 0)
-            }
-            Text(value)
-                .font(.system(size: 30, weight: .black, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(tone)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .panelFlat(cornerRadius: 16)
-        .overlay {
-            if isEditable {
-                RoundedRectangle(cornerRadius: 16).stroke(tone.opacity(0.45), lineWidth: 1)
-            }
-        }
     }
 
     // MARK: - Steppers
@@ -339,7 +237,7 @@ struct SimulationClockSheet: View {
 
             // Said plainly, so no two-device test is run on a false assumption.
             syncNotice
-            realtimeDiagnostic
+            RealtimeDiagnosticPanel()
         }
         .frame(maxWidth: .infinity)
     }
@@ -380,15 +278,171 @@ struct SimulationClockSheet: View {
         .background((isShared ? Palette.volt : Palette.info).opacity(0.08), in: .rect(cornerRadius: 13))
     }
 
-    /// End-to-end trace of the shared clock, visible during the two-device test.
-    ///
-    /// It separates the two failures that look identical from the outside: `recibidos = 0`
-    /// means the UPDATE never reached this phone, while `recibidos > 0` with a stale reading
-    /// means it arrived and the interface did not redraw.
-    private var realtimeDiagnostic: some View {
-        let sync = SharedClockSync.shared
+    /// Instant the picker is currently describing, seconds included.
+    private var pendingInstant: Date {
+        SimulationClock.combine(day: pickedDay, time: pickedTime, second: pickedSecond)
+    }
 
-        return VStack(alignment: .leading, spacing: 4) {
+    private func openPicker() {
+        let current = store.now
+        pickedDay = current
+        pickedTime = current
+        pickedSecond = SimulationClock.second(of: current)
+        isPickerPresented = true
+    }
+
+    /// Follow-up to a local change. It performs **no** write of its own: the single logical
+    /// publication already happened inside `SimulationClock.save`, which handed the state to
+    /// `SharedSimulationClock.publish` and from there to one RPC call. This only keeps the
+    /// stored offset in step and confirms the tap.
+    private func publish() {
+        store.syncSimulationClock()
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+}
+
+// MARK: - Readings
+
+/// The two hours, the date and the pace badge — the only part of the sheet that has to
+/// follow the clock second by second.
+///
+/// It is a leaf on purpose. Its heartbeat is a private `@State` nobody else observes, so
+/// an accelerated clock repaints this panel and nothing above it. The previous
+/// `TimelineView(.periodic(from: .now, ...))` read `.now` inline, which handed the
+/// schedule a new origin on every body pass: an origin already in the past fires
+/// immediately, and the immediate fire caused the next pass. That loop is gone with it.
+private struct ClockReadingsPanel: View {
+    let onEditHour: () -> Void
+
+    @Environment(FleetStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Heartbeat. Its only job is to invalidate *this* panel; the value is never displayed.
+    @State private var pulse: Date = .now
+
+    private var signal: ClockSignal { ClockSignal.shared }
+
+    private var speed: SimulationSpeed { signal.speed }
+
+    /// Real seconds between repaints, divided by the pace so one tick advances roughly one
+    /// simulated second. Paused, the panel still refreshes the real hour, slowly.
+    private var cadence: Double {
+        guard !speed.isPaused else { return 60 }
+        return max(0.1, 1.0 / Double(speed.rawValue))
+    }
+
+    /// Restarting key: a pace change rebuilds the loop — which is what `.id(generation)`
+    /// used to do by destroying the whole panel — and leaving the foreground tears it down.
+    private var tickerKey: String { "\(cadence)-\(scenePhase == .active)" }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                reading(
+                    caption: "Hora real",
+                    value: Fmt.clockSeconds(AppClock.realNow()),
+                    tone: Palette.textMuted
+                )
+
+                // The hour itself is the control: tapping it jumps straight to any
+                // point of the simulation instead of pressing +1 h over and over.
+                Button {
+                    onEditHour()
+                } label: {
+                    reading(
+                        caption: "Hora de prueba",
+                        // Always with seconds: a boundary test is decided in the last
+                        // ten of them, and HH:mm hid exactly that.
+                        value: Fmt.clockSeconds(store.now),
+                        tone: Palette.amber,
+                        isEditable: true
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Palette.textMuted)
+                Text("Fecha de prueba · \(Fmt.dateLong(store.now).capitalized)")
+                    .font(.system(.footnote, weight: .semibold))
+                Spacer(minLength: 0)
+                Text(speed.label.uppercased())
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(0.8)
+                    .foregroundStyle(speed.isPaused ? Palette.info : Palette.amber)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background((speed.isPaused ? Palette.info : Palette.amber).opacity(0.15), in: .capsule)
+            }
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel()
+        .task(id: tickerKey) {
+            guard scenePhase == .active else { return }
+            let interval = cadence
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                if Task.isCancelled { break }
+                pulse = AppClock.realNow()
+            }
+        }
+    }
+
+    private func reading(
+        caption: String,
+        value: String,
+        tone: Color,
+        isEditable: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(caption.uppercased())
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(0.8)
+                    .foregroundStyle(Palette.textMuted)
+                if isEditable {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(tone)
+                }
+                Spacer(minLength: 0)
+            }
+            Text(value)
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(tone)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .panelFlat(cornerRadius: 16)
+        .overlay {
+            if isEditable {
+                RoundedRectangle(cornerRadius: 16).stroke(tone.opacity(0.45), lineWidth: 1)
+            }
+        }
+    }
+}
+
+// MARK: - Diagnostic
+
+/// End-to-end trace of the shared clock, visible during the two-device test.
+///
+/// It separates the two failures that look identical from the outside: `recibidos = 0`
+/// means the UPDATE never reached this phone, while `recibidos > 0` with a stale reading
+/// means it arrived and the interface did not redraw.
+///
+/// Kept as a leaf so the counters — and the view generation it still reports — invalidate
+/// this box alone and never the sheet around it.
+private struct RealtimeDiagnosticPanel: View {
+    private var sync: SharedClockSync { SharedClockSync.shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 Text("DIAGNÓSTICO REALTIME")
                     .font(.system(size: 9, weight: .black))
@@ -414,7 +468,7 @@ struct SimulationClockSheet: View {
                 "Eventos recibidos / aplicados",
                 "\(sync.remoteEventsReceived) / \(sync.remoteEventsApplied)"
             )
-            diagnosticLine("Generación de vista", "\(signal.generation)")
+            diagnosticLine("Generación de vista", "\(ClockSignal.shared.generation)")
         }
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -433,28 +487,6 @@ struct SimulationClockSheet: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-    }
-
-    /// Instant the picker is currently describing, seconds included.
-    private var pendingInstant: Date {
-        SimulationClock.combine(day: pickedDay, time: pickedTime, second: pickedSecond)
-    }
-
-    private func openPicker() {
-        let current = store.now
-        pickedDay = current
-        pickedTime = current
-        pickedSecond = SimulationClock.second(of: current)
-        isPickerPresented = true
-    }
-
-    /// Follow-up to a local change. It performs **no** write of its own: the single logical
-    /// publication already happened inside `SimulationClock.save`, which handed the state to
-    /// `SharedSimulationClock.publish` and from there to one RPC call. This only keeps the
-    /// stored offset in step and confirms the tap.
-    private func publish() {
-        store.syncSimulationClock()
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 }
 

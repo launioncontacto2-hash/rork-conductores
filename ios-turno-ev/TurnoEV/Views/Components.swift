@@ -533,10 +533,6 @@ struct DemoClockButton: View {
     @State private var isClockPresented: Bool = false
     @State private var isEnvironmentPresented: Bool = false
 
-    /// Fixed origin of the tick schedule. Reading `.now` inline rebuilt the schedule on
-    /// every body pass, and a schedule whose origin is already in the past fires at once.
-    @State private var tickAnchor: Date = .now
-
     private var isTest: Bool { EnvironmentControl.showsTestBadge(mode: lab.mode) }
 
     /// Turning the simulation on happens *from* production, so this must not depend on
@@ -559,30 +555,6 @@ struct DemoClockButton: View {
 
     private var tint: Color { isTest ? Palette.amber : Palette.textMuted }
 
-    /// Colour of the shared-clock dot. Only meaningful inside the simulation.
-    private var syncTint: Color {
-        switch SharedClockSync.shared.status {
-        case .synced: return Palette.volt
-        case .connecting: return Palette.info
-        case .offline: return Palette.textMuted
-        }
-    }
-
-    /// Observable mirror of the clock, so the chip repaints when another device changes the
-    /// pace or pauses the simulation.
-    private var signal: ClockSignal { ClockSignal.shared }
-
-    /// Local redraw cadence. It only repaints; it never writes anything.
-    private var tickInterval: Double {
-        guard isTest, !signal.speed.isPaused else { return 30 }
-        return max(0.1, 1.0 / Double(signal.speed.rawValue))
-    }
-
-    /// Seconds are shown throughout the simulation: a boundary test is decided in them.
-    private var reading: String {
-        isTest ? Fmt.clockSeconds(store.now) : Fmt.clock(store.now)
-    }
-
     var body: some View {
         Button {
             guard isInteractive else { return }
@@ -594,46 +566,105 @@ struct DemoClockButton: View {
                 isEnvironmentPresented = true
             }
         } label: {
-            // Without a ticker this chip only redrew when something else on the page
-            // happened to change, which is what made an accelerated clock look frozen.
-            TimelineView(.periodic(from: tickAnchor, by: tickInterval)) { _ in
-                HStack(spacing: 5) {
-                    Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
-                    Text(reading)
-                        .monospacedDigit()
-                    if let badge {
-                        Text(badge)
-                            .font(.system(size: 8, weight: .black))
-                    }
-                    // Whether a second device is standing on this same hour.
-                    if isTest {
-                        Circle()
-                            .fill(syncTint)
-                            .frame(width: 5, height: 5)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .font(.system(.caption, weight: .semibold))
-                .foregroundStyle(isTest ? Palette.amber : Color.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Palette.surfaceRaised, in: .capsule)
-                .overlay {
-                    Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
-                }
-            }
+            // The reading — and everything that has to keep pace with it — lives inside a
+            // leaf of its own. The hour is read there and nowhere else, so a repaint of the
+            // chip cannot reach the toolbar, the screen behind it, or this button.
+            DemoClockChip(isTest: isTest, badge: badge)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(
-            isTest
-                ? "Reloj de prueba, \(reading). Abrir controles de tiempo."
-                : "Producción, \(reading). Abrir selector de entorno."
-        )
         .sheet(isPresented: $isClockPresented) {
             SimulationClockSheet()
         }
         .sheet(isPresented: $isEnvironmentPresented) {
             EnvironmentSheet()
+        }
+    }
+}
+
+/// The visible face of `DemoClockButton`, isolated on purpose.
+///
+/// It exists so the hour is read at the very tip of the view tree. Its heartbeat is a
+/// private `@State` that nothing else observes, so an advancing clock repaints these few
+/// glyphs and stops there — it does not invalidate the toolbar item, the navigation bar,
+/// or the screen hosting them, which is what an enclosing `TimelineView` used to do.
+private struct DemoClockChip: View {
+    let isTest: Bool
+    let badge: String?
+
+    @Environment(FleetStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Heartbeat. Its only job is to invalidate *this* view; the value is never displayed.
+    @State private var pulse: Date = .now
+
+    /// Observable mirror of the clock, so the chip follows a pause or a pace change made
+    /// on another device. Read here, at the leaf, instead of on the hosting screen.
+    private var signal: ClockSignal { ClockSignal.shared }
+
+    /// Local repaint cadence, matched to the simulated pace so acceleration stays visible.
+    /// A paused or production clock still refreshes, just at the pace it actually needs.
+    private var cadence: Double {
+        guard isTest, !signal.speed.isPaused else { return 30 }
+        return max(0.1, 1.0 / Double(signal.speed.rawValue))
+    }
+
+    /// Restarting key: the loop is rebuilt when the pace changes and torn down when the
+    /// app leaves the foreground, so nothing ticks behind a locked screen.
+    private var tickerKey: String { "\(cadence)-\(scenePhase == .active)" }
+
+    /// Seconds are shown throughout the simulation: a boundary test is decided in them.
+    private var reading: String {
+        isTest ? Fmt.clockSeconds(store.now) : Fmt.clock(store.now)
+    }
+
+    /// Colour of the shared-clock dot. Only meaningful inside the simulation.
+    private var syncTint: Color {
+        switch SharedClockSync.shared.status {
+        case .synced: return Palette.volt
+        case .connecting: return Palette.info
+        case .offline: return Palette.textMuted
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: isTest ? "clock.badge.exclamationmark" : "clock")
+            Text(reading)
+                .monospacedDigit()
+            if let badge {
+                Text(badge)
+                    .font(.system(size: 8, weight: .black))
+            }
+            // Whether a second device is standing on this same hour.
+            if isTest {
+                Circle()
+                    .fill(syncTint)
+                    .frame(width: 5, height: 5)
+                    .accessibilityHidden(true)
+            }
+        }
+        .font(.system(.caption, weight: .semibold))
+        .foregroundStyle(isTest ? Palette.amber : Color.primary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Palette.surfaceRaised, in: .capsule)
+        .overlay {
+            Capsule().stroke(isTest ? Palette.amber.opacity(0.5) : Palette.hairline, lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            isTest
+                ? "Reloj de prueba, \(reading). Abrir controles de tiempo."
+                : "Producción, \(reading). Abrir selector de entorno."
+        )
+        .task(id: tickerKey) {
+            guard scenePhase == .active else { return }
+            let interval = cadence
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                if Task.isCancelled { break }
+                pulse = AppClock.realNow()
+            }
         }
     }
 }
