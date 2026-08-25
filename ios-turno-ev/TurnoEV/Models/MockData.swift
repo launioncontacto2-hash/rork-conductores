@@ -9,6 +9,22 @@ nonisolated enum MockData {
         LabRuntime.isTest ? (LabRuntime.driver ?? blankDriver) : seededDriver
     }
 
+    /// Driver profile behind a signed-in credential, in whichever environment is active.
+    ///
+    /// The laboratory's own drivers answer first, so a custom world keeps full control of
+    /// its people. Only when the credential is the demonstration Conductor — and the
+    /// laboratory has no driver under that id — does the seeded profile answer, which is
+    /// what makes `drv-1042` a complete, reproducible profile in both environments.
+    ///
+    /// `MockData.driver` alone could not do this: it is session-blind and returns the
+    /// *first* laboratory driver, or `blankDriver` when the world is empty. That is exactly
+    /// how Carlos was being replaced by `drv-none` in test mode.
+    static func driver(for account: StaffAccount) -> Driver? {
+        if let profile = LabRuntime.driver(id: account.driverId) { return profile }
+        guard account.driverId == seededDriver.id else { return nil }
+        return seededDriver
+    }
+
     /// Empty driver used while the test environment has no drivers registered.
     static let blankDriver = Driver(
         id: "drv-none",
@@ -48,8 +64,26 @@ nonisolated enum MockData {
 
     static let vehiclePhotoAsset = "electric_sedan_charging"
 
+    /// The demonstration unit travels with its driver into the test world.
+    ///
+    /// Appended, never substituted: everything the laboratory installed stays exactly as
+    /// it is and comes first. TEV-014 belongs to `est-nte-cdmx`, so a laboratory station
+    /// filtering its own fleet never sees it, and no laboratory driver can be authorized
+    /// for it — `LabWorld.driver(from:)` builds `authorizedVehicleIds` from the units of
+    /// the driver's own station.
     static var vehicles: [Vehicle] {
-        LabRuntime.isTest ? LabRuntime.vehicles : seededVehicles
+        guard LabRuntime.isTest else { return seededVehicles }
+        let installed = LabRuntime.vehicles
+        guard
+            let demo = demoTitularVehicle,
+            !installed.contains(where: { $0.id == demo.id })
+        else { return installed }
+        return installed + [demo]
+    }
+
+    /// TEV-014, the unit paired with the demonstration driver.
+    static var demoTitularVehicle: Vehicle? {
+        seededVehicles.first { $0.id == seededTitularVehicleId }
     }
 
     static var seededVehicles: [Vehicle] {

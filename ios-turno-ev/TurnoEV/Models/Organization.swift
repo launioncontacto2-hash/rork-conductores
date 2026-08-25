@@ -300,15 +300,53 @@ nonisolated enum StaffDirectory {
         LabRuntime.isTest ? LabRuntime.regions : seededRegions
     }
 
+    /// The demo driver's home station travels with him into the test world, so his header,
+    /// his scope line and `currentStation` resolve there too. Appended, never substituted:
+    /// the laboratory's own stations always come first and are never altered.
     static var stations: [Station] {
-        LabRuntime.isTest ? LabRuntime.stations : seededStations
+        guard LabRuntime.isTest else { return seededStations }
+        let created = LabRuntime.stations
+        guard
+            let home = seededStations.first(where: { $0.id == demoDriverAccount.stationId }),
+            !created.contains(where: { $0.id == home.id })
+        else { return created }
+        return created + [home]
     }
 
-    /// The superadmin credential is appended in both environments: it is the only door
-    /// into the console, and wiping the test world must never lock the administrator out.
+    /// Two credentials are appended in both environments.
+    ///
+    /// The superadmin, because it is the only door into the console and wiping the test
+    /// world must never lock the administrator out. And the demonstration driver, for the
+    /// same class of reason: it is the credential the team tests the driver profile with,
+    /// and an empty test world used to erase it — leaving `currentAccount` nil, which sends
+    /// the router to the login screen and takes the account menu with it.
+    ///
+    /// Neither replaces anything the laboratory created; both are additions.
     static var accounts: [StaffAccount] {
-        (LabRuntime.isTest ? LabRuntime.accounts : seededAccounts) + [LabRules.adminAccount]
+        guard LabRuntime.isTest else { return seededAccounts + [LabRules.adminAccount] }
+        return LabRuntime.accounts + [LabRules.adminAccount, demoDriverAccount]
     }
+
+    /// The demonstration Conductor credential: Carlos Méndez Rivas, `drv-1042`.
+    ///
+    /// Held apart from `seededAccounts` (which still contains it) because it is a fixture
+    /// the test environment needs by name.
+    static let demoDriverAccount = StaffAccount(
+        id: "acc-drv-1042",
+        name: "Carlos Méndez Rivas",
+        employeeNumber: "EV-1042",
+        email: "launion.contacto2@gmail.com",
+        password: "Kymyly14",
+        role: .driver,
+        stationId: "est-nte-cdmx",
+        regionId: "reg-vm",
+        slot: .morning,
+        photoAsset: "rideshare_driver_portrait",
+        status: .active,
+        createdById: "acc-sup-201",
+        authorizedById: "acc-ger-045",
+        driverId: "drv-1042"
+    )
 
     static let seededRegions: [Region] = [
         Region(id: "reg-vm", name: "Valle de México", stationIds: ["est-nte-cdmx", "est-sur-cdmx"]),
@@ -512,22 +550,7 @@ nonisolated enum StaffDirectory {
             driverId: nil,
             phone: "33 2740 1163"
         ),
-        StaffAccount(
-            id: "acc-drv-1042",
-            name: "Carlos Méndez Rivas",
-            employeeNumber: "EV-1042",
-            email: "launion.contacto2@gmail.com",
-            password: "Kymyly14",
-            role: .driver,
-            stationId: "est-nte-cdmx",
-            regionId: "reg-vm",
-            slot: .morning,
-            photoAsset: "rideshare_driver_portrait",
-            status: .active,
-            createdById: "acc-sup-201",
-            authorizedById: "acc-ger-045",
-            driverId: "drv-1042"
-        ),
+        demoDriverAccount,
     ]
 
     static func station(id: String?) -> Station? {

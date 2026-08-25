@@ -75,7 +75,23 @@ final class FleetStore {
             notices = MockData.notices(now: seedDate)
             supervisorReports = MockData.supervisorReports(now: seedDate)
         }
+        // A restored session carries only an account id: the driver profile is not
+        // persisted, so it has to be resolved again from the credential. Without this the
+        // app relaunches on `MockData.driver`, which is session-blind — in test mode that
+        // is the laboratory's first driver, or `drv-none`, never the signed-in one.
+        adoptSessionDriver()
         reloadAssignment()
+    }
+
+    /// Aligns `driver` with the credential of the open session.
+    ///
+    /// Only ever runs for a driver session, and only overwrites when the environment can
+    /// actually answer for that credential; anything else leaves the current profile
+    /// untouched.
+    private func adoptSessionDriver() {
+        guard let account = currentAccount, account.role == .driver else { return }
+        guard let profile = MockData.driver(for: account) else { return }
+        driver = profile
     }
 
     // MARK: - Unit assignment
@@ -122,11 +138,15 @@ final class FleetStore {
     /// this exact driver and this exact unit, an unassigned driver stays unassigned, which
     /// is what the operational flow requires.
     ///
-    /// The guards, in order: never inside the laboratory environment, where the world is
-    /// whatever the administrator built and this seeded pair does not belong; only the
-    /// seeded demo driver; only his titular unit, and only while that unit is still one of
-    /// **his own** existing authorizations — the pair is checked against
-    /// `authorizedVehicleIds`, never added to it.
+    /// The guards, in order: only the seeded demo driver — which is what confines this to
+    /// one person in either environment — and only his titular unit, and only while that
+    /// unit is still one of **his own** existing authorizations; the pair is checked
+    /// against `authorizedVehicleIds`, never added to it.
+    ///
+    /// There is deliberately no environment guard. The demo credential now resolves to
+    /// Carlos in test mode too, and a profile that opens without a unit there is precisely
+    /// the failure this pairing exists to prevent. A laboratory driver is unaffected: he
+    /// fails the identity guard on the first line.
     ///
     /// The remaining checks mirror the non-temporal blocking rules of
     /// `ShiftRules.validateUnit`: same station, free, operational, not held by another
@@ -135,7 +155,6 @@ final class FleetStore {
     /// deliberately excluded: the assignment exists at every hour, and the start window is
     /// judged when the driver actually tries to start.
     private func demoTitularUnit() -> Vehicle? {
-        guard !LabRuntime.isTest else { return nil }
         guard driver.id == MockData.seededDriver.id else { return nil }
 
         let unitId = MockData.seededTitularVehicleId
@@ -319,7 +338,7 @@ final class FleetStore {
     /// Opens the session for an already authenticated account and links the device
     /// so future biometric unlocks resolve to this same credential.
     func signIn(account: StaffAccount, method: SignInMethod) {
-        if let profile = LabRuntime.driver(id: account.driverId) {
+        if let profile = MockData.driver(for: account) {
             driver = profile
         } else if LabRuntime.isTest, account.role == .driver {
             driver = MockData.driver
@@ -357,7 +376,11 @@ final class FleetStore {
     /// laboratory changes the world so every interface reflects it immediately.
     func adoptEnvironment() {
         defer { reloadAssignment() }
+        // Same reasoning as in `init`: the session outlives the environment switch, so the
+        // profile is resolved from the credential and only falls back to the
+        // environment's default driver when the credential has none.
         driver = MockData.driver
+        adoptSessionDriver()
         let source = MockData.vehicles
         let activeVehicleId = activeShift?.vehicleId
 

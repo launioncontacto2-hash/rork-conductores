@@ -46,6 +46,20 @@ final class LabStore {
         notify(mode == .test ? "Modo prueba activo" : "Producción activa", tone: mode == .test ? .warning : .success)
     }
 
+    /// The single exit from the simulation, shared by every control that offers one.
+    ///
+    /// The order is the original one and it matters: the shared clock is stopped *before*
+    /// the reset, so leaving test mode on this phone never publishes a reset that would
+    /// drag a second device back to the real hour.
+    func exitTestEnvironment() {
+        guard world.mode == .test else { return }
+        setMode(.production)
+        SharedClockSync.shared.update(isTest: false)
+        // Production always runs on safe real time: any simulated hour is dropped.
+        SimulationClock.reset()
+        fleet?.syncSimulationClock()
+    }
+
     /// The laboratory no longer keeps a clock of its own: it moves the one simulation
     /// clock every role reads.
     func setClockOffset(minutes: Int) {

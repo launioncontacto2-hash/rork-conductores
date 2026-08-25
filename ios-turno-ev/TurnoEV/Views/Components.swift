@@ -449,6 +449,7 @@ struct SessionMenuButton: View {
     @State private var isSigningOut: Bool = false
     @State private var isUnlinking: Bool = false
     @State private var isEnvironmentPresented: Bool = false
+    @State private var isLeavingTestPresented: Bool = false
 
     private var canSwitch: Bool { EnvironmentControl.canSwitchEnvironment(account: store.currentAccount) }
 
@@ -469,14 +470,18 @@ struct SessionMenuButton: View {
                     }
                     Section("Entorno") {
                         Text(lab.mode.label)
+                        // The direct exit, offered to every role and every credential while
+                        // the simulation is on. One tap and a confirmation — no sheet to
+                        // reach it, no laboratory rights, no sign out. It is the only
+                        // environment action a plain profile ever gets: this button cannot
+                        // enter Modo prueba, only leave it.
+                        if canLeaveTest {
+                            Button("Volver a Producción", systemImage: "arrow.uturn.left.circle") {
+                                isLeavingTestPresented = true
+                            }
+                        }
                         if canSwitch {
                             Button("Cambiar entorno", systemImage: "arrow.triangle.2.circlepath") {
-                                isEnvironmentPresented = true
-                            }
-                        } else if canLeaveTest {
-                            // Named for what it does, not for the sheet it opens: the only
-                            // move available here is the return to the real operation.
-                            Button("Salir de Modo prueba", systemImage: "arrow.uturn.left.circle") {
                                 isEnvironmentPresented = true
                             }
                         }
@@ -530,6 +535,17 @@ struct SessionMenuButton: View {
             Button("Cancelar", role: .cancel) {}
         } message: {
             Text("Se borra la credencial ligada a Face ID: el siguiente acceso pedirá correo y contraseña.")
+        }
+        .confirmationDialog(
+            "Salir de Modo prueba",
+            isPresented: $isLeavingTestPresented,
+            titleVisibility: .visible
+        ) {
+            // Same shared exit the environment sheet runs, so both routes land identically.
+            Button("Ir a Producción") { lab.exitTestEnvironment() }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text(EnvironmentControl.leavingTestNotice)
         }
     }
 }

@@ -685,13 +685,15 @@ struct EnvironmentSheet: View {
     }
 
     private func apply(_ mode: LabMode) {
-        lab.setMode(mode)
-        // Stop the shared clock *before* resetting, so leaving test mode on this phone does
-        // not publish a reset that would drag the shared environment back to the real hour.
-        SharedClockSync.shared.update(isTest: mode == .test)
-        // Production always runs on safe real time: any simulated hour is dropped.
-        if mode == .production { SimulationClock.reset() }
-        store.syncSimulationClock()
+        if mode == .production {
+            // One exit, shared with the account menu, so both routes leave the simulation
+            // in exactly the same state.
+            lab.exitTestEnvironment()
+        } else {
+            lab.setMode(mode)
+            SharedClockSync.shared.update(isTest: true)
+            store.syncSimulationClock()
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
     }
