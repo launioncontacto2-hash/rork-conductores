@@ -9,8 +9,59 @@ struct BonusesView: View {
     @State private var alert: BonusAlert?
     @State private var expanded: Set<String> = []
 
-    /// Fixed origin, for the same reason as `ShiftView.timelineAnchor`.
-    @State private var timelineAnchor: Date = .now
+    /// The logical day this screen is standing on, and the only temporal input the whole
+    /// composition has.
+    ///
+    /// Every threshold `BonusRules` evaluates is aligned to midnight — `weeks(reference:)`
+    /// builds Monday-to-Monday ranges from the start of the month, `week.start > now` and
+    /// `week.contains(now)` compare against those midnights, and `expectedWorkDays` counts
+    /// a day only once `dayEnd <= now`. Handing it the start of the day is therefore
+    /// arithmetically identical to handing it the exact instant, and it makes the input
+    /// change **four times a month at most** instead of continuously.
+    @State private var today: Date = ShiftRules.calendar.startOfDay(for: AppClock.now())
+
+    /// Invisible day boundary detector — the same leaf pattern as `ShiftView.phaseTicker`.
+    ///
+    /// A zero-size view that hears the minute so the page does not have to. The dependency
+    /// on `ClockBeat.minute` is registered inside *this* leaf, so a minute advancing
+    /// invalidates nothing but a comparison that almost always decides the day is still the
+    /// same. `today` — and with it the page — moves once per logical midnight.
+    ///
+    /// `.minute` rather than `.second` because midnight is a minute boundary too: even at
+    /// x30 the day cannot be crossed and left undetected.
+    private var dayTicker: some View {
+        TimeScope(.minute) { _ in
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onChange(of: ClockBeat.shared.minute, initial: true) { _, _ in
+                    let resolved = ShiftRules.calendar.startOfDay(for: AppClock.now())
+                    guard resolved != today else { return }
+                    today = resolved
+                }
+        }
+    }
+
+    /// Facts that can turn a week into a lost week.
+    ///
+    /// `raiseBonusAlert` writes: it appends to `notifiedBonusWeeks` and pushes a station
+    /// notice. So it is driven by events, never by a beat — the day rolling over, or the
+    /// arrival of a shift record, an income or a supervisor report. A minute passing is not
+    /// an event and cannot reach it.
+    private struct AlertTrigger: Equatable {
+        let day: Date
+        let shifts: Int
+        let incomes: Int
+        let reports: Int
+    }
+
+    private var alertTrigger: AlertTrigger {
+        AlertTrigger(
+            day: today,
+            shifts: store.history.count,
+            incomes: store.incomes.count,
+            reports: store.supervisorReports.count
+        )
+    }
 
     /// Guard bonuses come from cobertura de turnos and follow one rule only: the turn has
     /// to have been worked. Accepting a guard never pays.
@@ -97,29 +148,30 @@ struct BonusesView: View {
             ZStack {
                 StationBackground()
 
-                TimelineView(.periodic(from: timelineAnchor, by: 60)) { _ in
-                    let now = store.now
-                    let evaluations = store.bonusEvaluations(reference: now)
-                    let lost = evaluations.filter(\.isLost)
+                let evaluations = store.bonusEvaluations(reference: today)
+                let lost = evaluations.filter(\.isLost)
 
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            ForEach(evaluations) { evaluation in
-                                bonusCard(evaluation: evaluation, now: now)
-                            }
-
-                            guardBonusSection
-
-                            RecoveryProgramSection(suggestedBonus: lost.first?.kind ?? .punctuality)
-
-                            supervisorLog
+                ScrollView {
+                    VStack(spacing: 16) {
+                        ForEach(evaluations) { evaluation in
+                            bonusCard(evaluation: evaluation)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 30)
+
+                        guardBonusSection
+
+                        RecoveryProgramSection(
+                            suggestedBonus: lost.first?.kind ?? .punctuality,
+                            today: today
+                        )
+
+                        supervisorLog
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 30)
                 }
             }
+            .background(dayTicker)
             .navigationTitle("Bonos")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -130,9 +182,16 @@ struct BonusesView: View {
                     DemoClockButton()
                 }
             }
-            .task {
-                // Weekly cut-off popup: announced once per bonus and week.
-                alert = store.raiseBonusAlert(reference: store.now)
+            .task(id: alertTrigger) {
+                // Weekly cut-off popup: announced once per bonus and week. `raiseBonusAlert`
+                // dedupes on `notifiedBonusWeeks`, so a re-run after a remount or a data
+                // change re-scans without ever announcing the same week twice.
+                //
+                // Only a raised alert is assigned: a nil result means "nothing new", not
+                // "dismiss", and must not close a sheet the driver is reading.
+                if let raised = store.raiseBonusAlert(reference: today) {
+                    alert = raised
+                }
             }
             .sheet(item: $alert) { pending in
                 BonusAlertSheet(alert: pending) {
@@ -153,7 +212,7 @@ struct BonusesView: View {
 
     // MARK: - Bonus card
 
-    private func bonusCard(evaluation: BonusEvaluation, now: Date) -> some View {
+    private func bonusCard(evaluation: BonusEvaluation) -> some View {
         let kind = evaluation.kind
         let isOpen = expanded.contains(kind.rawValue)
 

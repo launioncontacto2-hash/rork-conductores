@@ -8,13 +8,21 @@ struct RecoveryProgramSection: View {
 
     let suggestedBonus: BonusKind
 
+    /// Start of the logical day, resolved once by the host screen.
+    ///
+    /// Everything this calendar asks of the clock is day-granular — which month it opens
+    /// on, which cells are still bookable, which one is today — so it takes the day instead
+    /// of reading `store.now` in its own body. The host owns the one detector; this section
+    /// simply redraws when the day it was given changes.
+    let today: Date
+
     @State private var monthAnchor: Date?
     @State private var selectedDay: Date?
     @State private var slot: ShiftSlot?
     @State private var bonus: BonusKind?
     @State private var feedback: String?
 
-    private var anchor: Date { monthAnchor ?? BonusRules.monthStart(for: store.now) }
+    private var anchor: Date { monthAnchor ?? BonusRules.monthStart(for: today) }
     private var activeSlot: ShiftSlot { slot ?? store.driver.slot }
     private var activeBonus: BonusKind { bonus ?? suggestedBonus }
 
@@ -188,9 +196,9 @@ struct RecoveryProgramSection: View {
     private func dayCell(_ day: Date) -> some View {
         let cal = ShiftRules.calendar
         let booking = store.recoveryBooking(on: day)
-        let isAvailable = BonusRules.canBook(driver: store.driver, date: day, now: store.now)
+        let isAvailable = BonusRules.canBook(driver: store.driver, date: day, now: today)
         let isSelected = selectedDay.map { cal.isDate($0, inSameDayAs: day) } ?? false
-        let isToday = ShiftRules.isSameDay(day, store.now)
+        let isToday = ShiftRules.isSameDay(day, today)
         let dayNumber = cal.component(.day, from: day)
 
         return Button {
@@ -324,7 +332,7 @@ struct RecoveryProgramSection: View {
 
 #Preview {
     ScrollView {
-        RecoveryProgramSection(suggestedBonus: .punctuality)
+        RecoveryProgramSection(suggestedBonus: .punctuality, today: .now)
             .padding()
     }
     .background { StationBackground() }

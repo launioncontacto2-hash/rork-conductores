@@ -108,9 +108,9 @@ struct RootTabView: View {
     var body: some View {
         Group {
             if store.hasAccess(to: .driver) {
-                // Value 3 stays reserved for Bonos, still on `TimelineView`. Keeping the
-                // numbering means restoring it later does not renumber — and does not
-                // silently move a driver to another tab.
+                // Values are fixed identities, not positions: the numbering was held while
+                // Bonos was out precisely so restoring it renumbers nothing and cannot move
+                // a driver to another tab.
                 TabView(selection: $selection) {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
                         ShiftView()
@@ -124,6 +124,9 @@ struct RootTabView: View {
                     Tab("Metas", systemImage: "target", value: 2) {
                         GoalsView()
                     }
+                    Tab("Bonos", systemImage: "rosette", value: 3) {
+                        BonusesView()
+                    }
                     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
                         WalletView()
                     }
@@ -132,12 +135,6 @@ struct RootTabView: View {
                     }
                 }
                 .tint(Palette.volt)
-
-                // Pendiente de migración temporal, no de esta fase:
-                //
-                //     Tab("Bonos", systemImage: "rosette", value: 3) {
-                //         BonusesView()
-                //     }
             } else {
                 AccessDeniedView()
             }
