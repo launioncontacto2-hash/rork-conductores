@@ -54,16 +54,55 @@ final class ClockBeat {
     /// real second is what keeps an accelerated simulation from flooding the run loop.
     private static let cadence: Duration = .seconds(1)
 
-    /// Identity of a clock state, ignoring `updatedAt`.
+    /// Largest gap between two instants that still counts as the same instant.
     ///
-    /// Deliberately excludes the timestamp so the device's own echo — the Realtime UPDATE
-    /// coming back from a change made here — is recognised as the state already in force
-    /// and does not raise a phantom jump.
-    private struct PhaseSignature: Equatable {
+    /// Sized against the round trip of this exact route, not guessed:
+    ///
+    /// - **Write** — `SupabaseCoding.text(from:)` formats with `.SSS`, quantising to whole
+    ///   milliseconds. Worst case error: **0.5 ms**.
+    /// - **Store** — Postgres `timestamptz` keeps microseconds, so a millisecond value
+    ///   survives exactly. Adds **0**.
+    /// - **Read** — `SupabaseCoding.timestamp(from:)` splits the fraction off as a decimal
+    ///   string and adds it back as a `TimeInterval`. `Date` is a `Double` of seconds since
+    ///   2001 (~8×10⁸ s), and a `Double` holds ~15–16 significant digits, so the
+    ///   representation floor is ~10⁻⁷ s. Adds **< 1 µs**.
+    ///
+    /// Total worst case: **0.5 ms + 1 µs < 0.502 ms**.
+    ///
+    /// Deterministic normalisation was preferred and rejected: quantising locally to the
+    /// same millisecond grid only works if our rounding rule matches the formatter's, and
+    /// ICU does not contractually specify how `.SSS` breaks a halfway value. At an exact
+    /// `x.xxx5` boundary the two rules can disagree by one whole millisecond, which is the
+    /// ambiguity that normalisation was supposed to remove.
+    ///
+    /// So: 2 ms. Roughly **4×** the worst-case serialisation error, and **500×** smaller
+    /// than the finest change the app can express — one second, from the picker's second
+    /// wheel. Nothing a human can ask of this clock lands inside the window.
+    private static let instantTolerance: TimeInterval = 0.002
+
+    /// Identity of a clock state, in the only terms that decide what hour it is.
+    ///
+    /// Excludes `updatedAt` **and `revision`**. Both are write bookkeeping — who wrote
+    /// last, in what order — never a statement about the hour.
+    ///
+    /// Keeping `revision` was an outright bug. Postgres appends a revision to every
+    /// accepted write under a row lock, so the state coming back from our own RPC always
+    /// carries `K+1` against the local `K`, and a signature holding it declared the reply
+    /// to be a brand-new clock.
+    ///
+    /// Correction to the earlier audit, recorded here on purpose: the phantom second jump
+    /// does **not** come from the Realtime echo. `SharedClockSync.send` adopts the RPC
+    /// response directly (`applyRealtime(row)`), which advances the local revision to
+    /// `K+1`; the Realtime UPDATE that follows carries the same `K+1` and is normally
+    /// dropped by `guard row.revision > revision`. The duplicate was the reply, not the
+    /// echo.
+    private struct PhaseSignature {
         var anchor: Date
         var pinnedAt: Date
         var speed: SimulationSpeed
-        var revision: Int64
+        /// A different test environment is a different clock, even on identical anchors.
+        var environmentId: String
+        /// Production and simulation are two clocks; `AppClock` picks between them.
         var isTest: Bool
 
         static func current() -> PhaseSignature {
@@ -72,9 +111,21 @@ final class ClockBeat {
                 anchor: state.anchor,
                 pinnedAt: state.pinnedAt,
                 speed: state.speed,
-                revision: state.revision,
+                environmentId: state.environmentId,
                 isTest: LabRuntime.isTest
             )
+        }
+
+        /// Same clock? Discrete fields exactly, instants within the serialisation window.
+        ///
+        /// Not `Equatable` on purpose: `==` on raw `Date`s is precisely the comparison that
+        /// fails here, and leaving it available invites the bug back.
+        func matches(_ other: PhaseSignature) -> Bool {
+            speed == other.speed
+                && isTest == other.isTest
+                && environmentId == other.environmentId
+                && abs(anchor.timeIntervalSince(other.anchor)) <= ClockBeat.instantTolerance
+                && abs(pinnedAt.timeIntervalSince(other.pinnedAt)) <= ClockBeat.instantTolerance
         }
     }
 
@@ -158,9 +209,10 @@ final class ClockBeat {
     /// Raises `phaseEpoch` if — and only if — the clock really landed somewhere new.
     private func registerJump() {
         let incoming = PhaseSignature.current()
-        guard incoming != signature else {
-            // Same state arriving twice: the local echo of our own publication. The hour
-            // did not move, so nothing is invalidated.
+        guard !incoming.matches(signature) else {
+            // The state already in force, arriving a second time: the reply to our own RPC
+            // carrying the server's revision, or its Realtime echo. The hour did not move,
+            // so nothing is invalidated.
             return
         }
         signature = incoming
