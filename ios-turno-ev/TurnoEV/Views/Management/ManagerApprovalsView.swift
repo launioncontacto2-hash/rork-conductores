@@ -91,7 +91,7 @@ struct ManagerApprovalsView: View {
             } else {
                 LazyVStack(spacing: 10) {
                     ForEach(visible) { request in
-                        RequestRow(request: request, now: regional.now) { onOpenRequest(request.id) }
+                        RequestRow(request: request) { onOpenRequest(request.id) }
                     }
                 }
             }
@@ -120,7 +120,7 @@ struct ManagerApprovalsView: View {
                     Button {
                         openedDeposit = deposit
                     } label: {
-                        CashDepositRow(deposit: deposit, now: regional.now)
+                        CashDepositRow(deposit: deposit)
                     }
                     .buttonStyle(.plain)
                 }
@@ -134,7 +134,8 @@ struct ManagerApprovalsView: View {
             .padding(15)
             .panel()
             .sheet(item: $openedDeposit) { deposit in
-                CashDepositDetailView(deposit: deposit, now: regional.now) {
+                CashDepositDetailView(deposit: deposit) {
+                    // Action time: the instant the manager acknowledges the slip.
                     CashDepositLedger.acknowledge(id: deposit.id, at: regional.now)
                     depositVersion += 1
                 }
@@ -143,14 +144,8 @@ struct ManagerApprovalsView: View {
     }
 
     private var exposure: some View {
-        let metrics = regional.metrics
-        return HStack(spacing: 10) {
-            StatTile(
-                label: "Por firmar",
-                value: "\(metrics.pendingRequests)",
-                hint: metrics.agingRequests > 0 ? "\(metrics.agingRequests) con más de 24 h" : "Sin rezago",
-                tone: metrics.agingRequests > 0 ? .danger : .amber
-            )
+        HStack(spacing: 10) {
+            PendingSignatureTile(regional: regional)
             StatTile(
                 label: "Bonos",
                 value: "Automáticos",
@@ -187,10 +182,37 @@ struct ManagerApprovalsView: View {
     }
 }
 
+/// Requests waiting on the manager's signature, and how many have gone stale.
+///
+/// The count of aging requests comes from `RegionalStore.metrics`, which filters by
+/// `isAging(now:)` — so the clock changes *how many* requests are in the backlog, not just
+/// a label. A membership rule like that cannot be pushed into a leaf, so the tile is
+/// extracted into a view of its own and the scope wraps its whole content. That is what
+/// keeps it contained: the tile beside it, the `HStack` holding both, the inbox, the
+/// deposits panel and the `ScrollView` of the module are all outside. Declared exception to
+/// the leaf rule, on the same terms as `ImmediateAttentionPanel`.
+private struct PendingSignatureTile: View {
+    let regional: RegionalStore
+
+    var body: some View {
+        TimeScope(.minute) { _ in
+            let metrics = regional.metrics
+            StatTile(
+                label: "Por firmar",
+                value: "\(metrics.pendingRequests)",
+                hint: metrics.agingRequests > 0 ? "\(metrics.agingRequests) con más de 24 h" : "Sin rezago",
+                tone: metrics.agingRequests > 0 ? .danger : .amber
+            )
+        }
+    }
+}
+
 /// One deposit in the manager's inbox, with the verdict of the slip reader visible.
+///
+/// Only the age caption moves on its own, and only while the slip is still unreviewed —
+/// `RelativeTime` carries it, so the row takes no clock from its caller.
 private struct CashDepositRow: View {
     let deposit: CashDeposit
-    let now: Date
 
     private var tone: Color {
         switch deposit.match {
@@ -225,9 +247,15 @@ private struct CashDepositRow: View {
                     .font(.system(.subheadline, weight: .black))
                     .monospacedDigit()
                     .foregroundStyle(tone)
-                Text(deposit.isAcknowledged ? "Revisado" : Fmt.relative(deposit.createdAt, from: now))
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
+                Group {
+                    if deposit.isAcknowledged {
+                        Text("Revisado")
+                    } else {
+                        RelativeTime(date: deposit.createdAt)
+                    }
+                }
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Palette.textMuted)
             }
         }
         .padding(11)
@@ -237,9 +265,12 @@ private struct CashDepositRow: View {
 }
 
 /// Full slip: what the driver typed, what the photo said and the account it went to.
+///
+/// Every date it prints is the date the deposit was made, read straight off the record.
+/// It used to declare a `now` no line of its body ever read — an inert parameter that
+/// nonetheless subscribed the sheet to `RegionalStore.now`.
 private struct CashDepositDetailView: View {
     let deposit: CashDeposit
-    let now: Date
     let onAcknowledge: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -488,13 +519,18 @@ struct ManagerRequestDetailView: View {
                 )
             }
 
-            if request.isAging(now: regional.now) {
-                NoticeBanner(
-                    symbol: "hourglass.badge.plus",
-                    title: "Detenida \(request.ageHours(now: regional.now)) horas",
-                    message: "La estación está esperando tu firma para continuar.",
-                    tone: .danger
-                )
+            // The banner appears when the request crosses twenty-four hours and states how
+            // many. Both belong to the same leaf; the rows and the decision buttons around
+            // it stay outside.
+            TimeScope(.minute) { now in
+                if request.isAging(now: now) {
+                    NoticeBanner(
+                        symbol: "hourglass.badge.plus",
+                        title: "Detenida \(request.ageHours(now: now)) horas",
+                        message: "La estación está esperando tu firma para continuar.",
+                        tone: .danger
+                    )
+                }
             }
 
             Text(request.detail)

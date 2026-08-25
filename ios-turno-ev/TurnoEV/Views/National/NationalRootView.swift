@@ -43,7 +43,6 @@ struct NationalRootView: View {
             account: account,
             regionCount: StaffDirectory.regions.count,
             stationCount: national.metrics.stations,
-            now: fleet.now,
             alertCount: national.alerts.count,
             onRegenerate: { national.regenerateNetwork() },
             onOpenAlerts: { route = .alerts }
@@ -144,7 +143,6 @@ struct NationalAlertsView: View {
                             ForEach(national.alerts) { alert in
                                 NationalAlertCard(
                                     alert: alert,
-                                    now: national.now,
                                     onReview: { national.reviewAlert(id: alert.id) }
                                 )
                             }

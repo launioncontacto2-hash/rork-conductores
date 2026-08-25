@@ -152,7 +152,6 @@ struct NationalHomeView: View {
                     ForEach(alerts) { alert in
                         NationalAlertCard(
                             alert: alert,
-                            now: national.now,
                             onOpen: { open(alert.kind.destination) },
                             onReview: { national.reviewAlert(id: alert.id) }
                         )

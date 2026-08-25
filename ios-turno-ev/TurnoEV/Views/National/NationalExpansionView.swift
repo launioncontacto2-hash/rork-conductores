@@ -134,7 +134,7 @@ struct NationalExpansionView: View {
                     .panelFlat()
             } else {
                 ForEach(national.projectsByLaunch) { project in
-                    ProjectCard(project: project, now: national.now) {
+                    ProjectCard(project: project) {
                         selected = project
                     }
                 }
@@ -160,6 +160,16 @@ struct ProjectFormView: View {
     @State private var launchDate: Date = Date().addingTimeInterval(60 * 60 * 24 * 90)
     @State private var note: String = ""
 
+    /// The day the projection is measured from, captured when the form opens.
+    ///
+    /// `daysAvailable` feeds `risk`, and `risk` tints the headline figure and decides the
+    /// warning banner — so reading `national.now` here subscribed the whole form, its
+    /// `NavigationStack` and its `ScrollView` included, to the clock. It does not need to:
+    /// what moves this number while the form is open is the launch date the director is
+    /// dragging, not the passing of time. The anchor is taken on appearance and holds
+    /// until the sheet is opened again.
+    @State private var origin: Date = AppClock.now()
+
     private var isComplete: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty
             && !code.trimmingCharacters(in: .whitespaces).isEmpty
@@ -171,7 +181,7 @@ struct ProjectFormView: View {
     }
 
     private var daysAvailable: Int {
-        ShiftRules.calendar.dateComponents([.day], from: national.now, to: launchDate).day ?? 0
+        ShiftRules.calendar.dateComponents([.day], from: origin, to: launchDate).day ?? 0
     }
 
     private var risk: OpsAlertLevel {
@@ -385,9 +395,18 @@ struct ProjectDetailView: View {
         .preferredColorScheme(.dark)
     }
 
+    /// Days to open, the risk they imply and the banner that risk raises, all decided by
+    /// one calendar count — so the card is the unit and the cadence is the day. The
+    /// `ScrollView` around it, the timeline, the hiring panel, the note and the actions
+    /// below are never re-evaluated by the clock.
     private func headline(_ project: StationProject) -> some View {
-        let risk = project.risk(now: national.now, averageHiringDays: NationalRules.averageHiringDays)
-        return VStack(alignment: .leading, spacing: 12) {
+        TimeScope(.day) { now in
+            headlineCard(project, risk: project.risk(now: now, averageHiringDays: NationalRules.averageHiringDays), now: now)
+        }
+    }
+
+    private func headlineCard(_ project: StationProject, risk: OpsAlertLevel, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.name)
                     .font(.system(.title3, weight: .black))
@@ -398,7 +417,7 @@ struct ProjectDetailView: View {
 
             HStack(spacing: 10) {
                 NatFigure(
-                    value: "\(project.daysToLaunch(now: national.now))",
+                    value: "\(project.daysToLaunch(now: now))",
                     caption: "Días para abrir",
                     detail: Fmt.dateShort(project.launchDate),
                     tone: risk.demandsAction ? risk.tone : NatTone.accent

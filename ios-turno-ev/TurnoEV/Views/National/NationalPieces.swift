@@ -69,12 +69,9 @@ struct NationalHeader: View {
     let account: StaffAccount
     let regionCount: Int
     let stationCount: Int
-    let now: Date
     let alertCount: Int
     let onRegenerate: () -> Void
     var onOpenAlerts: (() -> Void)?
-
-    private var slot: ShiftSlot { RegionalRules.observedSlot(now: now) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -132,13 +129,19 @@ struct NationalHeader: View {
             }
 
             HStack(spacing: 8) {
+                // Two readings of the clock at two different cadences, each in its own
+                // leaf. The block in force turns on a shift boundary, so it listens by the
+                // minute; the date beside it turns at midnight and listens by the day.
+                // Splitting them is what stops a passing minute from redrawing a date.
                 HStack(spacing: 6) {
                     Circle()
                         .fill(NatTone.good)
                         .frame(width: 7, height: 7)
-                    Text("BLOQUE \(slot.label.uppercased()) EN CURSO")
-                        .font(.system(size: 10, weight: .black))
-                        .tracking(1.1)
+                    TimeScope(.minute) { now in
+                        Text("BLOQUE \(RegionalRules.observedSlot(now: now).label.uppercased()) EN CURSO")
+                            .font(.system(size: 10, weight: .black))
+                            .tracking(1.1)
+                    }
                 }
                 .foregroundStyle(NatTone.good)
 
@@ -153,9 +156,11 @@ struct NationalHeader: View {
 
                 Spacer(minLength: 0)
 
-                Text(Fmt.dateShort(now))
-                    .font(.system(.caption2, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
+                TimeScope(.day) { now in
+                    Text(Fmt.dateShort(now))
+                        .font(.system(.caption2, weight: .semibold))
+                        .foregroundStyle(Palette.textMuted)
+                }
             }
         }
         .padding(14)
@@ -290,9 +295,13 @@ struct RegionCard: View {
 // MARK: - Alerts
 
 /// One exception of the country. Direction opens it or marks it reviewed; it never edits.
+///
+/// Nothing here follows the clock: the title, the detail and the level are all decided by
+/// the rollup that raised the alert. It used to declare a `now` that no line of its body
+/// ever read — an inert parameter that nonetheless made every mounted card a subscriber of
+/// `NationalStore.now`.
 struct NationalAlertCard: View {
     let alert: NationalAlert
-    let now: Date
     var onOpen: (() -> Void)?
     let onReview: () -> Void
 
@@ -343,16 +352,23 @@ struct NationalAlertCard: View {
 // MARK: - Expansion
 
 /// A station that does not exist yet, with the hiring it already demands.
+///
+/// The clock decides one number here — the days left to open — and that number decides the
+/// risk, which in turn tints the pill, the progress bar and the hiring chip. Those are
+/// spread across the card, so the card is the smallest honest unit and it owns the scope
+/// itself. `.day`, because a countdown of days is a calendar fact: the card is evaluated
+/// once per logical midnight, not once a minute.
 struct ProjectCard: View {
     let project: StationProject
-    let now: Date
     let action: () -> Void
 
-    private var risk: OpsAlertLevel {
-        project.risk(now: now, averageHiringDays: NationalRules.averageHiringDays)
+    var body: some View {
+        TimeScope(.day) { now in
+            card(risk: project.risk(now: now, averageHiringDays: NationalRules.averageHiringDays), now: now)
+        }
     }
 
-    var body: some View {
+    private func card(risk: OpsAlertLevel, now: Date) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             action()

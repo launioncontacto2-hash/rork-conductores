@@ -429,7 +429,7 @@ struct NationalPolicyView: View {
                                 .font(.system(size: 12, weight: .black))
                                 .foregroundStyle(NatTone.accent)
                             Spacer(minLength: 0)
-                            Text(Fmt.relative(change.changedAt, from: national.now))
+                            RelativeTime(date: change.changedAt)
                                 .font(.system(size: 10))
                                 .foregroundStyle(Palette.textMuted)
                         }

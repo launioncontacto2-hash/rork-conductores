@@ -366,7 +366,7 @@ struct ManagerStationDetailView: View {
                 )
             } else {
                 ForEach(pending) { request in
-                    RequestRow(request: request, now: regional.now) { onOpenRequest(request.id) }
+                    RequestRow(request: request) { onOpenRequest(request.id) }
                 }
             }
         }

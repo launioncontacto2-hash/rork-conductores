@@ -260,7 +260,6 @@ struct ManagerRegionView: View {
                 ForEach(alerts) { alert in
                     RegionalAlertRow(
                         alert: alert,
-                        now: regional.now,
                         onOpen: {
                             if let requestId = alert.requestId {
                                 onOpenRequest(requestId)

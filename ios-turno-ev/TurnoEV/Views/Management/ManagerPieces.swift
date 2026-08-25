@@ -59,13 +59,8 @@ struct ManagerHeader: View {
     let account: StaffAccount
     let station: Station
     let fleetSize: Int
-    let now: Date
     let pendingCount: Int
     let onRegenerate: () -> Void
-
-    private var block: RegionalRules.DutyBlock { RegionalRules.dutyBlock(now: now) }
-    private var progress: Double { RegionalRules.blockProgress(now: now) }
-    private var isOnDuty: Bool { block != .off }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -110,39 +105,56 @@ struct ManagerHeader: View {
                 SessionMenuButton()
             }
 
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(isOnDuty ? MgTone.good : Palette.textMuted)
-                        .frame(width: 7, height: 7)
-                    Text(isOnDuty ? block.label.uppercased() : "FUERA DE BLOQUE")
-                        .font(.system(size: 10, weight: .black))
-                        .tracking(1.1)
-                }
-                .foregroundStyle(isOnDuty ? MgTone.good : Palette.textMuted)
-
-                if pendingCount > 0 {
-                    Text("\(pendingCount) por autorizar")
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundStyle(MgTone.accent)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(MgTone.accent.opacity(0.16), in: .capsule)
-                }
-
-                Spacer(minLength: 0)
-
-                Text(block.rangeLabel)
-                    .font(.system(.caption2, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
-                    .monospacedDigit()
-            }
-
-            ProgressTrack(value: progress, goal: 1, tone: MgTone.accent)
-                .frame(height: 6)
+            dutyStrip
         }
         .padding(14)
         .panel(cornerRadius: 22)
+    }
+
+    /// Which split block the manager is standing in, and how far through it they are.
+    ///
+    /// The only part of the header the clock decides. It is extracted so the scope covers
+    /// the strip and the bar alone: the station name, the fleet line, the clock button, the
+    /// menu and the session control above it are never re-evaluated by a passing minute —
+    /// and neither is the module the header sits on top of.
+    private var dutyStrip: some View {
+        TimeScope(.minute) { now in
+            let block = RegionalRules.dutyBlock(now: now)
+            let isOnDuty = block != .off
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(isOnDuty ? MgTone.good : Palette.textMuted)
+                            .frame(width: 7, height: 7)
+                        Text(isOnDuty ? block.label.uppercased() : "FUERA DE BLOQUE")
+                            .font(.system(size: 10, weight: .black))
+                            .tracking(1.1)
+                    }
+                    .foregroundStyle(isOnDuty ? MgTone.good : Palette.textMuted)
+
+                    if pendingCount > 0 {
+                        Text("\(pendingCount) por autorizar")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundStyle(MgTone.accent)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(MgTone.accent.opacity(0.16), in: .capsule)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Text(block.rangeLabel)
+                        .font(.system(.caption2, weight: .semibold))
+                        .foregroundStyle(Palette.textMuted)
+                        .monospacedDigit()
+                }
+
+                ProgressTrack(value: RegionalRules.blockProgress(now: now), goal: 1, tone: MgTone.accent)
+                    .frame(height: 6)
+            }
+        }
     }
 }
 
@@ -421,9 +433,13 @@ extension RegionalRequestKind {
 }
 
 /// One pending decision as it appears in the authorization inbox.
+///
+/// The row keeps its own temporal freshness. Two small things follow the clock — the age
+/// caption with the colour it turns, and the chip that appears once the request has been
+/// waiting a full day — so each carries its own scope and the caller hands over no `now`.
+/// An inbox of forty requests invalidates two small elements per row, never forty rows.
 struct RequestRow: View {
     let request: RegionalRequest
-    let now: Date
     let action: () -> Void
 
     var body: some View {
@@ -458,9 +474,13 @@ struct RequestRow: View {
                                 .monospacedDigit()
                                 .foregroundStyle(request.kind.tone)
                         }
-                        Text(Fmt.relative(request.createdAt, from: now))
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(request.isAging(now: now) ? MgTone.bad : Palette.textMuted)
+                        // Age of the request, and the colour that age turns. Everything
+                        // else in the row — subject, kind, station, amount — is store data.
+                        TimeScope(.minute) { now in
+                            Text(Fmt.relative(request.createdAt, from: now))
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(request.isAging(now: now) ? MgTone.bad : Palette.textMuted)
+                        }
                     }
                 }
 
@@ -480,8 +500,12 @@ struct RequestRow: View {
                     if request.isLiveSession {
                         InfoChip(symbol: "antenna.radiowaves.left.and.right", text: "En vivo", tone: MgTone.good)
                     }
-                    if request.isAging(now: now) {
-                        InfoChip(symbol: "hourglass", text: "\(request.ageHours(now: now)) h", tone: MgTone.bad)
+                    // The chip appears when the request crosses twenty-four hours, so the
+                    // scope owns its presence as well as its number.
+                    TimeScope(.minute) { now in
+                        if request.isAging(now: now) {
+                            InfoChip(symbol: "hourglass", text: "\(request.ageHours(now: now)) h", tone: MgTone.bad)
+                        }
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
@@ -498,9 +522,10 @@ struct RequestRow: View {
 
 // MARK: - Alert row
 
+/// One exception of the station. Only the age caption moves on its own, and
+/// `RelativeTime` carries it, so the row takes no clock from its caller.
 struct RegionalAlertRow: View {
     let alert: RegionalAlert
-    let now: Date
     var onOpen: (() -> Void)?
     let onResolve: () -> Void
 
@@ -522,7 +547,7 @@ struct RegionalAlertRow: View {
                         .foregroundStyle(alert.severity.tone)
                 }
                 Spacer(minLength: 0)
-                Text(Fmt.relative(alert.createdAt, from: now))
+                RelativeTime(date: alert.createdAt)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Palette.textMuted)
             }

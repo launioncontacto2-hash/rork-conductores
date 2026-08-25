@@ -43,7 +43,6 @@ struct ManagerRootView: View {
             account: account,
             station: regional.station,
             fleetSize: regional.card?.fleetSize ?? regional.station.vehicleCapacity,
-            now: fleet.now,
             pendingCount: regional.pendingRequests.count,
             onRegenerate: { regional.regenerateRegion() }
         )
