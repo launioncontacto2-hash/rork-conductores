@@ -595,6 +595,10 @@ private struct DemoClockChip: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// Heartbeat. Its only job is to invalidate *this* view; the value is never displayed.
+    ///
+    /// TRANSITORIO — se retira al migrar. Sustituto: envolver el contenido en
+    /// `TimeScope(.second)` y borrar `pulse`, `cadence`, `tickerKey` y la `.task`. Este
+    /// bucle no debe copiarse a ninguna otra vista: `ClockBeat` ya es el único productor.
     @State private var pulse: Date = .now
 
     /// Observable mirror of the clock, so the chip follows a pause or a pace change made

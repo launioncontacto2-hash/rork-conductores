@@ -165,9 +165,27 @@ struct LoginView: View {
                 .padding(.horizontal, 8)
 
             VStack(spacing: 10) {
+                // The explicit door in. Signing in opens the profile and nothing else:
+                // it never starts a shift, never files an attendance and never touches
+                // the entry hour.
+                BigButton(
+                    title: isScanning ? "Escaneando…" : "Iniciar sesión",
+                    symbol: "person.crop.circle.badge.checkmark",
+                    isEnabled: !isScanning
+                ) {
+                    beginSession()
+                }
+
+                Text("Entrar a tu perfil no inicia tu turno. El turno se inicia aparte, desde la pantalla Turno y dentro de tu ventana.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.textMuted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 BigButton(
                     title: isScanning ? "Escaneando" : "Reintentar Face ID",
                     symbol: "faceid",
+                    tone: .outline,
                     isEnabled: !isScanning && enrolled != nil
                 ) {
                     authenticate()
@@ -263,6 +281,19 @@ struct LoginView: View {
         }
     }
 
+    /// Opens a session, by the shortest route available on this device.
+    ///
+    /// It authenticates and nothing more. There is no second session and no second
+    /// sign-in path: this lands on the same `grantAccess` → `FleetStore.signIn` as every
+    /// other door.
+    private func beginSession() {
+        guard enrolled != nil else {
+            mode = .credentials
+            return
+        }
+        authenticate()
+    }
+
     private func authenticate() {
         guard let enrolled else {
             mode = .credentials
@@ -322,7 +353,7 @@ struct LoginView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Identifícate")
                     .font(.system(.title2, weight: .black))
-                Text("Detectamos tu rol y estación con tus credenciales, y abrimos solo tu interfaz.")
+                Text("Detectamos tu rol y estación con tus credenciales, y abrimos solo tu interfaz. Iniciar sesión no inicia tu turno.")
                     .font(.footnote)
                     .foregroundStyle(Palette.textMuted)
             }
@@ -361,7 +392,7 @@ struct LoginView: View {
                 .foregroundStyle(Palette.danger)
             }
 
-            BigButton(title: "Identificar y entrar", symbol: "checkmark.shield.fill") {
+            BigButton(title: "Iniciar sesión", symbol: "checkmark.shield.fill") {
                 submitCredentials()
             }
 

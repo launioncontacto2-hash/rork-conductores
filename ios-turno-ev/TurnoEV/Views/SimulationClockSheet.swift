@@ -318,6 +318,10 @@ private struct ClockReadingsPanel: View {
     @Environment(\.scenePhase) private var scenePhase
 
     /// Heartbeat. Its only job is to invalidate *this* panel; the value is never displayed.
+    ///
+    /// TRANSITORIO — se retira al migrar. Sustituto: envolver el contenido en
+    /// `TimeScope(.second)` y borrar `pulse`, `cadence`, `tickerKey` y la `.task`. Este
+    /// bucle no debe copiarse a ninguna otra vista: `ClockBeat` ya es el único productor.
     @State private var pulse: Date = .now
 
     private var signal: ClockSignal { ClockSignal.shared }

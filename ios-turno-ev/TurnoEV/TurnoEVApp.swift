@@ -9,6 +9,9 @@ import SwiftUI
 
 @main
 struct TurnoEVApp: App {
+    /// Foreground state of the app. It drives the clock beat and nothing else.
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var store = FleetStore()
     /// Owns the test environment. It is built before the first screen so every module
     /// already reads the right world.
@@ -39,6 +42,20 @@ struct TurnoEVApp: App {
                     // rules here too, without anybody refreshing a screen.
                     SharedClockSync.shared.onRemoteChange = { store.syncSimulationClock() }
                     SharedClockSync.shared.update(isTest: lab.isTest)
+
+                    // The single producer of logical time. Started here and only here:
+                    // one app, one beat, however many screens are mounted.
+                    ClockBeat.shared.resume()
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    // Nothing ticks in the background. On the way back the hour is
+                    // recomputed from `AppClock.now()` — the anchored clock derives it
+                    // exactly — instead of replaying the ticks that were missed.
+                    switch phase {
+                    case .active: ClockBeat.shared.resume()
+                    case .inactive, .background: ClockBeat.shared.suspend()
+                    @unknown default: ClockBeat.shared.suspend()
+                    }
                 }
                 .onChange(of: lab.mode) { _, _ in
                     // Test and production never share coverage records.
