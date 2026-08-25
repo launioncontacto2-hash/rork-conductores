@@ -128,12 +128,17 @@ struct LabModeBanner: View {
                     .foregroundStyle(LabTone.canvas.opacity(0.7))
                 Spacer(minLength: 0)
                 if lab.world.clockOffsetMinutes != 0 {
-                    Label(
-                        Fmt.clock(lab.now),
-                        systemImage: "clock.badge.exclamationmark.fill"
-                    )
-                    .font(.system(.caption2, weight: .bold))
-                    .monospacedDigit()
+                    // Only HH:mm is shown, so the banner hears from the clock once a minute
+                    // instead of sixty times. The scope is the label alone: the strip, its
+                    // hazard stripes and their endless animation stay untouched.
+                    TimeScope(.minute) { now in
+                        Label(
+                            Fmt.clock(now),
+                            systemImage: "clock.badge.exclamationmark.fill"
+                        )
+                        .font(.system(.caption2, weight: .bold))
+                        .monospacedDigit()
+                    }
                 }
             }
             .foregroundStyle(LabTone.canvas)

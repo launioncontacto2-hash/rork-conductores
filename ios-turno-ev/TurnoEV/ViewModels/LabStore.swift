@@ -27,10 +27,15 @@ final class LabStore {
     var mode: LabMode { world.mode }
     var isTest: Bool { world.mode == .test }
 
-    var now: Date {
-        _ = ClockSignal.shared.generation
-        return AppClock.now()
-    }
+    /// The laboratory's reading of logical time, and nothing more.
+    ///
+    /// This used to also read `ClockSignal.generation`, which turned every access into a
+    /// SwiftUI dependency: any screen that touched `lab.now` — including the ones that only
+    /// needed the instant to stamp a record — was invalidated whole on every adopted clock
+    /// state. The visible clocks of the laboratory now register their own dependency, at the
+    /// leaf, through `TimeScope`. What is left here is a pure read: correct inside a button
+    /// action, inert inside a `body`.
+    var now: Date { AppClock.now() }
 
     func setMode(_ mode: LabMode) {
         guard world.mode != mode else { return }

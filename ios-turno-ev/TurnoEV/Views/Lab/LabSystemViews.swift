@@ -88,15 +88,20 @@ struct LabSystemView: View {
     private var clockCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             LabCaps(text: "Reloj del entorno")
-            HStack {
-                Text(Fmt.clockSeconds(lab.now))
-                    .font(.system(.title, weight: .black))
-                    .monospacedDigit()
-                    .foregroundStyle(LabTone.accent)
-                Spacer(minLength: 0)
-                Text(Fmt.dateShort(lab.now))
-                    .font(.footnote)
-                    .foregroundStyle(LabTone.muted)
+            // The one place in the laboratory that shows a running second hand. The scope
+            // holds the two readings and nothing else: the card around it — its buttons,
+            // its copy, the panel it sits in — is never re-evaluated by the clock.
+            TimeScope(.second) { now in
+                HStack {
+                    Text(Fmt.clockSeconds(now))
+                        .font(.system(.title, weight: .black))
+                        .monospacedDigit()
+                        .foregroundStyle(LabTone.accent)
+                    Spacer(minLength: 0)
+                    Text(Fmt.dateShort(now))
+                        .font(.footnote)
+                        .foregroundStyle(LabTone.muted)
+                }
             }
 
             Text("Mover el reloj también mueve el mundo: los créditos abonan sus semanas y los documentos que ya pasaron su vigencia se marcan vencidos.")
