@@ -38,6 +38,14 @@ nonisolated enum MockData {
         authorizedVehicleIds: ["veh-014", "veh-027", "veh-055"]
     )
 
+    /// Unit the demonstration network hands to `seededDriver` before any supervisor acts.
+    ///
+    /// This pairing exists so the demo profile opens complete, and it is the **only**
+    /// assignment the app ever writes by itself. It is not a rule: tying a unit to a
+    /// driver is the supervisor's job, and every other driver — seeded, real or created in
+    /// the laboratory — waits for that act. See `FleetStore.demoTitularUnit()`.
+    static let seededTitularVehicleId = "veh-014"
+
     static let vehiclePhotoAsset = "electric_sedan_charging"
 
     static var vehicles: [Vehicle] {

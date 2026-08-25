@@ -80,22 +80,22 @@ final class FleetStore {
 
     // MARK: - Unit assignment
 
-    /// Pulls the assignment the supervisor wrote. When the station never assigned a unit
-    /// but the driver already has authorizations seeded, one of them is adopted as the
-    /// titular unit so the profile opens with a coherent file.
+    /// Pulls the assignment the supervisor wrote.
     ///
-    /// What the supervisor wrote always wins — this never overrides a real assignment.
-    /// The one case where a stored record is dropped is when it points at a unit the
-    /// active environment no longer holds: keeping it would leave `assignedVehicle` nil
-    /// and the profile reading "sin unidad" while a perfectly valid authorization sits
-    /// unused. Switching environments is exactly how that happens.
+    /// What the station wrote always wins, unconditionally — this never overrides, edits
+    /// or discards a stored record, not even one pointing at a unit the current
+    /// environment does not hold. Tying a unit to a driver is the supervisor's act and
+    /// this method never performs it, with the single scoped exception below.
+    ///
+    /// Without a stored record the driver has **no** unit: `unitAssignment` stays `nil`
+    /// and the start screen says so. That is the correct operational state, and it is what
+    /// every driver gets.
     func reloadAssignment() {
-        if let stored = AssignmentBook.assignment(driverId: driver.id),
-           vehicles.contains(where: { $0.id == stored.vehicleId }) {
+        if let stored = AssignmentBook.assignment(driverId: driver.id) {
             unitAssignment = stored
             return
         }
-        guard let seeded = seedableUnit() else {
+        guard let seeded = demoTitularUnit() else {
             unitAssignment = nil
             return
         }
@@ -106,7 +106,7 @@ final class FleetStore {
             vehicleId: seeded.id,
             vehicleNumber: seeded.internalNumber,
             kind: .titular,
-            note: "Asignación inicial de la estación.",
+            note: "Asignación inicial del perfil de demostración.",
             assignedBy: "Supervisión de estación",
             now: now,
             previous: nil
@@ -115,32 +115,40 @@ final class FleetStore {
         unitAssignment = assignment
     }
 
-    /// The unit the station would hand this driver on day one.
+    /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
     ///
-    /// This does not widen anything: the candidates are exactly `authorizedVehicleIds`,
-    /// and the order is the driver's own, so the first authorization is the titular unit
-    /// rather than whichever authorized unit happened to come first in the fleet list.
+    /// One hardcoded pair, so the demonstration profile is navigable end to end without a
+    /// supervisor session. This is **not** a general rule and must not become one: outside
+    /// this exact driver and this exact unit, an unassigned driver stays unassigned, which
+    /// is what the operational flow requires.
     ///
-    /// The filters are the blocking rules of `ShiftRules.validateUnit` that do not depend
-    /// on the hour — same station, not held by somebody else, operational. Seeding a unit
-    /// that fails one of them would put a permanent blocker on the start screen, which is
-    /// worse than no unit at all. The temporal rule is deliberately *not* applied here:
-    /// the assignment exists at every hour, and the start window is judged when the driver
-    /// actually tries to start.
-    private func seedableUnit() -> Vehicle? {
-        let candidates = driver.authorizedVehicleIds
-            .compactMap { id in vehicles.first { $0.id == id } }
-            .filter { vehicle in
-                guard vehicle.stationId == driver.stationId else { return false }
-                // Not being driven by somebody else right now.
-                guard vehicle.occupiedBy == nil || vehicle.occupiedBy == driver.id else { return false }
-                // Not tied to another driver in the station's book.
-                if let holder = AssignmentBook.holder(vehicleId: vehicle.id), holder.driverId != driver.id {
-                    return false
-                }
-                return vehicle.status == .available
-            }
-        return candidates.first
+    /// The guards, in order: never inside the laboratory environment, where the world is
+    /// whatever the administrator built and this seeded pair does not belong; only the
+    /// seeded demo driver; only his titular unit, and only while that unit is still one of
+    /// **his own** existing authorizations — the pair is checked against
+    /// `authorizedVehicleIds`, never added to it.
+    ///
+    /// The remaining checks mirror the non-temporal blocking rules of
+    /// `ShiftRules.validateUnit`: same station, free, operational, not held by another
+    /// driver in the station's book. Seeding a unit that fails one of them would plant a
+    /// permanent blocker on the start screen — worse than no unit. The temporal rule is
+    /// deliberately excluded: the assignment exists at every hour, and the start window is
+    /// judged when the driver actually tries to start.
+    private func demoTitularUnit() -> Vehicle? {
+        guard !LabRuntime.isTest else { return nil }
+        guard driver.id == MockData.seededDriver.id else { return nil }
+
+        let unitId = MockData.seededTitularVehicleId
+        guard driver.authorizedVehicleIds.contains(unitId) else { return nil }
+        guard let vehicle = vehicles.first(where: { $0.id == unitId }) else { return nil }
+        guard vehicle.stationId == driver.stationId else { return nil }
+        guard vehicle.status == .available else { return nil }
+        guard vehicle.occupiedBy == nil || vehicle.occupiedBy == driver.id else { return nil }
+        // Not tied to another driver in the station's book.
+        if let holder = AssignmentBook.holder(vehicleId: unitId), holder.driverId != driver.id {
+            return nil
+        }
+        return vehicle
     }
 
     /// The unit the driver must take today: the substitute while it lasts, the titular one otherwise.
