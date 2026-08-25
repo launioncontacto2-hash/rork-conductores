@@ -303,11 +303,15 @@ nonisolated enum StaffDirectory {
     /// The demo driver's home station travels with him into the test world, so his header,
     /// his scope line and `currentStation` resolve there too. Appended, never substituted:
     /// the laboratory's own stations always come first and are never altered.
+    ///
+    /// Tied to the fixture itself: when the laboratory owns that identity the credential is
+    /// not injected, and neither is the station it would have needed.
     static var stations: [Station] {
         guard LabRuntime.isTest else { return seededStations }
         let created = LabRuntime.stations
         guard
-            let home = seededStations.first(where: { $0.id == demoDriverAccount.stationId }),
+            let fixture = demoDriverAccountFixture,
+            let home = seededStations.first(where: { $0.id == fixture.stationId }),
             !created.contains(where: { $0.id == home.id })
         else { return created }
         return created + [home]
@@ -324,7 +328,35 @@ nonisolated enum StaffDirectory {
     /// Neither replaces anything the laboratory created; both are additions.
     static var accounts: [StaffAccount] {
         guard LabRuntime.isTest else { return seededAccounts + [LabRules.adminAccount] }
-        return LabRuntime.accounts + [LabRules.adminAccount, demoDriverAccount]
+        guard let fixture = demoDriverAccountFixture else {
+            return LabRuntime.accounts + [LabRules.adminAccount]
+        }
+        return LabRuntime.accounts + [LabRules.adminAccount, fixture]
+    }
+
+    /// The demo credential, but only while the laboratory has not claimed that identity.
+    ///
+    /// A fallback fixture, never a competitor: the world the administrator built always
+    /// wins. Injecting a second entity under an identity the laboratory already uses would
+    /// make every lookup order-dependent — `account(id:)`, `authenticate(identifier:)` and
+    /// the credential lists all resolve with `first(where:)` — so when any of these
+    /// identities is already taken, nothing is added at all.
+    ///
+    /// The keys are every one the app resolves an account by, plus the profile behind it:
+    /// account id, `driverId`, email, employee number, and a laboratory driver registered
+    /// under `drv-1042`. That last one matters even without a matching credential: it means
+    /// the laboratory owns the person, and `MockData.driver(for:)` would hand its profile
+    /// to this credential — a demo account wearing somebody else's driver.
+    static var demoDriverAccountFixture: StaffAccount? {
+        let candidate = demoDriverAccount
+        let taken = LabRuntime.accounts.contains { account in
+            account.id == candidate.id
+                || (account.driverId != nil && account.driverId == candidate.driverId)
+                || account.email == candidate.email
+                || account.employeeNumber == candidate.employeeNumber
+        }
+        guard !taken, LabRuntime.driver(id: candidate.driverId) == nil else { return nil }
+        return candidate
     }
 
     /// The demonstration Conductor credential: Carlos Méndez Rivas, `drv-1042`.
