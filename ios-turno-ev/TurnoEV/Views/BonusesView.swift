@@ -20,20 +20,22 @@ struct BonusesView: View {
     /// change **four times a month at most** instead of continuously.
     @State private var today: Date = ShiftRules.calendar.startOfDay(for: AppClock.now())
 
-    /// Invisible day boundary detector — the same leaf pattern as `ShiftView.phaseTicker`.
+    /// Invisible day boundary detector.
     ///
-    /// A zero-size view that hears the minute so the page does not have to. The dependency
-    /// on `ClockBeat.minute` is registered inside *this* leaf, so a minute advancing
-    /// invalidates nothing but a comparison that almost always decides the day is still the
-    /// same. `today` — and with it the page — moves once per logical midnight.
+    /// A zero-size view that hears the day so the page does not have to. The dependency on
+    /// `ClockBeat.day` is registered inside *this* leaf, so `today` — and with it the page
+    /// — moves once per logical midnight and at no other moment.
     ///
-    /// `.minute` rather than `.second` because midnight is a minute boundary too: even at
-    /// x30 the day cannot be crossed and left undetected.
+    /// This used to listen on `.minute` and compare `startOfDay` itself, which meant waking
+    /// one thousand four hundred and forty times a day to decide one thousand four hundred
+    /// and thirty-nine times that nothing had changed. That comparison now lives in
+    /// `ClockBeat`, done once for every consumer in the app; the leaf keeps only the state
+    /// write, which still belongs outside `body`.
     private var dayTicker: some View {
-        TimeScope(.minute) { _ in
+        TimeScope(.day) { _ in
             Color.clear
                 .frame(width: 0, height: 0)
-                .onChange(of: ClockBeat.shared.minute, initial: true) { _, _ in
+                .onChange(of: ClockBeat.shared.day, initial: true) { _, _ in
                     let resolved = ShiftRules.calendar.startOfDay(for: AppClock.now())
                     guard resolved != today else { return }
                     today = resolved

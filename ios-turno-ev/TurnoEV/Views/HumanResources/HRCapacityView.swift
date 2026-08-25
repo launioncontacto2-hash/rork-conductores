@@ -100,8 +100,9 @@ struct HRCapacityView: View {
             } else {
                 ForEach(people) { file in
                     // One scope per row: the icon's colour and the reason line are the two
-                    // things a crossed expiry date changes, and they change together.
-                    TimeScope(.minute) { now in
+                    // things a crossed expiry date changes, and they change together. A
+                    // date decides it, so the day is the cadence.
+                    TimeScope(.day) { now in
                         HStack(spacing: 10) {
                             Image(systemName: file.status.symbol)
                                 .font(.system(size: 12, weight: .bold))
@@ -158,7 +159,7 @@ struct HRCapacityView: View {
 /// One purchase batch on its way to the station.
 ///
 /// Only the countdown to the day it starts operating moves on its own; the row carries
-/// that dependency itself.
+/// that dependency itself, at day cadence — a count of days changes once a day.
 struct IncorporationRow: View {
     let incorporation: VehicleIncorporation
 
@@ -189,7 +190,7 @@ struct IncorporationRow: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
                     .background(Palette.volt, in: .capsule)
-                TimeScope(.minute) { now in
+                TimeScope(.day) { now in
                     Text("en \(incorporation.daysToOperation(now: now)) días")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Palette.textMuted)

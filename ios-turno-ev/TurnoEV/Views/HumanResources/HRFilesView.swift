@@ -118,12 +118,15 @@ struct HRFilesView: View {
 /// the number and its colour — so the row is the unit and it owns the scope. A list of two
 /// hundred employees invalidates two hundred rows at most, and never the `ScrollView`, the
 /// search field, the block filter or the summary tiles above them.
+///
+/// `.day`, because a percentage of delivered documents only moves when one of them crosses
+/// its expiry date.
 private struct EmployeeFileRow: View {
     let file: EmployeeFile
     let onOpen: () -> Void
 
     var body: some View {
-        TimeScope(.minute) { now in
+        TimeScope(.day) { now in
             let pct = file.completionPct(now: now)
             PersonRow(
                 title: file.shortName,
@@ -255,8 +258,11 @@ struct EmployeeFileView: View {
     /// when a document crosses its expiry date, so the card is the smallest honest unit and
     /// the scope stops there. The `ScrollView`, the identity card above and the documents,
     /// banking and history panels below are never re-evaluated by the clock.
+    ///
+    /// Expiry is a date, so the cadence is the day — the card is evaluated once per logical
+    /// midnight instead of one thousand four hundred and forty times a day.
     private func completion(_ file: EmployeeFile) -> some View {
-        TimeScope(.minute) { now in
+        TimeScope(.day) { now in
             let pct = file.completionPct(now: now)
             let missing = file.missingDocuments(now: now)
             VStack(alignment: .leading, spacing: 12) {

@@ -218,12 +218,15 @@ struct PipelineFunnel: View {
 /// A document expires on a date, so both the state and the caption underneath it change on
 /// their own — and they change *together*, which makes the row the smallest honest unit.
 /// It registers that dependency itself so the file screen around it does not have to.
+///
+/// The cadence is `.day` because that is the truth of the rule: `resolvedStatus` compares
+/// against an expiry date, and no minute inside a date can change its answer.
 struct DocumentRow: View {
     let document: StaffDocument
     var action: (() -> Void)?
 
     var body: some View {
-        TimeScope(.minute) { now in
+        TimeScope(.day) { now in
             row(status: document.resolvedStatus(now: now), now: now)
         }
     }

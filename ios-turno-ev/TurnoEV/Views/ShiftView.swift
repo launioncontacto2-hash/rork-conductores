@@ -299,8 +299,8 @@ struct ShiftView: View {
                     CapsLabel(text: isActive ? "Turno en curso" : "Próximo turno")
                     Text("\(store.driver.slot.label) · \(store.driver.group.label)")
                         .font(.system(.title3, weight: .black))
-                    // Only the date needs the clock here, and only once a minute.
-                    TimeScope(.minute) { now in
+                    // Only the date needs the clock here, and a date changes once a day.
+                    TimeScope(.day) { now in
                         Text(Fmt.dateLong(now).capitalized)
                             .font(.caption)
                             .foregroundStyle(Palette.textMuted)

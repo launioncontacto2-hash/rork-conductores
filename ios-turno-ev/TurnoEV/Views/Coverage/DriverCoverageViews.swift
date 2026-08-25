@@ -81,7 +81,10 @@ struct DriverShiftsView: View {
         // card: the pill, the three facts, the closing line. So the card is the smallest
         // honest unit — and the scope stops at it. The `ScrollView` above, the guard
         // banner, the option rows and the bonus card are never re-evaluated by the clock.
-        TimeScope(.minute) { now in
+        //
+        // The cadence names what the card actually is: a reading of one date. It moves at
+        // logical midnight and at nothing else.
+        TimeScope(.day) { now in
             let today = coverage.day(for: profile, on: now)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {

@@ -9,6 +9,9 @@ import Observation
 ///
 /// - `second`  — changes when the **logical second** changes. Stopwatches, clock chips.
 /// - `minute`  — changes when the **logical minute** changes. Almost everything else.
+/// - `day`     — changes when the **calendar day** of logical time changes. Expiry dates,
+///   day boards, "today" headings: everything whose answer is decided by a date rather
+///   than by an hour.
 /// - `phaseEpoch` — changes only on a **discontinuous jump**: set, shift, setSpeed, reset
 ///   or a state adopted from another device. Never on the mere passage of time.
 ///
@@ -32,6 +35,14 @@ final class ClockBeat {
     /// Logical time truncated to the minute.
     private(set) var minute: Date
 
+    /// Logical time as it stood the moment the calendar day last changed.
+    ///
+    /// Not `startOfDay`: the cadence decides *when* consumers are invalidated, never what
+    /// instant they are handed. A scope reading this gets the true logical hour — a second
+    /// or two past midnight on a normal rollover, the exact hour landed on after a jump —
+    /// which is what date comparisons and expiry rules need.
+    private(set) var day: Date
+
     /// Counter of discontinuous jumps. Content whose *structure* depends on the clock —
     /// not its reading — watches this instead of a cadence.
     private(set) var phaseEpoch: Int = 0
@@ -41,6 +52,13 @@ final class ClockBeat {
 
     /// Whole logical minutes since the reference date. The comparison key for `minute`.
     @ObservationIgnored private var minuteStamp: Int
+
+    /// Midnight of the logical day last observed. The comparison key for `day`.
+    ///
+    /// A `Date` rather than an `Int` on purpose: only the calendar knows where a day
+    /// begins, and it is the app's own calendar — the one `ShiftRules` uses for every other
+    /// temporal rule — that has to answer, not arithmetic on epochs.
+    @ObservationIgnored private var dayStart: Date
 
     /// Shape of the clock as last observed, so an echo of a state already in force does
     /// not count as a jump.
@@ -137,6 +155,8 @@ final class ClockBeat {
         minuteStamp = minutes
         second = Self.date(fromSecondStamp: seconds)
         minute = Self.date(fromMinuteStamp: minutes)
+        dayStart = ShiftRules.calendar.startOfDay(for: now)
+        day = Self.date(fromSecondStamp: seconds)
         signature = PhaseSignature.current()
         watchDiscontinuities()
     }
@@ -185,6 +205,25 @@ final class ClockBeat {
         if minutes != minuteStamp {
             minuteStamp = minutes
             minute = Self.date(fromMinuteStamp: minutes)
+
+            // Nested on purpose, and this is the whole argument for `.day` living here
+            // rather than being derived by its consumers.
+            //
+            // A calendar day begins at midnight, and midnight is always a minute boundary:
+            // every zone this app can run in offsets UTC by a whole number of minutes. So
+            // the day cannot change without the minute stamp changing first. Asking the
+            // calendar inside this branch is therefore not an optimisation with a hole in
+            // it — it is the same condition, evaluated once per logical minute instead of
+            // once per real second.
+            //
+            // The comparison is `startOfDay(previous) != startOfDay(current)`, which is
+            // what makes acceleration and jumps fall out for free: it never watches for
+            // 00:00 to be observed, only for the day to have become a different one.
+            let start = ShiftRules.calendar.startOfDay(for: now)
+            if start != dayStart {
+                dayStart = start
+                day = Self.date(fromSecondStamp: seconds)
+            }
         }
     }
 

@@ -185,7 +185,7 @@ struct SupervisorCoverageView: View {
                     CapsLabel(text: "Cobertura de hoy")
                     Spacer(minLength: 0)
                     // The date of the board, alone. The heading beside it never moves.
-                    TimeScope(.minute) { now in
+                    TimeScope(.day) { now in
                         Text(Fmt.dateShort(now).capitalized)
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Palette.textMuted)
@@ -737,16 +737,17 @@ struct SupervisorCoverageView: View {
 /// The three shift meters of today, and only them.
 ///
 /// The board of a station is derived from a day, so this reading has to stay alive across
-/// midnight. Extracting it into its own view is what keeps the scope honest: the meters
-/// are the entire content, so nothing above them — the panel, its heading, the caption,
-/// the `LazyVGrid` of tiles underneath, the `ScrollView` of the whole module — is inside.
+/// midnight — and only across midnight, which is exactly what `.day` says. Extracting it
+/// into its own view is what keeps the scope honest: the meters are the entire content, so
+/// nothing above them — the panel, its heading, the caption, the `LazyVGrid` of tiles
+/// underneath, the `ScrollView` of the whole module — is inside.
 private struct StationSlotMeters: View {
     let station: Station
 
     @Environment(CoverageStore.self) private var coverage
 
     var body: some View {
-        TimeScope(.minute) { now in
+        TimeScope(.day) { now in
             ForEach(coverage.slotBoards(station: station, on: now)) { board in
                 CoverageMeter(board: board)
             }
@@ -754,14 +755,15 @@ private struct StationSlotMeters: View {
     }
 }
 
-/// Count of absences from today onwards. One tile, one number.
+/// Count of absences from today onwards. One tile, one number, and a filter anchored on
+/// `startOfDay` — so the day is both the cadence and the meaning.
 private struct UpcomingAbsencesTile: View {
     let station: Station
 
     @Environment(CoverageStore.self) private var coverage
 
     var body: some View {
-        TimeScope(.minute) { now in
+        TimeScope(.day) { now in
             let upcoming = coverage.absences(stationId: station.id)
                 .filter { $0.date >= ShiftRules.calendar.startOfDay(for: now) && $0.status.isOpen }
             StatTile(
