@@ -77,30 +77,36 @@ struct DriverShiftsView: View {
     // MARK: - Today
 
     private var todayCard: some View {
-        let today = coverage.day(for: profile, on: coverage.now)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    CapsLabel(text: "Hoy")
-                    Text(Fmt.dateLong(coverage.now).capitalized)
-                        .font(.system(.title3, weight: .black))
+        // The day itself is what the clock decides here, and the day drives the entire
+        // card: the pill, the three facts, the closing line. So the card is the smallest
+        // honest unit — and the scope stops at it. The `ScrollView` above, the guard
+        // banner, the option rows and the bonus card are never re-evaluated by the clock.
+        TimeScope(.minute) { now in
+            let today = coverage.day(for: profile, on: now)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        CapsLabel(text: "Hoy")
+                        Text(Fmt.dateLong(now).capitalized)
+                            .font(.system(.title3, weight: .black))
+                    }
+                    Spacer(minLength: 6)
+                    CoveragePill(text: today.kind.label, symbol: today.kind.symbol, tone: today.kind.tone)
                 }
-                Spacer(minLength: 6)
-                CoveragePill(text: today.kind.label, symbol: today.kind.symbol, tone: today.kind.tone)
-            }
 
-            HStack(spacing: 8) {
-                CoverageFact(label: "Horario", value: today.slot?.rangeLabel ?? "—")
-                CoverageFact(label: "Estación", value: today.stationCode)
-                CoverageFact(label: "Bloque", value: "\(profile.slot.label) · \(profile.group.label)")
-            }
+                HStack(spacing: 8) {
+                    CoverageFact(label: "Horario", value: today.slot?.rangeLabel ?? "—")
+                    CoverageFact(label: "Estación", value: today.stationCode)
+                    CoverageFact(label: "Bloque", value: "\(profile.slot.label) · \(profile.group.label)")
+                }
 
-            Text(today.detail)
-                .font(.caption)
-                .foregroundStyle(Palette.textMuted)
+                Text(today.detail)
+                    .font(.caption)
+                    .foregroundStyle(Palette.textMuted)
+            }
+            .padding(16)
+            .panel()
         }
-        .padding(16)
-        .panel()
     }
 
     private var guardBanner: some View {
@@ -287,8 +293,18 @@ struct DriverCoverageCalendarView: View {
     @State private var monthOffset: Int = 0
     @State private var selected: CoverageCalendarDay?
 
+    /// The day this calendar was opened on, captured once.
+    ///
+    /// Reading `coverage.now` from `month` made the anchor of the month, the highlight of
+    /// today and the list of upcoming moves subscribe to the clock — and with them this
+    /// whole sheet: its `NavigationStack`, its `ScrollView`, its forty-two cell
+    /// `LazyVGrid`. None of those may sit inside a `TimeScope`, and none of them needs to:
+    /// a month being browsed should not slide underneath the person browsing it. The
+    /// anchor is taken when the sheet appears and holds until it is opened again.
+    @State private var today: Date = AppClock.now()
+
     private var month: Date {
-        ShiftRules.calendar.date(byAdding: .month, value: monthOffset, to: coverage.now) ?? coverage.now
+        ShiftRules.calendar.date(byAdding: .month, value: monthOffset, to: today) ?? today
     }
 
     private var days: [CoverageCalendarDay] { coverage.calendar(for: profile, month: month) }
@@ -387,7 +403,7 @@ struct DriverCoverageCalendarView: View {
                         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                         selected = day
                     } label: {
-                        CoverageDaySquare(day: day, isToday: ShiftRules.isSameDay(day.date, coverage.now))
+                        CoverageDaySquare(day: day, isToday: ShiftRules.isSameDay(day.date, today))
                     }
                     .buttonStyle(.plain)
                 }
@@ -426,7 +442,7 @@ struct DriverCoverageCalendarView: View {
     @ViewBuilder
     private var upcoming: some View {
         let next = days.filter {
-            $0.date >= ShiftRules.calendar.startOfDay(for: coverage.now) && $0.kind != .rest && $0.kind != .regular
+            $0.date >= ShiftRules.calendar.startOfDay(for: today) && $0.kind != .rest && $0.kind != .regular
         }
         if !next.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
@@ -784,7 +800,11 @@ struct AbsenceRequestFormView: View {
             if let vacancy = coverage.vacancy(id: stored.vacancyId) {
                 VStack(alignment: .leading, spacing: 10) {
                     CapsLabel(text: "Vacante temporal generada")
-                    VacancyCard(vacancy: vacancy, now: coverage.now, showsTitular: false)
+                    // The card reads the clock for a single line — the urgency label of a
+                    // critical seat. The scope covers that card and nothing around it.
+                    TimeScope(.minute) { now in
+                        VacancyCard(vacancy: vacancy, now: now, showsTitular: false)
+                    }
                     Text("El sistema detectó la estación, la fecha, el horario, el turno y tu unidad sin que tuvieras que capturarlos.")
                         .font(.caption2)
                         .foregroundStyle(Palette.textMuted)
@@ -925,7 +945,9 @@ struct GuardDetailView: View {
                 StationBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        VacancyCard(vacancy: vacancy, now: coverage.now)
+                        TimeScope(.minute) { now in
+                            VacancyCard(vacancy: vacancy, now: now)
+                        }
 
                         if !blockers.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
@@ -1239,7 +1261,11 @@ struct MyReplacementsView: View {
             } else {
                 ForEach(active) { vacancy in
                     VStack(alignment: .leading, spacing: 10) {
-                        VacancyCard(vacancy: vacancy, now: coverage.now)
+                        // One scope per row, wrapping that row's card only. The section
+                        // heading, the empty state and the cancel button stay outside.
+                        TimeScope(.minute) { now in
+                            VacancyCard(vacancy: vacancy, now: now)
+                        }
                         Button {
                             cancelling = vacancy
                         } label: {
@@ -1344,11 +1370,16 @@ struct GuardCancellationView: View {
                         VStack(spacing: 0) {
                             DetailRow(label: "Turno", value: CoverageRules.shiftLabel(date: vacancy.date, slot: vacancy.slot))
                             Divider().overlay(Palette.hairline)
-                            DetailRow(
-                                label: "Anticipación",
-                                value: CoverageRules.urgencyLabel(hoursUntilStart: vacancy.hoursUntilStart(now: coverage.now)),
-                                tone: vacancy.hoursUntilStart(now: coverage.now) < 12 ? CovTone.blocking : CovTone.pending
-                            )
+                            // Text and colour of one row. The rows above and below it, the
+                            // reason field and the confirm button are outside the scope.
+                            TimeScope(.minute) { now in
+                                let hours = vacancy.hoursUntilStart(now: now)
+                                DetailRow(
+                                    label: "Anticipación",
+                                    value: CoverageRules.urgencyLabel(hoursUntilStart: hours),
+                                    tone: hours < 12 ? CovTone.blocking : CovTone.pending
+                                )
+                            }
                             Divider().overlay(Palette.hairline)
                             DetailRow(label: "Bono que pierdes", value: vacancy.bonusLabel)
                         }
