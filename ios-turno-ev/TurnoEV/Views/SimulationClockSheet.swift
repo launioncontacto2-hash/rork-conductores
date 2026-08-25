@@ -496,6 +496,12 @@ struct EnvironmentSheet: View {
 
     private var canSwitch: Bool { EnvironmentControl.canSwitchEnvironment(account: store.currentAccount) }
 
+    /// The one-way valve. A session without laboratory rights cannot start a simulation,
+    /// but it is never trapped inside one.
+    private var canLeaveTest: Bool {
+        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -548,8 +554,13 @@ struct EnvironmentSheet: View {
             CapsLabel(text: "Entorno activo")
 
             ForEach(LabMode.allCases) { mode in
+                let isAdoptable = EnvironmentControl.canAdopt(
+                    mode: mode,
+                    account: store.currentAccount,
+                    current: lab.mode
+                )
                 Button {
-                    guard canSwitch, mode != lab.mode else { return }
+                    guard isAdoptable, mode != lab.mode else { return }
                     if mode == .production {
                         isLeavingTestPresented = true
                     } else {
@@ -588,14 +599,18 @@ struct EnvironmentSheet: View {
                     .panelFlat(cornerRadius: 16)
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSwitch)
+                .disabled(!isAdoptable)
             }
 
             if !canSwitch {
-                Text("Solo la Administración de Pruebas cambia el entorno. Tu sesión puede participar en la simulación, pero no encenderla ni apagarla.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    canLeaveTest
+                        ? "Solo la Administración de Pruebas enciende una simulación. Salir de ella y volver a Producción sí está en tus manos, y no cierra tu sesión."
+                        : "Solo la Administración de Pruebas cambia el entorno. Tu sesión puede participar en la simulación, pero no encenderla."
+                )
+                .font(.system(size: 10))
+                .foregroundStyle(Palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(15)

@@ -81,16 +81,21 @@ final class FleetStore {
     // MARK: - Unit assignment
 
     /// Pulls the assignment the supervisor wrote. When the station never assigned a unit
-    /// but the driver already has authorizations seeded, the first one is adopted as the
-    /// titular unit so the demo opens with a coherent file.
+    /// but the driver already has authorizations seeded, one of them is adopted as the
+    /// titular unit so the profile opens with a coherent file.
+    ///
+    /// What the supervisor wrote always wins — this never overrides a real assignment.
+    /// The one case where a stored record is dropped is when it points at a unit the
+    /// active environment no longer holds: keeping it would leave `assignedVehicle` nil
+    /// and the profile reading "sin unidad" while a perfectly valid authorization sits
+    /// unused. Switching environments is exactly how that happens.
     func reloadAssignment() {
-        if let stored = AssignmentBook.assignment(driverId: driver.id) {
+        if let stored = AssignmentBook.assignment(driverId: driver.id),
+           vehicles.contains(where: { $0.id == stored.vehicleId }) {
             unitAssignment = stored
             return
         }
-        guard
-            let seeded = vehicles.first(where: { driver.authorizedVehicleIds.contains($0.id) && $0.stationId == driver.stationId })
-        else {
+        guard let seeded = seedableUnit() else {
             unitAssignment = nil
             return
         }
@@ -108,6 +113,34 @@ final class FleetStore {
         )
         AssignmentBook.upsert(assignment)
         unitAssignment = assignment
+    }
+
+    /// The unit the station would hand this driver on day one.
+    ///
+    /// This does not widen anything: the candidates are exactly `authorizedVehicleIds`,
+    /// and the order is the driver's own, so the first authorization is the titular unit
+    /// rather than whichever authorized unit happened to come first in the fleet list.
+    ///
+    /// The filters are the blocking rules of `ShiftRules.validateUnit` that do not depend
+    /// on the hour — same station, not held by somebody else, operational. Seeding a unit
+    /// that fails one of them would put a permanent blocker on the start screen, which is
+    /// worse than no unit at all. The temporal rule is deliberately *not* applied here:
+    /// the assignment exists at every hour, and the start window is judged when the driver
+    /// actually tries to start.
+    private func seedableUnit() -> Vehicle? {
+        let candidates = driver.authorizedVehicleIds
+            .compactMap { id in vehicles.first { $0.id == id } }
+            .filter { vehicle in
+                guard vehicle.stationId == driver.stationId else { return false }
+                // Not being driven by somebody else right now.
+                guard vehicle.occupiedBy == nil || vehicle.occupiedBy == driver.id else { return false }
+                // Not tied to another driver in the station's book.
+                if let holder = AssignmentBook.holder(vehicleId: vehicle.id), holder.driverId != driver.id {
+                    return false
+                }
+                return vehicle.status == .available
+            }
+        return candidates.first
     }
 
     /// The unit the driver must take today: the substitute while it lasts, the titular one otherwise.

@@ -452,6 +452,14 @@ struct SessionMenuButton: View {
 
     private var canSwitch: Bool { EnvironmentControl.canSwitchEnvironment(account: store.currentAccount) }
 
+    /// Present for everybody inside the simulation, privileged or not. This menu is the
+    /// one control every profile carries on every screen, so it is where the way out of
+    /// Modo prueba has to live — otherwise a driver handed a test environment can see the
+    /// amber badge and do nothing about it.
+    private var canLeaveTest: Bool {
+        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+    }
+
     var body: some View {
         Group {
             if let account = store.currentAccount {
@@ -463,6 +471,12 @@ struct SessionMenuButton: View {
                         Text(lab.mode.label)
                         if canSwitch {
                             Button("Cambiar entorno", systemImage: "arrow.triangle.2.circlepath") {
+                                isEnvironmentPresented = true
+                            }
+                        } else if canLeaveTest {
+                            // Named for what it does, not for the sheet it opens: the only
+                            // move available here is the return to the real operation.
+                            Button("Salir de Modo prueba", systemImage: "arrow.uturn.left.circle") {
                                 isEnvironmentPresented = true
                             }
                         }
@@ -545,11 +559,17 @@ struct DemoClockButton: View {
         EnvironmentControl.canControlClock(account: store.currentAccount, mode: lab.mode)
     }
 
-    /// An unauthorised device still reads the hour; it simply cannot open anything.
-    private var isInteractive: Bool { canSwitchEnvironment }
+    /// Inside the simulation every session may walk back to production, so the chip stops
+    /// being a dead label there even without the laboratory credential.
+    private var canLeaveTest: Bool {
+        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+    }
+
+    /// An unauthorised device in production still reads the hour; it opens nothing.
+    private var isInteractive: Bool { canSwitchEnvironment || canLeaveTest }
 
     private var badge: String? {
-        guard canSwitchEnvironment else { return nil }
+        guard isInteractive else { return nil }
         return isTest ? "PRUEBA" : "PROD"
     }
 
@@ -562,7 +582,8 @@ struct DemoClockButton: View {
             if canControlClock {
                 isClockPresented = true
             } else {
-                // Production: the tap is the way into the simulation.
+                // Production: the tap is the way into the simulation. Test mode without
+                // clock rights: the tap is the way out of it.
                 isEnvironmentPresented = true
             }
         } label: {

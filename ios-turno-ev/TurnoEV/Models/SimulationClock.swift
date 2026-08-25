@@ -370,6 +370,32 @@ nonisolated enum EnvironmentControl {
         account?.role == .lab || isUnlocked
     }
 
+    /// May this session return to Producción from inside the simulation.
+    ///
+    /// Deliberately looser than `canSwitchEnvironment`, and only in one direction. The
+    /// thing worth guarding is a real operation being dragged *into* a simulation: that
+    /// stays a laboratory act. Walking *out* of one is the safe direction — production is
+    /// the real hour and the real data — so any signed-in session may take it.
+    ///
+    /// Without this, a profile handed a test environment had no way back except signing
+    /// out, and signing out does not change the environment either: it would come back
+    /// into the simulation on the next access.
+    static func canLeaveTestEnvironment(account: StaffAccount?, mode: LabMode) -> Bool {
+        mode == .test && account != nil
+    }
+
+    /// Whether this session can reach the environment sheet at all, in either direction.
+    static func canReachEnvironment(account: StaffAccount?, mode: LabMode) -> Bool {
+        canSwitchEnvironment(account: account) || canLeaveTestEnvironment(account: account, mode: mode)
+    }
+
+    /// May this session select `mode` in the environment sheet.
+    static func canAdopt(mode: LabMode, account: StaffAccount?, current: LabMode) -> Bool {
+        if canSwitchEnvironment(account: account) { return true }
+        // The one-way valve: Producción is always reachable, Modo prueba never is.
+        return mode == .production && canLeaveTestEnvironment(account: account, mode: current)
+    }
+
     /// May this device move the logical time. This one does depend on the environment:
     /// there is no clock to move in production, where time is real and untouchable.
     static func canControlClock(account: StaffAccount?, mode: LabMode) -> Bool {
