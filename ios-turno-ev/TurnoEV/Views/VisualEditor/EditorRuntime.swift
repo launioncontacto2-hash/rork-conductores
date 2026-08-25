@@ -124,6 +124,42 @@ struct EditorBlock: Identifiable {
     }
 }
 
+// MARK: - Rows
+
+/// One four-column row of the canvas, identified by what it contains rather than by where
+/// it sits.
+///
+/// The row index was never an identity: it is a position. A conditional block appearing, an
+/// element hidden or deleted, a reorder or a width change all shift the packing, and with a
+/// positional key SwiftUI is told that row 2 “became” a different set of elements — so it
+/// reuses the state and the transition of an unrelated row.
+private struct EditorRow: Identifiable {
+    let blocks: [EditorBlock]
+    let id: String
+
+    init(_ blocks: [EditorBlock]) {
+        self.blocks = blocks
+        self.id = Self.identity(of: blocks)
+    }
+
+    /// Deterministic, order-sensitive, collision-free key for a composition of blocks.
+    ///
+    /// Length-prefixed encoding (`"12:shift.header9:shift.hero"`) rather than a joined
+    /// string with a separator. A separator is only unambiguous while no id contains it,
+    /// and element ids added by the editor are not under this file's control. Prefixing
+    /// each id with its length makes the encoding injective whatever the ids are: two
+    /// different compositions cannot produce the same string.
+    ///
+    /// Not a `hashValue`: that is 64 bits with no collision guarantee and no stability
+    /// across launches. Not a `UUID`: minting one during `body` would hand SwiftUI a brand
+    /// new identity on every pass, which is worse than the index it replaces.
+    private static func identity(of blocks: [EditorBlock]) -> String {
+        blocks.reduce(into: "") { key, block in
+            key += "\(block.id.count):\(block.id)"
+        }
+    }
+}
+
 // MARK: - Canvas
 
 struct EditorStack: View {
@@ -200,9 +236,9 @@ struct EditorStack: View {
 
     private var plainStack: some View {
         VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { item in
+            ForEach(rows) { row in
                 EditorRowLayout(spacing: 10) {
-                    ForEach(item.element) { block in
+                    ForEach(row.blocks) { block in
                         EditorElementBody(
                             screen: screen,
                             block: block,
@@ -214,22 +250,26 @@ struct EditorStack: View {
                         .id(block.id)
                     }
                 }
-                .padding(.bottom, rowSpacing(item.element))
+                .padding(.bottom, rowSpacing(row.blocks))
             }
         }
     }
 
     private var editingStack: some View {
         VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { item in
+            // Same row identity as `plainStack`, on purpose. The two paths differ in the
+            // chrome they draw, never in what a row *is*: the editor is toggled on and off
+            // over a live screen, and a composition that changed meaning under one path has
+            // changed meaning under the other.
+            ForEach(rows) { row in
                 EditorRowLayout(spacing: 10) {
-                    ForEach(item.element) { block in
+                    ForEach(row.blocks) { block in
                         cell(block)
                             .layoutValue(key: EditorSpanKey.self, value: columns(block))
                             .id(block.id)
                     }
                 }
-                .padding(.bottom, rowSpacing(item.element))
+                .padding(.bottom, rowSpacing(row.blocks))
             }
 
             if isLive {
@@ -244,22 +284,24 @@ struct EditorStack: View {
     }
 
     /// Packs the elements into four-column rows without ever letting one overflow.
-    private var rows: [[EditorBlock]] {
-        var packed: [[EditorBlock]] = []
+    ///
+    /// The packing rule is untouched; only the result is now identified by its members.
+    private var rows: [EditorRow] {
+        var packed: [EditorRow] = []
         var current: [EditorBlock] = []
         var used = 0
 
         for block in visible {
             let span = columns(block)
             if used + span > 4, !current.isEmpty {
-                packed.append(current)
+                packed.append(EditorRow(current))
                 current = []
                 used = 0
             }
             current.append(block)
             used += span
         }
-        if !current.isEmpty { packed.append(current) }
+        if !current.isEmpty { packed.append(EditorRow(current)) }
         return packed
     }
 
