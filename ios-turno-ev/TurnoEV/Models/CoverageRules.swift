@@ -49,9 +49,21 @@ nonisolated enum CoverageRules {
     // MARK: - Eligibility
 
     /// Everything the engine needs to judge one person for one seat, gathered by the store.
+    ///
+    /// **Deliberately timeless.** Not one of the thirteen rules asks what time it is: every
+    /// threshold is measured against the seat's own `scheduledStartAt` / `scheduledEndAt`
+    /// and against stored facts — licence and vacation dates, held guards, weekly counters,
+    /// flags. Whether the seat is next Tuesday or was yesterday changes nothing about
+    /// *whether this person is allowed to take it*.
+    ///
+    /// It used to carry a `now` that no rule ever read. That dead field was load-bearing in
+    /// the worst way: building it made the store read `CoverageStore.now` → `FleetStore.now`
+    /// → `ClockSignal.generation`, so every caller of `evaluate` — including a tab badge —
+    /// registered a dependency on the global clock and was invalidated by a hour it did not
+    /// use. The urgency of a seat *is* time-dependent, and that lives where it belongs:
+    /// `isEmergency(startAt:now:policy:)`, called by the store when a seat is opened.
     nonisolated struct EligibilityContext: Sendable {
         let policy: CoveragePolicy
-        let now: Date
         /// Guards the person already holds (reserved, approved or confirmed).
         let heldVacancies: [CoverageVacancy]
         /// Absences of this person already approved or in process.

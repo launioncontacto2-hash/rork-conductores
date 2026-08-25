@@ -92,15 +92,14 @@ struct RootTabView: View {
 
     /// Seats this driver could take right now.
     ///
-    /// **Deliberately not wired to the tab.** Reading it registers a dependency on the
-    /// global clock signal, and reading it *here* would register it on `RootTabView` —
-    /// invalidating the whole `TabView` and every tab inside it, not just the badge.
+    /// Safe to read here. The chain — `availableGuards(for:)` → `evaluate(profile:vacancy:)`
+    /// → `context(for:vacancy:)` — now touches only observable data: `vacancies`,
+    /// `absences`, `policy`, `flags` and `store.driver`. The `now` that used to sit unused
+    /// inside `EligibilityContext`, and that dragged the whole `TabView` onto
+    /// `ClockSignal.generation`, was removed from the type itself rather than worked around
+    /// here.
     ///
-    /// The chain: `availableGuards(for:)` → `evaluate(profile:vacancy:)` →
-    /// `context(for:vacancy:)`, which builds an `EligibilityContext` carrying
-    /// `CoverageStore.now` → `fleet.now` → `ClockSignal.generation`. The count itself does
-    /// not depend on the hour at all: `CoverageRules.evaluate` never reads `context.now`.
-    /// It restores once that read is resolved in its own phase.
+    /// So this count moves when the board moves, never when the hour does.
     private var availableGuardCount: Int {
         coverage.availableGuards(for: coverage.profile(for: store.driver)).count
     }
@@ -120,7 +119,9 @@ struct RootTabView: View {
                     } label: {
                         Label("Turnos", systemImage: "calendar")
                     }
-                    // .badge(availableGuardCount) — see the property above.
+                    // `badge(_: Int)` draws nothing at zero, which is exactly the wanted
+                    // behaviour: no dot on a driver with nothing to take.
+                    .badge(availableGuardCount)
                     Tab("Metas", systemImage: "target", value: 2) {
                         GoalsView()
                     }

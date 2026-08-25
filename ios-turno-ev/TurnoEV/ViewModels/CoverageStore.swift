@@ -201,6 +201,11 @@ final class CoverageStore {
         CoverageRules.evaluate(profile: profile, vacancy: vacancy, context: context(for: profile, vacancy: vacancy))
     }
 
+    /// Gathers the facts one verdict needs.
+    ///
+    /// Reads only observable collections — `vacancies`, `absences`, `policy`, `flags` — and
+    /// never `now`. That is what keeps `evaluate` off the clock: see the note on
+    /// `EligibilityContext`.
     private func context(for profile: CoverageDriverProfile, vacancy: CoverageVacancy) -> CoverageRules.EligibilityContext {
         let held = vacancies.filter { candidate in
             (candidate.status == .reserved || candidate.status == .confirmed)
@@ -223,7 +228,6 @@ final class CoverageStore {
 
         return CoverageRules.EligibilityContext(
             policy: policy,
-            now: now,
             heldVacancies: held,
             openAbsences: absences.filter { $0.driverId == profile.id && $0.status.isOpen },
             guardsThisWeek: guardsThisWeek,
