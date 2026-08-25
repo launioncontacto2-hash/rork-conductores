@@ -9,8 +9,15 @@ import UIKit
 
 /// What the canvas has to draw for one element.
 enum EditorContent {
-    /// A view the screen owns. The editor can move, resize, hide or delete it.
-    case custom(AnyView)
+    /// A view the screen owns, kept **unbuilt**. The editor can move, resize, hide or
+    /// delete it.
+    ///
+    /// The closure is the whole point. Holding an `AnyView` meant the screen's
+    /// `@ViewBuilder` ran the moment `blocks(...)` was called — before `EditorStack` had
+    /// looked at the design and decided which elements it actually draws. Every block of
+    /// the screen was materialised on every pass, including the ones the editor had hidden
+    /// or deleted. Holding the builder instead defers that to the block that really mounts.
+    case custom(() -> AnyView)
     /// A number the editor can re-draw with any of the eight card models.
     case kpi(EditorMetricSample)
     /// A data set the editor can re-draw with any compatible chart.
@@ -46,7 +53,7 @@ struct EditorBlock: Identifiable {
         kind: EditorElementKind = .card,
         isCritical: Bool = false,
         width: EditorWidth = .full,
-        @ViewBuilder content: () -> some View
+        @ViewBuilder content: @escaping () -> some View
     ) -> EditorBlock {
         EditorBlock(
             ref: EditorElementRef(
@@ -57,7 +64,9 @@ struct EditorBlock: Identifiable {
                 defaultWidth: width,
                 supportsDuplicate: false
             ),
-            content: .custom(AnyView(content()))
+            // Wrapped, not called: `content()` runs inside `EditorElementBody`, which only
+            // exists for a block that survived the design's order, visibility and deletions.
+            content: .custom { AnyView(content()) }
         )
     }
 
@@ -398,8 +407,9 @@ private struct EditorElementBody: View {
     @ViewBuilder
     private var content: some View {
         switch block.content {
-        case .custom(let view):
-            view
+        case .custom(let build):
+            // The screen's `@ViewBuilder` runs here, at the point of use.
+            build()
 
         case .kpi(let original):
             let metric = rules.metric ?? block.ref.metric
