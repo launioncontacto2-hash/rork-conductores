@@ -209,13 +209,20 @@ final class FleetStore {
     /// and in a simulation it is the logical time of the test environment, shared by every
     /// role and every device.
     ///
-    /// Reading `ClockSignal.generation` here is deliberate and load-bearing: it is what
-    /// registers the SwiftUI dependency. Without it every screen calling `store.now` was
-    /// reading a static enum with nothing observable behind it, so a clock adopted from
-    /// another device changed the value but invalidated no view.
+    /// **A pure read.** It answers what hour it is and registers no SwiftUI dependency.
+    ///
+    /// It used to read `ClockSignal.generation` first. That was load-bearing at the time and
+    /// is deliberately gone now: one indiscriminate counter meant any adopted clock state
+    /// invalidated every reader of `store.now` at once, across all seven roles — and worse,
+    /// screens inherited temporal correctness by accident, through a side effect none of
+    /// them named. Views that genuinely follow the clock now say so, one at a time, with
+    /// `TimeScope` or `ClockAnchor`.
+    ///
+    /// Use this for **action time**: the instant a decision is taken, a form is preloaded, a
+    /// snapshot is rebuilt or a seed key is computed. Never to make something on screen move
+    /// by itself — nothing observes this any more, and nothing should.
     var now: Date {
-        _ = ClockSignal.shared.generation
-        return AppClock.now()
+        AppClock.now()
     }
 
     var activeVehicle: Vehicle? {

@@ -87,8 +87,14 @@ nonisolated enum StationGoalLedger {
         return "\(stationId)|\(parts.year ?? 0)-\(parts.month ?? 0)-\(parts.day ?? 0)"
     }
 
-    /// Stores what the station has billed today. Called on every refresh, so the figure
-    /// of the day is always the latest one rather than an accumulation of reads.
+    /// Stores what the station has billed on a day. Overwrites rather than accumulates, so
+    /// the entry is always the latest figure for that date.
+    ///
+    /// Idempotent: the value is compared before being stored, so repeating a call with the
+    /// same station, day and amount writes nothing and touches no defaults.
+    ///
+    /// Called only from `SupervisionStore.recordDayBilling()`, on the station's real sync
+    /// and reseed events. Never from a derived read — drawing a screen must not mutate this.
     static func record(stationId: String, day: Date, earningsMxn: Int) {
         var values = load()
         let entry = key(stationId: stationId, day: day)

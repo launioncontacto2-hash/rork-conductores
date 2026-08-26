@@ -56,6 +56,24 @@ final class SupervisionStore {
         syncLiveTickets()
         seedAssignmentsFromRoster()
         fleet.reloadAssignment()
+        recordDayBilling()
+    }
+
+    /// Archives what the station has billed today.
+    ///
+    /// This write used to live inside `goalProgress(now:)`, a derived read — which meant
+    /// drawing a screen mutated stored state, and after Fase 12 that read runs inside a
+    /// `TimeScope(.day)`. A cadence boundary is not an event, and it must never be the thing
+    /// that decides the ledger.
+    ///
+    /// Here it sits on the two real mutations instead: `refresh()`, which pulls the driver
+    /// app's activity into the board, and `regenerateStation()`, which reseeds the peers'
+    /// earnings. `StationGoalLedger.record` is idempotent by station and day — it compares
+    /// before storing — so calling it on every sync costs nothing when nothing moved.
+    private func recordDayBilling() {
+        let today = now
+        let billed = allDrivers(now: today).reduce(0) { $0 + $1.earningsMxn }
+        StationGoalLedger.record(stationId: station.id, day: today, earningsMxn: billed)
     }
 
     private var currentSeedKey: String {
@@ -85,6 +103,7 @@ final class SupervisionStore {
     func regenerateStation() {
         rebuild()
         syncLiveTickets()
+        recordDayBilling()
     }
 
     // MARK: - Live driver bridge
@@ -533,19 +552,29 @@ final class SupervisionStore {
 
     /// Day, week and month against their own fixed goals. The week and the month add up
     /// only the days the station actually recorded, so nothing here is an estimate.
-    /// **Day.** The day, week and month buckets are decided by the calendar date, not by the
-    /// hour: nothing here moves at a shift boundary.
+    ///
+    /// **Day.** The three buckets are decided by the calendar date, not by the hour: nothing
+    /// here moves at a shift boundary.
+    ///
+    /// **Pure.** It reads the ledger and never writes to it — see `recordDayBilling()`.
+    ///
+    /// Today is taken live and swapped in for whatever the archive holds for today, which is
+    /// what keeps the observable behaviour identical to the version that wrote first and
+    /// read second: the week and the month always contain the freshest figure of the day,
+    /// while the days behind it come from the archive untouched.
     func goalProgress(now: Date) -> StationGoalProgress {
         let capacity = station.vehicleCapacity
         let billedToday = allDrivers(now: now).reduce(0) { $0 + $1.earningsMxn }
-        StationGoalLedger.record(stationId: station.id, day: now, earningsMxn: billedToday)
+        let archivedToday = StationGoalLedger.earnings(stationId: station.id, day: now)
+        let archivedWeek = StationGoalLedger.weekEarnings(stationId: station.id, reference: now)
+        let archivedMonth = StationGoalLedger.monthEarnings(stationId: station.id, reference: now)
 
         return StationGoalProgress(
             dayEarningsMxn: billedToday,
             dayGoalMxn: ShiftRules.stationDayGoalMxn(capacity: capacity, on: now),
-            weekEarningsMxn: StationGoalLedger.weekEarnings(stationId: station.id, reference: now),
+            weekEarningsMxn: archivedWeek - archivedToday + billedToday,
             weekGoalMxn: ShiftRules.stationWeekGoalMxn(capacity: capacity),
-            monthEarningsMxn: StationGoalLedger.monthEarnings(stationId: station.id, reference: now),
+            monthEarningsMxn: archivedMonth - archivedToday + billedToday,
             monthGoalMxn: ShiftRules.stationMonthGoalMxn(capacity: capacity, on: now)
         )
     }
