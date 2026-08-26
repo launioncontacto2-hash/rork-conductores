@@ -429,8 +429,18 @@ final class RecruitmentStore {
             .sorted { $0.date < $1.date }
     }
 
-    /// Still to happen. The comparison is `date >= now`, so strictly this is a minute
-    /// boundary; the agenda consumer pairs it with `!isToday`, which lifts it to a day.
+    /// Still to happen. The comparison is `date >= now`, so **this function is `.minute`**:
+    /// an interview leaves this list at its own hour, not at midnight.
+    ///
+    /// A `.day` reading is only correct for a consumer that normalises the boundary itself,
+    /// by pairing this with `!isToday(now:)`. Then the finest thing that can change the
+    /// result really is the date — but the `.day` belongs to that consumer, never to this
+    /// function. Read raw at `.day` it is simply wrong: the count keeps an interview that
+    /// already happened until the following midnight, while `pastAppointments` has already
+    /// claimed it, and the two boards contradict each other for the rest of the day.
+    ///
+    /// Two of the three call sites were doing exactly that and were corrected. Do not assume
+    /// the pairing — check it at the call site.
     func upcomingAppointments(now: Date) -> [Appointment] {
         appointments
             .filter { $0.status.isOpen && $0.date >= now }

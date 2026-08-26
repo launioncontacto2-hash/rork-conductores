@@ -11,7 +11,9 @@ struct SupervisorDriversView: View {
     @State private var search: String = ""
     @State private var assigning: AssignmentTarget?
 
-    private var rows: [StationDriver] { supervision.drivers(matching: filter, search: search) }
+    private func rows(now: Date) -> [StationDriver] {
+        supervision.drivers(matching: filter, search: search, now: now)
+    }
 
     /// Person receiving a unit: a driver of the roster or an alta just sent by recruitment.
     struct AssignmentTarget: Identifiable, Hashable {
@@ -36,51 +38,21 @@ struct SupervisorDriversView: View {
 
                     searchField
 
-                    FilterScroller(
-                        items: DriverFilter.allCases,
-                        title: { $0.label },
-                        symbol: { $0.symbol },
-                        count: { supervision.drivers(matching: $0).count },
-                        selection: $filter
-                    )
-                    .padding(.horizontal, -18)
-
-                    HStack {
-                        Text("\(rows.count) conductores")
-                            .font(.system(.caption, weight: .bold))
-                            .foregroundStyle(Palette.textMuted)
-                        Spacer()
-                    }
-
-                    if !pendingHires.isEmpty {
-                        handoffSection
-                    }
-
-                    if rows.isEmpty {
-                        SupEmptyState(
-                            symbol: filter.symbol,
-                            title: "Sin conductores en este filtro",
-                            message: "Cambia el filtro o limpia la búsqueda para ver el resto de la plantilla."
+                    // Membership: `.late` and `.absent` are states the clock decides, so a
+                    // driver enters and leaves these filters with no event behind it. The
+                    // counters and the list share one scope because they must never disagree
+                    // about how many people are in the filter they label.
+                    TimeScope(.minute) { now in
+                        FilterScroller(
+                            items: DriverFilter.allCases,
+                            title: { $0.label },
+                            symbol: { $0.symbol },
+                            count: { supervision.drivers(matching: $0, now: now).count },
+                            selection: $filter
                         )
-                    } else {
-                        LazyVStack(spacing: 12) {
-                            ForEach(rows) { driver in
-                                DriverCard(
-                                    driver: driver,
-                                    ticket: supervision.ticket(forDriver: driver.id),
-                                    assignment: supervision.assignment(driverId: driver.id),
-                                    onOpen: { onOpenDriver(driver.id) },
-                                    onOpenTicket: onOpenTicket,
-                                    onAssignUnit: {
-                                        assigning = AssignmentTarget(
-                                            id: driver.id,
-                                            name: driver.name,
-                                            subtitle: "\(driver.employeeNumber) · turno \(driver.slot.label.lowercased())"
-                                        )
-                                    }
-                                )
-                            }
-                        }
+                        .padding(.horizontal, -18)
+
+                        rosterSection(rows: rows(now: now))
                     }
                 }
                 .padding(.horizontal, 18)
@@ -89,13 +61,58 @@ struct SupervisorDriversView: View {
             .scrollIndicators(.hidden)
         }
         .sheet(item: $assigning) { target in
-            SupervisorAssignUnitView(
-                supervision: supervision,
-                driverId: target.id,
-                driverName: target.name,
-                subtitle: target.subtitle
-            )
+            assignmentSheet(target: target)
         }
+    }
+
+    @ViewBuilder
+    private func rosterSection(rows: [StationDriver]) -> some View {
+        HStack {
+            Text("\(rows.count) conductores")
+                .font(.system(.caption, weight: .bold))
+                .foregroundStyle(Palette.textMuted)
+            Spacer()
+        }
+
+        if !pendingHires.isEmpty {
+            handoffSection
+        }
+
+        if rows.isEmpty {
+            SupEmptyState(
+                symbol: filter.symbol,
+                title: "Sin conductores en este filtro",
+                message: "Cambia el filtro o limpia la búsqueda para ver el resto de la plantilla."
+            )
+        } else {
+            LazyVStack(spacing: 12) {
+                ForEach(rows) { driver in
+                    DriverCard(
+                        driver: driver,
+                        ticket: supervision.ticket(forDriver: driver.id),
+                        assignment: supervision.assignment(driverId: driver.id),
+                        onOpen: { onOpenDriver(driver.id) },
+                        onOpenTicket: onOpenTicket,
+                        onAssignUnit: {
+                            assigning = AssignmentTarget(
+                                id: driver.id,
+                                name: driver.name,
+                                subtitle: "\(driver.employeeNumber) · turno \(driver.slot.label.lowercased())"
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    private func assignmentSheet(target: AssignmentTarget) -> some View {
+        SupervisorAssignUnitView(
+            supervision: supervision,
+            driverId: target.id,
+            driverName: target.name,
+            subtitle: target.subtitle
+        )
     }
 
     /// Altas that recruitment already signed: the station receives the person and this
@@ -353,12 +370,19 @@ struct SupervisorDriverDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var isAssigning: Bool = false
 
-    private var driver: StationDriver? { supervision.driver(id: driverId) }
+    /// This sheet shows the driver's live state — demorado, ausente, en operación — and that
+    /// state is decided by the clock, so the file has to be read against a moving instant
+    /// rather than the one it happened to open on. `ClockAnchor` rather than `TimeScope`
+    /// because `driver` feeds the whole body, including the navigation title.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var driver: StationDriver? { supervision.driver(id: driverId, now: minuteAnchor) }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 SupervisionBackground()
+                ClockAnchor(.minute, date: $minuteAnchor)
 
                 if let driver {
                     ScrollView {

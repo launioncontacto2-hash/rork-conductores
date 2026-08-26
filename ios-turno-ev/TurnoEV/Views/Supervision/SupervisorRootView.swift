@@ -69,10 +69,14 @@ struct SupervisorRootView: View {
 
     /// Alerts of the whole station: operational rules plus people, banking and workshop.
     ///
-    /// Read against the minute anchor: the office board grows the moment a work order goes
-    /// past its commitment, and the header counter must not lag the screen behind it.
+    /// Both halves read the minute anchor, and both needed it. The office board grows the
+    /// moment a work order goes past its commitment. The station board grows on the grace
+    /// boundary, when a driver who never checked in turns `.absent` — that half used to be
+    /// read off `supervision.alerts`, which took its time from `FleetStore.now` and was kept
+    /// honest only by that store's global side effect. The counter and the Alertas screen
+    /// now measure themselves against the same instant.
     private var alertCount: Int {
-        supervision.alerts.count + office.criticalAlerts(now: minuteAnchor).count
+        supervision.alerts(now: minuteAnchor).count + office.criticalAlerts(now: minuteAnchor).count
     }
 
     /// Seats waiting on this supervisor: nobody driving them, or a substitute proposed and

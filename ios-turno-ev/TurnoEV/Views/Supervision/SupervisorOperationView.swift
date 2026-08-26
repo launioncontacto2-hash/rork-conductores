@@ -24,7 +24,6 @@ struct SupervisorOperationView: View {
     @State private var areGoalsPresented: Bool = false
     @State private var isResolutionPresented: Bool = false
 
-    private var metrics: StationMetrics { supervision.metrics }
 
     var body: some View {
         ZStack {
@@ -33,8 +32,13 @@ struct SupervisorOperationView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     header
-                    attendanceCard
-                    goalsCard
+                    // Attendance is the only card of this screen the clock can move on its
+                    // own: a driver who has not checked in becomes `.absent` when the grace
+                    // period runs out. Metas is decided by the calendar date, and Vehículos
+                    // by nothing temporal at all — so each card takes what it needs and the
+                    // `ScrollView` takes nothing.
+                    TimeScope(.minute) { now in attendanceCard(metrics: supervision.metrics(now: now)) }
+                    TimeScope(.day) { now in goalsCard(progress: supervision.goalProgress(now: now)) }
                     vehiclesCard
                     resolutionCard
                 }
@@ -53,7 +57,7 @@ struct SupervisorOperationView: View {
 
     // MARK: - 1 · Asistencia
 
-    private var attendanceCard: some View {
+    private func attendanceCard(metrics: StationMetrics) -> some View {
         OperationCard(
             title: "Asistencia",
             symbol: "person.3.fill",
@@ -87,9 +91,8 @@ struct SupervisorOperationView: View {
 
     // MARK: - 2 · Metas
 
-    private var goalsCard: some View {
-        let progress = supervision.goalProgress
-        return OperationCard(
+    private func goalsCard(progress: StationGoalProgress) -> some View {
+        OperationCard(
             title: "Metas",
             symbol: "target",
             caption: nil,
@@ -105,8 +108,16 @@ struct SupervisorOperationView: View {
 
     // MARK: - 3 · Vehículos
 
+    /// Read straight off the fleet board instead of through `metrics`.
+    ///
+    /// The three numbers here are counts of `supervision.vehicles`, which only changes when
+    /// somebody moves a unit. Routing them through `metrics` would have handed this card a
+    /// clock it has no use for, and it would have been invalidated every minute to display
+    /// exactly the same figures.
     private var vehiclesCard: some View {
-        let unavailable = metrics.outOfService + metrics.inMaintenance
+        let fleetBoard = supervision.vehicles
+        let active = fleetBoard.filter { $0.state == .operating }.count
+        let unavailable = fleetBoard.filter { $0.state == .outOfService || $0.state == .maintenance }.count
         return OperationCard(
             title: "Vehículos",
             symbol: "car.2.fill",
@@ -115,7 +126,7 @@ struct SupervisorOperationView: View {
         ) {
             HStack(spacing: 8) {
                 StateCount(
-                    value: metrics.activeVehicles,
+                    value: active,
                     label: "en operación",
                     tone: SupTone.good,
                     symbol: "car.side.fill"
@@ -331,64 +342,14 @@ struct SupervisorGoalDetailView: View {
                 SupervisionBackground()
 
                 ScrollView {
+                    // Two cadences, because the sheet holds two different clocks: the shift
+                    // board changes when the block changes, the day/week/month lines when the
+                    // calendar date does.
                     VStack(spacing: 12) {
-                        let board = supervision.goalBoard
-                        let progress = supervision.goalProgress
-
-                        StationGoalPanel(
-                            board: board,
-                            caption: "Meta de facturación de tu turno",
-                            accent: SupTone.accent
-                        )
-
-                        VStack(spacing: 9) {
-                            GoalLine(
-                                label: "Día",
-                                earnings: progress.dayEarningsMxn,
-                                goal: progress.dayGoalMxn,
-                                ratio: progress.dayRatio
-                            )
-                            GoalLine(
-                                label: "Semana",
-                                earnings: progress.weekEarningsMxn,
-                                goal: progress.weekGoalMxn,
-                                ratio: progress.weekRatio
-                            )
-                            GoalLine(
-                                label: "Mes",
-                                earnings: progress.monthEarningsMxn,
-                                goal: progress.monthGoalMxn,
-                                ratio: progress.monthRatio
-                            )
-                        }
-                        .padding(15)
-                        .panel()
-
-                        if board.uncoveredSeats > 0 {
-                            NoticeBanner(
-                                symbol: "person.fill.xmark",
-                                title: "\(board.uncoveredSeats) unidades sin conductor",
-                                message: "La meta sigue siendo \(Fmt.mxn(board.shiftGoalMxn)). Cada conductor en calle carga \(Fmt.mxn(board.overloadMxn)) extra.",
-                                tone: .amber
-                            )
-                        } else if board.gapMxn > 0 {
-                            NoticeBanner(
-                                symbol: "target",
-                                title: "Faltan \(Fmt.mxn(board.gapMxn)) para la meta del turno",
-                                message: "Con \(board.presentDrivers) conductores en calle son \(Fmt.mxn(board.shareMxn)) por cabeza.",
-                                tone: .info
-                            )
-                        } else {
-                            NoticeBanner(
-                                symbol: "checkmark.seal.fill",
-                                title: "Meta del turno cubierta",
-                                message: "La estación alcanzó sus \(Fmt.mxn(board.shiftGoalMxn)) \(board.groupLabel).",
-                                tone: .volt
-                            )
-                        }
+                        TimeScope(.minute) { now in goalBoardSection(board: supervision.goalBoard(now: now)) }
+                        TimeScope(.day) { now in goalProgressSection(progress: supervision.goalProgress(now: now)) }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
                     .padding(.bottom, 28)
                 }
                 .scrollIndicators(.hidden)
@@ -397,11 +358,72 @@ struct SupervisorGoalDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cerrar") { dismiss() }
+                    Button("Listo") { dismiss() }
+                        .font(.system(.subheadline, weight: .bold))
                 }
             }
         }
-        .presentationContentInteraction(.scrolls)
+    }
+
+    /// **Minute.** The shift goal belongs to a block, and the block changes on the hour
+    /// boundary — the banner under it reads the same board, so both move together.
+    @ViewBuilder
+    private func goalBoardSection(board: StationGoalBoard) -> some View {
+        StationGoalPanel(
+            board: board,
+            caption: "Meta de facturación de tu turno",
+            accent: SupTone.accent
+        )
+
+        if board.uncoveredSeats > 0 {
+            NoticeBanner(
+                symbol: "person.fill.xmark",
+                title: "\(board.uncoveredSeats) unidades sin conductor",
+                message: "La meta sigue siendo \(Fmt.mxn(board.shiftGoalMxn)). Cada conductor en calle carga \(Fmt.mxn(board.overloadMxn)) extra.",
+                tone: .amber
+            )
+        } else if board.gapMxn > 0 {
+            NoticeBanner(
+                symbol: "target",
+                title: "Faltan \(Fmt.mxn(board.gapMxn)) para la meta del turno",
+                message: "Con \(board.presentDrivers) conductores en calle son \(Fmt.mxn(board.shareMxn)) por cabeza.",
+                tone: .info
+            )
+        } else {
+            NoticeBanner(
+                symbol: "checkmark.seal.fill",
+                title: "Meta del turno cubierta",
+                message: "La estación alcanzó sus \(Fmt.mxn(board.shiftGoalMxn)) \(board.groupLabel).",
+                tone: .volt
+            )
+        }
+    }
+
+    /// **Day.** Three buckets decided by the calendar date; nothing here moves at a shift
+    /// boundary, so it must not be dragged to the minute by the board above it.
+    private func goalProgressSection(progress: StationGoalProgress) -> some View {
+        VStack(spacing: 9) {
+            GoalLine(
+                label: "Día",
+                earnings: progress.dayEarningsMxn,
+                goal: progress.dayGoalMxn,
+                ratio: progress.dayRatio
+            )
+            GoalLine(
+                label: "Semana",
+                earnings: progress.weekEarningsMxn,
+                goal: progress.weekGoalMxn,
+                ratio: progress.weekRatio
+            )
+            GoalLine(
+                label: "Mes",
+                earnings: progress.monthEarningsMxn,
+                goal: progress.monthGoalMxn,
+                ratio: progress.monthRatio
+            )
+        }
+        .padding(15)
+        .panel()
     }
 }
 

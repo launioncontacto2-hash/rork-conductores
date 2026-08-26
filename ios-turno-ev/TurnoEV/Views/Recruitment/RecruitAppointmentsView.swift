@@ -50,11 +50,15 @@ struct RecruitAppointmentsView: View {
         let metrics = recruit.recruiterMetrics(now: dayAnchor)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
+                // "Próximas" is the caption of the list further down this same screen, and
+                // that list is `upcoming` minus today. Without the same subtraction the two
+                // disagreed by exactly the number of interviews left today, and the header
+                // double-counted what the figure beside it already reported as "hoy".
                 HeadlineFigure(
                     value: "\(recruit.todayAppointments(now: dayAnchor).count)",
                     caption: "Citas hoy",
                     tone: RecTone.accent,
-                    detail: "\(recruit.upcomingAppointments(now: dayAnchor).count) próximas"
+                    detail: "\(recruit.upcomingAppointments(now: dayAnchor).filter { !$0.isToday(now: dayAnchor) }.count) próximas"
                 )
                 HeadlineFigure(
                     value: "\(Int((metrics.attendanceRate * 100).rounded())) %",

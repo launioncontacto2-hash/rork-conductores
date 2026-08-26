@@ -241,11 +241,18 @@ struct RecruitHomeView: View {
                     tone: RecTone.cool,
                     action: { onOpenProspects(.prequalified) }
                 )
+                // The one card of this grid that is not decided by the calendar date.
+                // `upcomingAppointments` is `date >= now` with no day normalisation applied
+                // here, so a 14:00 interview stops being "programada" at 14:00, not at
+                // midnight — and Historial, which reads the minute, would pick it up while
+                // this counter still claimed it was ahead. Both numbers read the same anchor
+                // so the card can never contradict itself; `isToday` is unaffected by being
+                // asked more often.
                 MetricCard(
                     label: "Citas programadas",
-                    value: "\(recruit.upcomingAppointments(now: dayAnchor).count)",
+                    value: "\(recruit.upcomingAppointments(now: minuteAnchor).count)",
                     symbol: "calendar.badge.clock",
-                    detail: "\(recruit.todayAppointments(now: dayAnchor).count) hoy",
+                    detail: "\(recruit.todayAppointments(now: minuteAnchor).count) hoy",
                     tone: RecTone.warn,
                     action: onOpenAppointments
                 )

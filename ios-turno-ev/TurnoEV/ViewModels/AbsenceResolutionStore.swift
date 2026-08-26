@@ -129,11 +129,16 @@ final class AbsenceResolutionStore {
         guard let supervision else { return }
         let current = policy
 
-        for driver in supervision.allDrivers {
+        // The roster is read against the same instant the verdict is measured with. Two
+        // different `now`s here would let a driver be counted present by one and absent by
+        // the other in the same pass.
+        let reference = now
+
+        for driver in supervision.allDrivers(now: reference) {
             let verdict = AttendanceRules.verdict(
                 scheduledStart: driver.scheduledStartAt,
                 checkIn: driver.checkInAt,
-                now: now,
+                now: reference,
                 policy: current
             )
 
@@ -713,7 +718,7 @@ final class AbsenceResolutionStore {
     @discardableResult
     func simulateAbsence(driverId: String) -> AbsenceResolutionCase? {
         guard let supervision,
-              let driver = supervision.allDrivers.first(where: { $0.id == driverId })
+              let driver = supervision.allDrivers(now: now).first(where: { $0.id == driverId })
         else { return nil }
         guard !hasOpenCase(driverId: driver.id, on: driver.scheduledStartAt) else {
             return cases.first { $0.absentDriverId == driver.id && $0.isOpen }

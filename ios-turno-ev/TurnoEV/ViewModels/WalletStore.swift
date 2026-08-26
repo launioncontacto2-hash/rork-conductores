@@ -37,7 +37,11 @@ final class WalletStore {
     // MARK: - Reads
 
     /// Every week of the wallet, current one first.
-    var settlements: [WeeklySettlement] {
+    ///
+    /// **Day.** The whole list hangs off `weekStart(for:)`: when the week rolls over, what
+    /// was the open settlement becomes a closed one and a new empty week takes its place at
+    /// the top. That is decided by the calendar date, never by an hour.
+    func settlements(now: Date) -> [WeeklySettlement] {
         let calendar = ShiftRules.calendar
         let currentWeek = ShiftRules.weekStart(for: now)
         return (0..<weeksShown).compactMap { offset -> WeeklySettlement? in
@@ -47,7 +51,7 @@ final class WalletStore {
                 records: fleet.history,
                 activeEarningsMxn: offset == 0 ? activeEarnings : 0,
                 creditWeeklyMxn: fleet.credit?.weeklyMxn,
-                bonusMxn: offset == 0 ? weeklyBonusMxn : 0,
+                bonusMxn: offset == 0 ? weeklyBonusMxn(now: now) : 0,
                 cashRecoveries: cashRecoveries,
                 weekStart: weekStart,
                 now: now
@@ -63,9 +67,9 @@ final class WalletStore {
         }
     }
 
-    var currentSettlement: WeeklySettlement? { settlements.first }
+    func currentSettlement(now: Date) -> WeeklySettlement? { settlements(now: now).first }
 
-    var closedSettlements: [WeeklySettlement] { Array(settlements.dropFirst()) }
+    func closedSettlements(now: Date) -> [WeeklySettlement] { Array(settlements(now: now).dropFirst()) }
 
     /// Money produced by the shift that is still open.
     private var activeEarnings: Int {
@@ -79,7 +83,7 @@ final class WalletStore {
     }
 
     /// Share of the monthly bonus already earned, spread over the four weeks.
-    private var weeklyBonusMxn: Int {
+    private func weeklyBonusMxn(now: Date) -> Int {
         fleet.bonusPayableMxn(reference: now) / 4
     }
 

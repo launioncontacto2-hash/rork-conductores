@@ -59,54 +59,60 @@ struct SupervisorAlertsView: View {
 
     // MARK: - Alerts
 
+    /// Membership: an alert joins this board when a driver crosses the grace boundary, with
+    /// no event behind it. The scope wraps the alert block alone — the segmented picker, the
+    /// incident section and the `ScrollView` stay outside it.
     private var alertsSection: some View {
-        let alerts = supervision.alerts
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                StatTile(
-                    label: "Activas",
-                    value: "\(alerts.count)",
-                    hint: "Generadas por reglas",
-                    tone: alerts.isEmpty ? .volt : .amber
-                )
-                StatTile(
-                    label: "Gravedad alta",
-                    value: "\(supervision.criticalAlerts.count)",
-                    hint: "Requieren acción inmediata",
-                    tone: supervision.criticalAlerts.isEmpty ? .volt : .danger
-                )
-            }
-
-            if !supervision.resolvedAlertIds.isEmpty {
-                Button {
-                    supervision.restoreAlerts()
-                } label: {
-                    Label("Restaurar \(supervision.resolvedAlertIds.count) alertas atendidas", systemImage: "arrow.uturn.backward")
-                        .font(.system(.caption, weight: .bold))
-                        .foregroundStyle(SupTone.accent)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if alerts.isEmpty {
-                SupEmptyState(
-                    symbol: "shield.checkered",
-                    title: "Sin alertas activas",
-                    message: "Retrasos, unidades sin escanear, baterías bajas, mantenimientos vencidos y diferencias de kilometraje aparecerán aquí al instante."
-                )
-            } else {
-                ForEach(alerts) { alert in
-                    AlertRow(
-                        alert: alert,
-                        onResolve: { supervision.resolveAlert(id: alert.id) },
-                        action: {
-                            if let ticketId = alert.ticketId {
-                                onOpenTicket(ticketId)
-                            } else if let driverId = alert.driverId {
-                                onOpenDriver(driverId)
-                            }
-                        }
+        TimeScope(.minute) { now in
+            let alerts = supervision.alerts(now: now)
+            let critical = supervision.criticalAlerts(now: now)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    StatTile(
+                        label: "Activas",
+                        value: "\(alerts.count)",
+                        hint: "Generadas por reglas",
+                        tone: alerts.isEmpty ? .volt : .amber
                     )
+                    StatTile(
+                        label: "Gravedad alta",
+                        value: "\(critical.count)",
+                        hint: "Requieren acción inmediata",
+                        tone: critical.isEmpty ? .volt : .danger
+                    )
+                }
+
+                if !supervision.resolvedAlertIds.isEmpty {
+                    Button {
+                        supervision.restoreAlerts()
+                    } label: {
+                        Label("Restaurar \(supervision.resolvedAlertIds.count) alertas atendidas", systemImage: "arrow.uturn.backward")
+                            .font(.system(.caption, weight: .bold))
+                            .foregroundStyle(SupTone.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if alerts.isEmpty {
+                    SupEmptyState(
+                        symbol: "shield.checkered",
+                        title: "Sin alertas activas",
+                        message: "Retrasos, unidades sin escanear, baterías bajas, mantenimientos vencidos y diferencias de kilometraje aparecerán aquí al instante."
+                    )
+                } else {
+                    ForEach(alerts) { alert in
+                        AlertRow(
+                            alert: alert,
+                            onResolve: { supervision.resolveAlert(id: alert.id) },
+                            action: {
+                                if let ticketId = alert.ticketId {
+                                    onOpenTicket(ticketId)
+                                } else if let driverId = alert.driverId {
+                                    onOpenDriver(driverId)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -257,6 +263,14 @@ struct SupervisorIncidentFormView: View {
     /// Body angles, captured only here: the driver no longer photographs the unit at every start.
     @State private var bodyPhotos: [String: Data] = [:]
 
+    /// Instant the roster menu is read against, taken once when the form opens.
+    ///
+    /// Deliberately not a cadence. This picker lists the whole roster, and no driver joins
+    /// or leaves that list because time passed — only each row's *state* is temporal, and
+    /// this menu shows no state. Subscribing a form to the minute so a name can stay still
+    /// would be paying invalidation for nothing.
+    @State private var rosterAt: Date = AppClock.now()
+
     private var canSubmit: Bool {
         !vehicleNumber.isEmpty && detail.trimmingCharacters(in: .whitespacesAndNewlines).count > 8
     }
@@ -307,7 +321,7 @@ struct SupervisorIncidentFormView: View {
                 driverId = presetDriverId
                 if let presetVehicleNumber {
                     vehicleNumber = presetVehicleNumber
-                } else if let driver = supervision.driver(id: presetDriverId), let unit = driver.vehicleNumber {
+                } else if let driver = supervision.driver(id: presetDriverId, now: rosterAt), let unit = driver.vehicleNumber {
                     vehicleNumber = unit
                 }
             }
@@ -377,7 +391,7 @@ struct SupervisorIncidentFormView: View {
 
             Menu {
                 Button("Sin conductor (unidad en estación)") { driverId = nil }
-                ForEach(supervision.allDrivers.prefix(60)) { driver in
+                ForEach(supervision.allDrivers(now: rosterAt).prefix(60)) { driver in
                     Button("\(driver.shortName) · \(driver.vehicleNumber ?? "sin unidad")") {
                         driverId = driver.id
                         if let unit = driver.vehicleNumber { vehicleNumber = unit }
@@ -386,7 +400,7 @@ struct SupervisorIncidentFormView: View {
             } label: {
                 menuRow(
                     label: "Conductor",
-                    value: supervision.driver(id: driverId)?.shortName ?? "Sin conductor",
+                    value: supervision.driver(id: driverId, now: rosterAt)?.shortName ?? "Sin conductor",
                     symbol: "person.fill"
                 )
             }

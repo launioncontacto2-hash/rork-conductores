@@ -13,14 +13,26 @@ struct WalletView: View {
     @State private var reviewNote: String = ""
     @State private var isReviewing: Bool = false
 
+    /// The week the wallet is standing in.
+    ///
+    /// `.day`, because a settlement is bounded by `weekStart(for:)`: on the rollover the
+    /// open week closes and a new one takes the top of the list. `ClockAnchor` rather than
+    /// `TimeScope` because the settlement feeds the whole screen — the balance, the status,
+    /// the history and the two sheets — and a sheet builder cannot be handed a scope's
+    /// closure argument.
+    ///
+    /// This was the last visual reader still taking its time from `FleetStore.now`.
+    @State private var dayAnchor: Date = AppClock.now()
+
     var body: some View {
         ZStack {
             StationBackground()
+            ClockAnchor(.day, date: $dayAnchor)
 
             ScrollView {
                 VStack(spacing: 14) {
                     header
-                    if let wallet, let settlement = wallet.currentSettlement {
+                    if let wallet, let settlement = wallet.currentSettlement(now: dayAnchor) {
                         balanceCard(settlement, wallet: wallet)
                         statusCard(settlement)
                         creditCard
@@ -42,7 +54,7 @@ struct WalletView: View {
             }
         }
         .sheet(isPresented: $showsBreakdown) {
-            if let wallet, let settlement = wallet.currentSettlement {
+            if let wallet, let settlement = wallet.currentSettlement(now: dayAnchor) {
                 SettlementBreakdownView(settlement: settlement)
             }
         }
@@ -57,7 +69,7 @@ struct WalletView: View {
         .alert("Solicitar revisión", isPresented: $isReviewing) {
             TextField("¿Qué no coincide?", text: $reviewNote)
             Button("Enviar") {
-                if let wallet, let settlement = wallet.currentSettlement {
+                if let wallet, let settlement = wallet.currentSettlement(now: dayAnchor) {
                     wallet.openReview(for: settlement.id, note: reviewNote)
                 }
                 reviewNote = ""
@@ -293,7 +305,7 @@ struct WalletView: View {
     private func historyCard(_ wallet: WalletStore) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Semanas cerradas", subtitle: "Cálculo inmutable una vez cerrada la semana")
-            ForEach(wallet.closedSettlements) { settlement in
+            ForEach(wallet.closedSettlements(now: dayAnchor)) { settlement in
                 HStack(spacing: 10) {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 11, weight: .bold))

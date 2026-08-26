@@ -96,13 +96,18 @@ final class SupervisionStore {
         return driver
     }
 
-    private var liveDeliveryTicket: HandoverTicket? {
+    private func liveDeliveryTicket(now: Date) -> HandoverTicket? {
         guard let driver = liveDriverProfile else { return nil }
         return tickets.first { $0.driverId == driver.id && $0.kind == .delivery && ShiftRules.isSameDay($0.createdAt, now) }
     }
 
     /// Row built live from the driver app: same database, supervisor's reading.
-    var liveDriver: StationDriver? {
+    ///
+    /// **Minute.** This is the root of every temporal dependency in this store. A driver who
+    /// has not checked in is `.awaitingHandover` until the grace period runs out and then
+    /// becomes `.absent` — a change decided by nothing but the clock advancing. Everything
+    /// downstream (`allDrivers`, `alerts`, `metrics`, `attentionItems`) inherits that.
+    func liveDriver(now: Date) -> StationDriver? {
         guard let driver = liveDriverProfile else { return nil }
         let scheduled = ShiftRules.scheduledStart(slot: slot, on: now)
         let todayRecord = fleet.history.first { ShiftRules.isSameDay($0.startedAt, now) }
@@ -118,7 +123,7 @@ final class SupervisionStore {
             late = shift.lateMinutes
             vehicleId = shift.vehicleId
             vehicleNumber = fleet.activeVehicle?.internalNumber
-            if let ticket = liveDeliveryTicket, ticket.status == .pending {
+            if let ticket = liveDeliveryTicket(now: now), ticket.status == .pending {
                 state = .awaitingHandover
             } else {
                 state = late > 0 ? .late : .operating
@@ -308,8 +313,11 @@ final class SupervisionStore {
 
     // MARK: - Reads
 
-    var allDrivers: [StationDriver] {
-        let roster = liveDriver.map { [$0] + peers } ?? peers
+    /// **Minute**, inherited from `liveDriver`. The simulated peers carry stored states, so
+    /// the only row that can change by itself is the live one — but that is enough to move
+    /// any count built on top of this.
+    func allDrivers(now: Date) -> [StationDriver] {
+        let roster = liveDriver(now: now).map { [$0] + peers } ?? peers
         let book = AssignmentBook.assignments(stationId: station.id)
         return roster.map { row in
             guard let assignment = book.first(where: { $0.driverId == row.id }) else {
@@ -340,11 +348,6 @@ final class SupervisionStore {
     /// Driver currently holding a unit, so one unit is never tied to two people.
     func holder(vehicleId: String) -> VehicleAssignment? {
         AssignmentBook.holder(vehicleId: vehicleId)
-    }
-
-    /// Roster seats waiting for the supervisor to tie a unit to them.
-    var driversWithoutUnit: [StationDriver] {
-        allDrivers.filter { assignment(driverId: $0.id) == nil }
     }
 
     /// Units this supervisor can hand over: in the station, not broken, not in the workshop.
@@ -465,9 +468,13 @@ final class SupervisionStore {
         tickets.filter { $0.status != .pending }.sorted { ($0.resolvedAt ?? $0.createdAt) > ($1.resolvedAt ?? $1.createdAt) }
     }
 
-    var alerts: [StationAlert] {
+    /// **Minute.** Not because of the `now` handed to the rule set — that one only stamps
+    /// `createdAt` on lines that have no better date — but because membership itself moves:
+    /// the rules raise one alert per driver in `.late` and one per driver in `.absent`, and
+    /// a driver crosses into `.absent` on the grace boundary with no event behind it.
+    func alerts(now: Date) -> [StationAlert] {
         SupervisionRules.alerts(
-            drivers: allDrivers,
+            drivers: allDrivers(now: now),
             vehicles: vehicles,
             tickets: pendingTickets,
             incidents: allIncidents,
@@ -476,12 +483,14 @@ final class SupervisionStore {
         .filter { !resolvedAlertIds.contains($0.id) }
     }
 
-    var criticalAlerts: [StationAlert] {
-        alerts.filter { $0.severity == .critical || $0.severity == .high }
+    func criticalAlerts(now: Date) -> [StationAlert] {
+        alerts(now: now).filter { $0.severity == .critical || $0.severity == .high }
     }
 
-    var metrics: StationMetrics {
-        let drivers = allDrivers
+    /// **Minute**, on two independent counts: the driver states come from `allDrivers`, and
+    /// the shift goal is read from `ShiftRules.group(for:)`, which changes on block change.
+    func metrics(now: Date) -> StationMetrics {
+        let drivers = allDrivers(now: now)
         let openIncidents = allIncidents.filter(\.isOpen).count
         return StationMetrics(
             activeVehicles: vehicles.filter { $0.state == .operating }.count,
@@ -492,7 +501,7 @@ final class SupervisionStore {
             absentDrivers: drivers.filter { $0.state == .absent }.count,
             lateDrivers: drivers.filter { $0.state == .late }.count,
             openIncidents: openIncidents,
-            criticalAlerts: criticalAlerts.count,
+            criticalAlerts: criticalAlerts(now: now).count,
             capacity: station.vehicleCapacity,
             rosterSize: drivers.count,
             earningsMxn: drivers.reduce(0) { $0 + $1.earningsMxn },
@@ -507,8 +516,9 @@ final class SupervisionStore {
 
     /// The fixed number this shift has to reach and the arithmetic behind it: the same
     /// board the manager reads, cut to this supervisor's own block.
-    var goalBoard: StationGoalBoard {
-        let drivers = allDrivers
+    /// **Minute**: the block the goal belongs to changes on the shift boundary.
+    func goalBoard(now: Date) -> StationGoalBoard {
+        let drivers = allDrivers(now: now)
         return StationGoalBoard(
             capacity: station.vehicleCapacity,
             group: ShiftRules.group(for: now),
@@ -523,9 +533,11 @@ final class SupervisionStore {
 
     /// Day, week and month against their own fixed goals. The week and the month add up
     /// only the days the station actually recorded, so nothing here is an estimate.
-    var goalProgress: StationGoalProgress {
+    /// **Day.** The day, week and month buckets are decided by the calendar date, not by the
+    /// hour: nothing here moves at a shift boundary.
+    func goalProgress(now: Date) -> StationGoalProgress {
         let capacity = station.vehicleCapacity
-        let billedToday = allDrivers.reduce(0) { $0 + $1.earningsMxn }
+        let billedToday = allDrivers(now: now).reduce(0) { $0 + $1.earningsMxn }
         StationGoalLedger.record(stationId: station.id, day: now, earningsMxn: billedToday)
 
         return StationGoalProgress(
@@ -552,8 +564,9 @@ final class SupervisionStore {
 
     /// The short list of situations that need the supervisor. It is not a set of metrics:
     /// when a situation is resolved, its line disappears.
-    var attentionItems: [StationAttentionItem] {
-        let numbers = metrics
+    /// **Minute**, inherited whole from `metrics`.
+    func attentionItems(now: Date) -> [StationAttentionItem] {
+        let numbers = metrics(now: now)
         var items: [StationAttentionItem] = []
 
         if numbers.absentDrivers > 0 {
@@ -658,9 +671,11 @@ final class SupervisionStore {
         return items
     }
 
-    func drivers(matching filter: DriverFilter, search: String = "") -> [StationDriver] {
+    /// **Minute** whenever the filter names a state — `.late`, `.absent`, `.active` are all
+    /// membership decided by the clock through `allDrivers`.
+    func drivers(matching filter: DriverFilter, search: String = "", now: Date) -> [StationDriver] {
         let cleaned = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return allDrivers
+        return allDrivers(now: now)
             .filter { driver in
                 switch filter {
                 case .all: true
@@ -708,9 +723,9 @@ final class SupervisionStore {
             .sorted { $0.bay < $1.bay }
     }
 
-    func driver(id: String?) -> StationDriver? {
+    func driver(id: String?, now: Date) -> StationDriver? {
         guard let id else { return nil }
-        return allDrivers.first { $0.id == id }
+        return allDrivers(now: now).first { $0.id == id }
     }
 
     func vehicle(id: String?) -> StationVehicle? {
@@ -837,7 +852,10 @@ final class SupervisionStore {
         detail: String,
         photos: [Data]
     ) {
-        let driver = driver(id: driverId)
+        // Action path: the roster is read at the instant the report is filed, and the same
+        // instant stamps the incident. Nothing here is a live reading.
+        let filedAt = now
+        let driver = driver(id: driverId, now: filedAt)
         let incident = StationIncident(
             id: "sinc-\(UUID().uuidString.prefix(8))",
             stationId: station.id,
@@ -846,7 +864,7 @@ final class SupervisionStore {
             vehicleNumber: vehicleNumber,
             kind: kind,
             severity: severity,
-            createdAt: now,
+            createdAt: filedAt,
             detail: detail,
             photos: Array(photos.prefix(4)),
             status: .open,

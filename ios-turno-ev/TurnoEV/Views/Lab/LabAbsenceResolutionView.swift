@@ -397,7 +397,14 @@ struct LabResolutionRunner {
         let tone: LabMessage.Tone
     }
 
-    private var now: Date { supervision.now }
+    /// Logical time as the runner reads it.
+    ///
+    /// This is a `struct` with a `run(_:)` method, not a `View`: it is only ever entered
+    /// from a button handler, so nothing it reads registers a SwiftUI dependency. It used to
+    /// re-export `SupervisionStore.now`, which reached `FleetStore.now`; going straight to
+    /// `AppClock` says the same thing without pretending to be reactive. Same reasoning as
+    /// `AbsenceResolutionStore.now`.
+    private var now: Date { AppClock.now() }
 
     private var candidates: [CoverageDriverProfile] {
         coverage.roster(stationId: station.id)
@@ -405,7 +412,7 @@ struct LabResolutionRunner {
 
     /// A driver of the roster who could be declared absent.
     private func titular(skipping used: Set<String> = []) -> StationDriver? {
-        supervision.allDrivers.first { !used.contains($0.id) }
+        supervision.allDrivers(now: now).first { !used.contains($0.id) }
     }
 
     func run(_ scenario: LabResolutionScenario) -> Outcome {
@@ -672,7 +679,7 @@ struct LabResolutionRunner {
     }
 
     private func runTwoAbsences() -> Outcome {
-        let drivers = supervision.allDrivers.prefix(2)
+        let drivers = supervision.allDrivers(now: now).prefix(2)
         guard drivers.count == 2 else {
             return Outcome(message: "El escenario 11 necesita dos conductores.", tone: .warning)
         }
@@ -691,7 +698,7 @@ struct LabResolutionRunner {
 
     private func runMoreAbsencesThanCapacity() -> Outcome {
         applyReserve(target: 0, maxUse: 0, protected: 0)
-        let drivers = supervision.allDrivers
+        let drivers = supervision.allDrivers(now: now)
         guard !drivers.isEmpty else {
             return Outcome(message: "Sin conductores para el escenario 12.", tone: .warning)
         }
