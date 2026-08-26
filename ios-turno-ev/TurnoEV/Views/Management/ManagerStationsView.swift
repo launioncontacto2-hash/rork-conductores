@@ -7,6 +7,10 @@ struct ManagerStationsView: View {
     let header: ManagerHeader
     let onOpenStation: (String) -> Void
 
+    /// Instant the counters of this screen are measured against. `.minute`, because
+    /// `metrics` counts requests that go stale twenty-four hours after an arbitrary hour.
+    @State private var minuteAnchor: Date = AppClock.now()
+
     private var station: Station { regional.station }
 
     var body: some View {
@@ -43,10 +47,13 @@ struct ManagerStationsView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+        }
     }
 
     private var summary: some View {
-        let metrics = regional.metrics
+        let metrics = regional.metrics(now: minuteAnchor)
         return HStack(spacing: 10) {
             StatTile(
                 label: "Unidades",
@@ -87,7 +94,7 @@ struct ManagerStationsView: View {
             )
             DetailRow(
                 label: "Faltantes",
-                value: "\(max(0, station.requiredDrivers - regional.metrics.payrollSize))"
+                value: "\(max(0, station.requiredDrivers - regional.metrics(now: minuteAnchor).payrollSize))"
             )
             Text("Cada unidad instalada sostiene cuatro turnos. Si la plantilla baja de ese número, la estación deja unidades paradas aunque estén en buen estado.")
                 .font(.caption2)

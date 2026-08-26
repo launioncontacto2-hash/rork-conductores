@@ -224,7 +224,15 @@ final class RecruitmentStore {
         prospects.filter { $0.stage == .lead }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    var overdueLeads: [Prospect] {
+    // MARK: - Reads that answer differently depending on the hour
+    //
+    // These used to read `self.now`, so a tab badge and the list behind it shared one
+    // invisible dependency on the global clock. They now take the instant explicitly, which
+    // forces every consumer to state the cadence it actually needs.
+
+    /// `.minute`: a lead goes past its contact window a fixed number of minutes after it
+    /// arrived, and it arrived at an arbitrary hour.
+    func overdueLeads(now: Date) -> [Prospect] {
         newLeads.filter { $0.isOverdueContact(now: now) }
     }
 
@@ -240,17 +248,21 @@ final class RecruitmentStore {
         prospects.filter { $0.stage == .prequalified }
     }
 
-    var awaitingDocuments: [Prospect] {
+    /// `.day`: what is missing from a file is decided by document expiry.
+    func awaitingDocuments(now: Date) -> [Prospect] {
         prospects.filter { $0.stage == .documents && !$0.missingDocuments(now: now).isEmpty }
     }
 
     /// Documented, evaluated and waiting only for the recruiter to sign the alta.
-    var readyToHire: [Prospect] {
+    ///
+    /// `.day`. This is the set that governs whether an alta can be signed, so a consumer
+    /// that shows a signing button must invalidate on the same boundary.
+    func readyToHire(now: Date) -> [Prospect] {
         prospects.filter { $0.isReadyToHire(now: now) }
     }
 
-    /// Evaluated but still missing part of the initial file.
-    var awaitingFile: [Prospect] {
+    /// Evaluated but still missing part of the initial file. `.day`.
+    func awaitingFile(now: Date) -> [Prospect] {
         prospects.filter { $0.stage.isOpen && $0.hiredAt == nil && $0.passedEvaluation() && !$0.missingDocuments(now: now).isEmpty }
     }
 
@@ -270,7 +282,8 @@ final class RecruitmentStore {
 
     // MARK: - Reads: funnel and metrics
 
-    var funnel: RecruitFunnel {
+    /// `.day`: the only temporal term is `isReadyToHire`, decided by document expiry.
+    func funnel(now: Date) -> RecruitFunnel {
         var counts: [RecruitStage: Int] = [:]
         counts[.lead] = prospects.count
         counts[.contacted] = prospects.filter { $0.contactedAt != nil }.count
@@ -298,7 +311,7 @@ final class RecruitmentStore {
     }
 
     /// Historical lead → hire conversion. Never assume a lead equals a driver.
-    var conversion: Double { funnel.leadToHire }
+    func conversion(now: Date) -> Double { funnel(now: now).leadToHire }
 
     var lossReasons: [(reason: LossReason, count: Int)] {
         let lost = prospects.compactMap(\.lossReason)
@@ -308,7 +321,8 @@ final class RecruitmentStore {
             .sorted { $0.1 > $1.1 }
     }
 
-    var recruiterMetrics: RecruiterMetrics {
+    /// `.day`, inherited from `readyToHire` — the only temporal term in the whole record.
+    func recruiterMetrics(now: Date) -> RecruiterMetrics {
         let contacted = prospects.filter { $0.contactedAt != nil }
         let contactMinutes = contacted.compactMap(\.firstContactMinutes)
         let average = contactMinutes.isEmpty
@@ -322,7 +336,7 @@ final class RecruitmentStore {
             interviewsScheduled: appointments.filter { $0.status.isOpen }.count,
             attendedAppointments: appointments.filter { $0.status == .attended }.count,
             noShowAppointments: appointments.filter { $0.status == .noShow }.count,
-            readyToHire: readyToHire.count,
+            readyToHire: readyToHire(now: now).count,
             approved: prospects.filter { $0.hiringVerdict == .approved }.count,
             hires: prospects.filter { $0.hiredAt != nil }.count,
             averageHiringDays: averageHiringDays
@@ -386,19 +400,21 @@ final class RecruitmentStore {
     // MARK: - Reads: planning
 
     /// Leads needed to sign the drivers the network is missing today and tomorrow.
-    func leadsNeeded(for hires: Int) -> Int {
-        RecruitRules.leadsNeeded(hires: hires, conversion: conversion, marginPct: marginPct)
+    ///
+    /// `.day`, inherited from `conversion` → `funnel` → `isReadyToHire`.
+    func leadsNeeded(for hires: Int, now: Date) -> Int {
+        RecruitRules.leadsNeeded(hires: hires, conversion: conversion(now: now), marginPct: marginPct)
     }
 
-    func recommendedBudget(for hires: Int) -> Int {
-        RecruitRules.budget(leads: leadsNeeded(for: hires), costPerLead: costPerLead)
+    func recommendedBudget(for hires: Int, now: Date) -> Int {
+        RecruitRules.budget(leads: leadsNeeded(for: hires, now: now), costPerLead: costPerLead)
     }
 
-    /// Hires the current pipeline can realistically deliver in a window.
-    func projectedHires(days: Int) -> Int {
+    /// Hires the current pipeline can realistically deliver in a window. `.day`.
+    func projectedHires(days: Int, now: Date) -> Int {
         RecruitRules.projectedHires(
             inProcess: prospects.filter { $0.stage.isOpen }.count,
-            conversion: conversion,
+            conversion: conversion(now: now),
             daysAvailable: days,
             averageHiringDays: averageHiringDays
         )
@@ -406,19 +422,23 @@ final class RecruitmentStore {
 
     // MARK: - Reads: agenda
 
-    var todayAppointments: [Appointment] {
+    /// `.day`: an appointment belongs to today for the whole of today.
+    func todayAppointments(now: Date) -> [Appointment] {
         appointments
             .filter { $0.isToday(now: now) && $0.status.isOpen }
             .sorted { $0.date < $1.date }
     }
 
-    var upcomingAppointments: [Appointment] {
+    /// Still to happen. The comparison is `date >= now`, so strictly this is a minute
+    /// boundary; the agenda consumer pairs it with `!isToday`, which lifts it to a day.
+    func upcomingAppointments(now: Date) -> [Appointment] {
         appointments
             .filter { $0.status.isOpen && $0.date >= now }
             .sorted { $0.date < $1.date }
     }
 
-    var pastAppointments: [Appointment] {
+    /// `.minute`: an appointment becomes history at its own hour, not at midnight.
+    func pastAppointments(now: Date) -> [Appointment] {
         appointments
             .filter { !$0.status.isOpen || $0.date < now }
             .sorted { $0.date > $1.date }
@@ -431,7 +451,11 @@ final class RecruitmentStore {
     // MARK: - Alerts
 
     /// Threshold-driven, never hand written. Everything that needs the recruiter today.
-    var alerts: [RecruitAlert] {
+    ///
+    /// Mixed cadence, and the finer one governs: incorporations and stalled files turn on a
+    /// date, but `overdueLeads` turns on a minute. A consumer of this board — including the
+    /// counter in the header — has to listen by the minute.
+    func alerts(now: Date) -> [RecruitAlert] {
         var result: [RecruitAlert] = []
 
         for demand in demands {
@@ -439,7 +463,7 @@ final class RecruitmentStore {
             let days = max(0, incorporation.daysToOperation(now: now))
             let needed = demand.vacancies + incorporation.requiredDrivers
             guard needed > 0 else { continue }
-            let projected = projectedHires(days: days)
+            let projected = projectedHires(days: days, now: now)
             let gap = max(0, needed - projected)
             let level = RecruitRules.coverageRisk(
                 daysAvailable: days,
@@ -462,7 +486,7 @@ final class RecruitmentStore {
             )
         }
 
-        let overdue = overdueLeads.count
+        let overdue = overdueLeads(now: now).count
         if overdue > 0 {
             result.append(
                 RecruitAlert(
@@ -478,7 +502,7 @@ final class RecruitmentStore {
             )
         }
 
-        let today = todayAppointments.count
+        let today = todayAppointments(now: now).count
         if today > 0 {
             result.append(
                 RecruitAlert(
@@ -494,7 +518,7 @@ final class RecruitmentStore {
             )
         }
 
-        let stalled = awaitingDocuments.filter { $0.daysInProcess(now: now) > RecruitRules.documentStallDays }
+        let stalled = awaitingDocuments(now: now).filter { $0.daysInProcess(now: now) > RecruitRules.documentStallDays }
         if !stalled.isEmpty {
             result.append(
                 RecruitAlert(
@@ -510,7 +534,7 @@ final class RecruitmentStore {
             )
         }
 
-        let unsigned = readyToHire
+        let unsigned = readyToHire(now: now)
         if !unsigned.isEmpty {
             result.append(
                 RecruitAlert(
@@ -527,7 +551,7 @@ final class RecruitmentStore {
         }
 
         let needed = totalVacancies + projectedVacancies - totalVacancies
-        let leadTarget = leadsNeeded(for: totalVacancies + needed)
+        let leadTarget = leadsNeeded(for: totalVacancies + needed, now: now)
         let available = prospects.filter { $0.stage.isOpen }.count
         if leadTarget > available {
             result.append(
@@ -536,7 +560,7 @@ final class RecruitmentStore {
                     kind: .leadDeficit,
                     level: leadTarget > available * 2 ? .important : .preventive,
                     title: "Faltan \(leadTarget - available) leads en proceso",
-                    detail: "Con una conversión de \(Int((conversion * 100).rounded())) % se necesitan \(leadTarget) candidatos para firmar \(totalVacancies + needed) contrataciones.",
+                    detail: "Con una conversión de \(Int((conversion(now: now) * 100).rounded())) % se necesitan \(leadTarget) candidatos para firmar \(totalVacancies + needed) contrataciones.",
                     actionLabel: "Ver campañas",
                     destination: .campaigns,
                     stationId: nil
@@ -549,8 +573,8 @@ final class RecruitmentStore {
             .sorted { $0.level.weight > $1.level.weight }
     }
 
-    var criticalAlerts: [RecruitAlert] {
-        alerts.filter { $0.level.demandsAction }
+    func criticalAlerts(now: Date) -> [RecruitAlert] {
+        alerts(now: now).filter { $0.level.demandsAction }
     }
 
     func reviewAlert(id: String) {

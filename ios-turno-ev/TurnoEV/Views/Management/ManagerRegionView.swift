@@ -13,7 +13,15 @@ struct ManagerRegionView: View {
     let onOpenPerformance: () -> Void
     let onOpenStaff: () -> Void
 
-    private var metrics: RegionMetrics { regional.metrics }
+    /// Instant the counters of this screen are measured against.
+    ///
+    /// `.minute`: `metrics.agingRequests` crosses twenty-four hours from a `createdAt` that
+    /// fell at an arbitrary hour, and the goal board turns on a shift boundary. The anchor
+    /// is written by an invisible leaf, so the `ScrollView` is never invalidated by the
+    /// clock — only the panels that read the anchor are.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var metrics: RegionMetrics { regional.metrics(now: minuteAnchor) }
 
     var body: some View {
         ZStack {
@@ -33,6 +41,9 @@ struct ManagerRegionView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+        }
     }
 
     // MARK: - Fixed goal
@@ -40,7 +51,7 @@ struct ManagerRegionView: View {
     /// The number the station exists to reach, fixed for the whole shift: authorized
     /// units by the driver goal of the day. It never drops when a seat is empty.
     private var goalPanel: some View {
-        let board = regional.goalBoard
+        let board = regional.goalBoard(now: minuteAnchor)
         return VStack(spacing: 10) {
             StationGoalPanel(
                 board: board,
@@ -130,7 +141,7 @@ struct ManagerRegionView: View {
                         .foregroundStyle(Palette.textMuted)
                         .monospacedDigit()
                 }
-                WeekBarsChart(points: regional.weekSeries)
+                WeekBarsChart(points: regional.weekSeries(now: minuteAnchor))
             }
         }
         .padding(16)
@@ -239,7 +250,7 @@ struct ManagerRegionView: View {
     // MARK: - Alerts
 
     private var alertBoard: some View {
-        let alerts = regional.alerts
+        let alerts = regional.alerts(now: minuteAnchor)
         return VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "Tablero de alertas",

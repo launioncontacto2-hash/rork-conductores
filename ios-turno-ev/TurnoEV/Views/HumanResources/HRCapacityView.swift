@@ -7,16 +7,26 @@ struct HRCapacityView: View {
 
     var body: some View {
         OfficeScreen(title: "Capacidad de personal") {
-            headline
-            blocks
-            unavailable
-            incoming
+            // Every panel of this screen is derived from `capacityPlan`, and the plan is
+            // decided by a date: a driver counts as available until a critical document
+            // expires. So each panel takes the day for itself instead of the screen taking
+            // it for all four — the `ScrollView` of `OfficeScreen` stays out of reach.
+            TimeScope(.day) { now in
+                headline(plan: office.capacityPlan(now: now))
+            }
+            TimeScope(.day) { now in
+                blocks(plan: office.capacityPlan(now: now))
+            }
+            TimeScope(.day) { now in
+                unavailable(people: office.unavailableFiles(now: now), plan: office.capacityPlan(now: now), now: now)
+            }
+            TimeScope(.day) { now in
+                incoming(plan: office.capacityPlan(now: now))
+            }
         }
     }
 
-    private var plan: CapacityPlan { office.capacityPlan }
-
-    private var headline: some View {
+    private func headline(plan: CapacityPlan) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 HeadlineFigure(
@@ -70,7 +80,7 @@ struct HRCapacityView: View {
         .panel()
     }
 
-    private var blocks: some View {
+    private func blocks(plan: CapacityPlan) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "Cobertura por turno",
@@ -84,9 +94,12 @@ struct HRCapacityView: View {
         .panel()
     }
 
-    private var unavailable: some View {
-        let people = office.unavailableFiles
-        return VStack(alignment: .leading, spacing: 10) {
+    /// The clock decides *membership* here — a driver joins this list the day a critical
+    /// document expires — so the panel receives an already-resolved list and the single
+    /// scope in `body` owns it. One scope for the panel instead of one per row: the rows
+    /// and the heading read the same date, so splitting them would only duplicate work.
+    private func unavailable(people: [EmployeeFile], plan: CapacityPlan, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "No disponibles hoy",
                 subtitle: "\(people.count) de \(plan.hiredDrivers) contratados"
@@ -99,29 +112,24 @@ struct HRCapacityView: View {
                 )
             } else {
                 ForEach(people) { file in
-                    // One scope per row: the icon's colour and the reason line are the two
-                    // things a crossed expiry date changes, and they change together. A
-                    // date decides it, so the day is the cadence.
-                    TimeScope(.day) { now in
-                        HStack(spacing: 10) {
-                            Image(systemName: file.status.symbol)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(file.hasCriticalExpired(now: now) ? Palette.danger : file.status.tone)
-                                .frame(width: 28, height: 28)
-                                .background(Palette.surfaceRaised, in: .rect(cornerRadius: 9))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(file.shortName)
-                                    .font(.system(.footnote, weight: .bold))
-                                Text("\(file.block.shortLabel) · \(file.unavailableReason(now: now) ?? "—")")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(Palette.textMuted)
-                            }
-                            Spacer(minLength: 0)
+                    HStack(spacing: 10) {
+                        Image(systemName: file.status.symbol)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(file.hasCriticalExpired(now: now) ? Palette.danger : file.status.tone)
+                            .frame(width: 28, height: 28)
+                            .background(Palette.surfaceRaised, in: .rect(cornerRadius: 9))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.shortName)
+                                .font(.system(.footnote, weight: .bold))
+                            Text("\(file.block.shortLabel) · \(file.unavailableReason(now: now) ?? "—")")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Palette.textMuted)
                         }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .panelFlat(cornerRadius: 14)
+                        Spacer(minLength: 0)
                     }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .panelFlat(cornerRadius: 14)
                 }
             }
         }
@@ -129,7 +137,7 @@ struct HRCapacityView: View {
         .panel()
     }
 
-    private var incoming: some View {
+    private func incoming(plan: CapacityPlan) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "Unidades por incorporar",

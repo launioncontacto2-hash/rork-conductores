@@ -23,7 +23,13 @@ struct RecruitAnalyticsView: View {
     let header: RecruitHeader
     @Binding var tab: RecruitAnalyticsTab
 
-    private var now: Date { recruit.now }
+    /// Instant every figure of this screen is measured against.
+    ///
+    /// `.day`: the funnel, the conversion it derives and the budget built on top of it all
+    /// come back to `isReadyToHire`, which is decided by document expiry. The anchor is
+    /// written by an invisible leaf, so the `ScrollView` and the picker never hear from the
+    /// clock — only the panels that read it are recomputed.
+    @State private var dayAnchor: Date = AppClock.now()
 
     var body: some View {
         ZStack {
@@ -51,12 +57,15 @@ struct RecruitAnalyticsView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .background {
+            ClockAnchor(.day, date: $dayAnchor)
+        }
     }
 
     // MARK: - Pipeline
 
     private var pipelineSection: some View {
-        let funnel = recruit.funnel
+        let funnel = recruit.funnel(now: dayAnchor)
         return VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 14) {
                 SupSectionHeader(
@@ -172,8 +181,8 @@ struct RecruitAnalyticsView: View {
 
     private var budgetCard: some View {
         let needed = recruit.projectedVacancies
-        let leads = recruit.leadsNeeded(for: needed)
-        let budget = recruit.recommendedBudget(for: needed)
+        let leads = recruit.leadsNeeded(for: needed, now: dayAnchor)
+        let budget = recruit.recommendedBudget(for: needed, now: dayAnchor)
 
         return VStack(alignment: .leading, spacing: 12) {
             SupSectionHeader(
@@ -260,7 +269,7 @@ struct RecruitAnalyticsView: View {
                         Text("\(Int((performance.conversion * 100).rounded())) %")
                             .font(.system(.subheadline, design: .rounded, weight: .black))
                             .monospacedDigit()
-                            .foregroundStyle(performance.conversion >= recruit.conversion ? RecTone.good : RecTone.warn)
+                            .foregroundStyle(performance.conversion >= recruit.conversion(now: dayAnchor) ? RecTone.good : RecTone.warn)
                     }
                     HStack(spacing: 8) {
                         DemandFigure(value: "\(performance.leads)", caption: "Leads")
@@ -317,7 +326,7 @@ struct RecruitAnalyticsView: View {
     // MARK: - Metrics
 
     private var metricsSection: some View {
-        let metrics = recruit.recruiterMetrics
+        let metrics = recruit.recruiterMetrics(now: dayAnchor)
         return VStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 12) {
                 SupSectionHeader(

@@ -36,7 +36,12 @@ struct ManagerPerformanceView: View {
         }
     }
 
-    private var metrics: RegionMetrics { regional.metrics }
+    /// Instant the figures of this screen are measured against. `.minute`, inherited from
+    /// `metrics`; the week chart is a day reading but shares the anchor rather than
+    /// carrying a second one for a chart that is redrawn from the same data.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var metrics: RegionMetrics { regional.metrics(now: minuteAnchor) }
 
     var body: some View {
         ZStack {
@@ -55,6 +60,9 @@ struct ManagerPerformanceView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+        }
     }
 
     // MARK: - Week
@@ -67,7 +75,7 @@ struct ManagerPerformanceView: View {
                 accent: MgTone.accent
             )
 
-            WeekBarsChart(points: regional.weekSeries)
+            WeekBarsChart(points: regional.weekSeries(now: minuteAnchor))
 
             HStack(spacing: 10) {
                 StatTile(

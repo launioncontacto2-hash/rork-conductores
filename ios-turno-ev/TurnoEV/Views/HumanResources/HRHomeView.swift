@@ -32,12 +32,20 @@ struct HRHomeView: View {
         }
     }
 
-    private var plan: CapacityPlan { office.capacityPlan }
     private var pipeline: HiringPipeline { office.pipeline }
 
     // MARK: - Coverage headline
 
+    /// Coverage of the station, decided by a date: a driver counts as available until a
+    /// critical document expires. The scope covers the card and stops there — the
+    /// `ScrollView`, the header and the modules below never hear from the clock.
     private var coverageCard: some View {
+        TimeScope(.day) { now in
+            coverageLink(plan: office.capacityPlan(now: now))
+        }
+    }
+
+    private func coverageLink(plan: CapacityPlan) -> some View {
         NavigationLink {
             HRCapacityView(office: office)
         } label: {
@@ -227,23 +235,29 @@ struct HRHomeView: View {
         VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Módulos", subtitle: "La gente que ya trabaja en tu estación")
 
-            ModuleLink(
-                title: "Expedientes",
-                subtitle: "\(office.activeFiles.count) contratados · \(office.incompleteFiles.count) incompletos",
-                symbol: "folder.fill",
-                badge: office.incompleteFiles.count
-            ) {
-                HRFilesView(office: office)
+            // Both counters are decided by document expiry, so each link carries the day
+            // for itself. The section heading and the two links below stay outside.
+            TimeScope(.day) { now in
+                ModuleLink(
+                    title: "Expedientes",
+                    subtitle: "\(office.activeFiles.count) contratados · \(office.incompleteFiles(now: now).count) incompletos",
+                    symbol: "folder.fill",
+                    badge: office.incompleteFiles(now: now).count
+                ) {
+                    HRFilesView(office: office)
+                }
             }
 
-            ModuleLink(
-                title: "Capacidad de personal",
-                subtitle: "Cobertura por bloque y unidades por incorporar",
-                symbol: "chart.bar.doc.horizontal.fill",
-                badge: plan.deficit,
-                badgeTone: Palette.danger
-            ) {
-                HRCapacityView(office: office)
+            TimeScope(.day) { now in
+                ModuleLink(
+                    title: "Capacidad de personal",
+                    subtitle: "Cobertura por bloque y unidades por incorporar",
+                    symbol: "chart.bar.doc.horizontal.fill",
+                    badge: office.capacityPlan(now: now).deficit,
+                    badgeTone: Palette.danger
+                ) {
+                    HRCapacityView(office: office)
+                }
             }
 
             ModuleLink(
@@ -271,43 +285,53 @@ struct HRHomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             SupSectionHeader(title: "Indicadores", subtitle: "Lectura de la semana en curso")
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                StatTile(
-                    label: "Vacantes actuales",
-                    value: "\(plan.deficit)",
-                    hint: "Contra flotilla activa",
-                    tone: plan.deficit > 0 ? .amber : .volt
-                )
-                StatTile(
-                    label: "Vacantes proyectadas",
-                    value: "\(plan.futureDeficit)",
-                    hint: "Con \(plan.incomingVehicles) unidades nuevas",
-                    tone: plan.futureDeficit > 0 ? .danger : .volt
-                )
-                StatTile(
-                    label: "Expedientes incompletos",
-                    value: "\(office.incompleteFiles.count)",
-                    hint: "Falta documentación",
-                    tone: office.incompleteFiles.isEmpty ? .volt : .amber
-                )
-                StatTile(
-                    label: "Documentos por vencer",
-                    value: "\(office.expiringDocumentFiles.count)",
-                    hint: "Próximos \(HRRules.documentWarningDays) días",
-                    tone: office.expiringDocumentFiles.isEmpty ? .volt : .amber
-                )
-                StatTile(
-                    label: "Tasa de rechazo",
-                    value: "\(Int(pipeline.rejectionRate * 100))%",
-                    hint: "Candidatos descartados",
-                    tone: .neutral
-                )
-                StatTile(
-                    label: "No disponibles",
-                    value: "\(office.unavailableFiles.count)",
-                    hint: "Bajas, permisos y documentos",
-                    tone: office.unavailableFiles.isEmpty ? .volt : .amber
-                )
+            // Five of the six tiles are decided by document expiry, and they all read the
+            // same date, so one scope serves the grid's contents. The heading above and the
+            // panel around them stay outside.
+            TimeScope(.day) { now in
+                let plan = office.capacityPlan(now: now)
+                let incomplete = office.incompleteFiles(now: now).count
+                let expiring = office.expiringDocumentFiles(now: now).count
+                let unavailable = office.unavailableFiles(now: now).count
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    StatTile(
+                        label: "Vacantes actuales",
+                        value: "\(plan.deficit)",
+                        hint: "Contra flotilla activa",
+                        tone: plan.deficit > 0 ? .amber : .volt
+                    )
+                    StatTile(
+                        label: "Vacantes proyectadas",
+                        value: "\(plan.futureDeficit)",
+                        hint: "Con \(plan.incomingVehicles) unidades nuevas",
+                        tone: plan.futureDeficit > 0 ? .danger : .volt
+                    )
+                    StatTile(
+                        label: "Expedientes incompletos",
+                        value: "\(incomplete)",
+                        hint: "Falta documentación",
+                        tone: incomplete == 0 ? .volt : .amber
+                    )
+                    StatTile(
+                        label: "Documentos por vencer",
+                        value: "\(expiring)",
+                        hint: "Próximos \(HRRules.documentWarningDays) días",
+                        tone: expiring == 0 ? .volt : .amber
+                    )
+                    StatTile(
+                        label: "Tasa de rechazo",
+                        value: "\(Int(pipeline.rejectionRate * 100))%",
+                        hint: "Candidatos descartados",
+                        tone: .neutral
+                    )
+                    StatTile(
+                        label: "No disponibles",
+                        value: "\(unavailable)",
+                        hint: "Bajas, permisos y documentos",
+                        tone: unavailable == 0 ? .volt : .amber
+                    )
+                }
             }
         }
         .padding(16)

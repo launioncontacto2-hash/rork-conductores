@@ -12,6 +12,13 @@ struct RecruitLeadsView: View {
     @State private var simulated: Prospect?
     @State private var showsSimulator: Bool = false
 
+    /// Instant this screen measures its contact window against.
+    ///
+    /// `.minute`: a lead crosses the service level a fixed number of minutes after it
+    /// arrived, at an arbitrary hour. Written by an invisible leaf, so the `ScrollView` is
+    /// never invalidated by the clock — only the pieces reading the anchor are.
+    @State private var minuteAnchor: Date = AppClock.now()
+
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -19,7 +26,9 @@ struct RecruitLeadsView: View {
                 VStack(spacing: 16) {
                     header
                     intakeCard
-                    if !recruit.overdueLeads.isEmpty { overdueSection }
+                    // Whether this section exists at all is a temporal decision, so it is
+                    // taken against the same anchor the section itself reads.
+                    if !recruit.overdueLeads(now: minuteAnchor).isEmpty { overdueSection }
                     freshSection
                     integrationNote
                 }
@@ -28,6 +37,9 @@ struct RecruitLeadsView: View {
                 .padding(.bottom, 34)
             }
             .scrollIndicators(.hidden)
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
         .sheet(isPresented: $isCreating) {
             ProspectFormView(recruit: recruit)
@@ -55,7 +67,7 @@ struct RecruitLeadsView: View {
                     Text("\(recruit.count(stage: .lead)) por atender")
                         .font(.system(size: 30, weight: .black, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(recruit.overdueLeads.isEmpty ? RecTone.accent : RecTone.bad)
+                        .foregroundStyle(recruit.overdueLeads(now: minuteAnchor).isEmpty ? RecTone.accent : RecTone.bad)
                     Text("Tiempo de respuesta comprometido: \(RecruitRules.contactSlaMinutes / 60) horas desde que entra el formulario.")
                         .font(.system(size: 11))
                         .foregroundStyle(Palette.textMuted)
@@ -105,7 +117,7 @@ struct RecruitLeadsView: View {
                 subtitle: "Llevan más de \(RecruitRules.contactSlaMinutes / 60) horas esperando",
                 accent: RecTone.bad
             )
-            ForEach(recruit.overdueLeads) { prospect in
+            ForEach(recruit.overdueLeads(now: minuteAnchor)) { prospect in
                 ProspectRow(prospect: prospect) { onOpenProspect(prospect.id) }
             }
         }

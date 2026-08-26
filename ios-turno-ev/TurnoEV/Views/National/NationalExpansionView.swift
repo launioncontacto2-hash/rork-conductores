@@ -9,7 +9,12 @@ struct NationalExpansionView: View {
     @State private var isCreating: Bool = false
     @State private var selected: StationProject?
 
-    private var metrics: NetworkMetrics { national.metrics }
+    /// Instant the growth figures are measured against. `.minute`, inherited from
+    /// `metrics` → `rollups`. Written by an invisible leaf, so the `ScrollView` inside
+    /// `NationalScreen` is never invalidated by the clock.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var metrics: NetworkMetrics { national.metrics(now: minuteAnchor) }
 
     var body: some View {
         NationalScreen(title: "Expansión") {
@@ -19,6 +24,9 @@ struct NationalExpansionView: View {
                 isCreating = true
             }
             projectList
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
         .sheet(isPresented: $isCreating) {
             ProjectFormView(national: national)

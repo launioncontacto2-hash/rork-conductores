@@ -11,7 +11,15 @@ struct NationalHomeView: View {
     let onOpenExpansion: () -> Void
     let onOpenPolicy: () -> Void
 
-    private var metrics: NetworkMetrics { national.metrics }
+    /// Instant every figure of this dashboard is measured against.
+    ///
+    /// `.minute`: the roll-ups behind `metrics` count requests that go stale twenty-four
+    /// hours after an arbitrary hour, and the exception board is built on the same rule.
+    /// Written by an invisible leaf, so the `ScrollView` is never invalidated by the clock
+    /// — only the panels that read the anchor are recomputed.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var metrics: NetworkMetrics { national.metrics(now: minuteAnchor) }
 
     var body: some View {
         ZStack {
@@ -31,6 +39,9 @@ struct NationalHomeView: View {
                 .padding(.bottom, 36)
             }
             .scrollIndicators(.hidden)
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
     }
 
@@ -134,7 +145,7 @@ struct NationalHomeView: View {
     // MARK: - Exceptions
 
     private var exceptionBoard: some View {
-        let alerts = Array(national.criticalAlerts.prefix(4))
+        let alerts = Array(national.criticalAlerts(now: minuteAnchor).prefix(4))
         return Group {
             if alerts.isEmpty {
                 NoticeBanner(
@@ -178,7 +189,7 @@ struct NationalHomeView: View {
                 title: "Semana de la red",
                 subtitle: "Lunes a domingo contra la meta de cada día"
             )
-            WeekBarsChart(points: national.weekSeries, tone: NatTone.accent)
+            WeekBarsChart(points: national.weekSeries(now: minuteAnchor), tone: NatTone.accent)
             HStack(spacing: 10) {
                 NatFigure(
                     value: Fmt.mxn(metrics.weekEarningsMxn),
@@ -209,7 +220,7 @@ struct NationalHomeView: View {
                 accent: NatTone.accent,
                 action: onOpenRegions
             )
-            ForEach(Array(national.rollupsByPerformance.enumerated()), id: \.element.id) { index, region in
+            ForEach(Array(national.rollupsByPerformance(now: minuteAnchor).enumerated()), id: \.element.id) { index, region in
                 RegionCard(rank: index + 1, region: region) { onOpenRegion(region.id) }
             }
         }

@@ -34,11 +34,15 @@ struct NationalRegionsView: View {
 
     @State private var sorting: Sorting = .performance
 
+    /// Instant the ranking is measured against. `.minute`, inherited from `rollups`: a
+    /// region's health counts the requests that have gone stale on it.
+    @State private var minuteAnchor: Date = AppClock.now()
+
     private var regions: [RegionRollup] {
         switch sorting {
-        case .performance: national.rollupsByPerformance
-        case .risk: national.rollupsByRisk
-        case .fleet: national.rollups.sorted { $0.fleetSize > $1.fleetSize }
+        case .performance: national.rollupsByPerformance(now: minuteAnchor)
+        case .risk: national.rollupsByRisk(now: minuteAnchor)
+        case .fleet: national.rollups(now: minuteAnchor).sorted { $0.fleetSize > $1.fleetSize }
         }
     }
 
@@ -88,6 +92,9 @@ struct NationalRegionsView: View {
                 .padding(.bottom, 36)
             }
             .scrollIndicators(.hidden)
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
     }
 }
@@ -153,7 +160,10 @@ struct NationalRegionDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    private var region: RegionRollup? { national.rollup(id: regionId) }
+    /// Instant this file is measured against. `.minute`, inherited from `rollup`.
+    @State private var minuteAnchor: Date = AppClock.now()
+
+    private var region: RegionRollup? { national.rollup(id: regionId, now: minuteAnchor) }
 
     var body: some View {
         NavigationStack {
@@ -187,6 +197,9 @@ struct NationalRegionDetailView: View {
                     Button("Cerrar") { dismiss() }
                 }
             }
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
         .preferredColorScheme(.dark)
     }

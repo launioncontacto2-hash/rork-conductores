@@ -58,17 +58,12 @@ struct HRFilesView: View {
 
                     summary
 
-                    if files.isEmpty {
-                        SupEmptyState(
-                            symbol: "folder.badge.questionmark",
-                            title: "Sin expedientes",
-                            message: "Ningún expediente coincide con la búsqueda."
-                        )
-                    } else {
-                        ForEach(files) { file in
-                            EmployeeFileRow(file: file) { selected = file.id }
-                        }
-                    }
+                    FileSearchResults(
+                        office: office,
+                        search: search,
+                        block: block.block,
+                        onlyIssues: onlyIssues
+                    ) { selected = $0 }
                 }
                 .padding(.horizontal, 18)
                 .padding(.top, 4)
@@ -89,25 +84,65 @@ struct HRFilesView: View {
         let id: String
     }
 
-    private var files: [EmployeeFile] {
-        office.searchFiles(search, block: block.block, onlyIssues: onlyIssues)
-    }
-
     private var summary: some View {
         HStack(spacing: 10) {
             StatTile(label: "Expedientes", value: "\(office.activeFiles.count)", hint: "Activos", tone: .neutral)
-            StatTile(
-                label: "Incompletos",
-                value: "\(office.incompleteFiles.count)",
-                hint: "Falta documentación",
-                tone: office.incompleteFiles.isEmpty ? .volt : .amber
-            )
-            StatTile(
-                label: "Vencidos",
-                value: "\(office.expiredDocumentFiles.count)",
-                hint: "Bloquean turno",
-                tone: office.expiredDocumentFiles.isEmpty ? .volt : .danger
-            )
+            // Both counters are decided by document expiry and read the same date, so one
+            // scope serves the pair. The tile beside them is a plain count of the roster.
+            TimeScope(.day) { now in
+                let incomplete = office.incompleteFiles(now: now).count
+                let expired = office.expiredDocumentFiles(now: now).count
+                HStack(spacing: 10) {
+                    StatTile(
+                        label: "Incompletos",
+                        value: "\(incomplete)",
+                        hint: "Falta documentación",
+                        tone: incomplete == 0 ? .volt : .amber
+                    )
+                    StatTile(
+                        label: "Vencidos",
+                        value: "\(expired)",
+                        hint: "Bloquean turno",
+                        tone: expired == 0 ? .volt : .danger
+                    )
+                }
+            }
+        }
+    }
+}
+
+/// The filtered list of files.
+///
+/// With "solo expedientes con pendientes" on, the clock decides *membership*: a file joins
+/// the list the day one of its documents expires. A filter like that cannot be pushed into
+/// a leaf, so the list is extracted into a view of its own and the scope wraps its whole
+/// content — leaving the `ScrollView`, the block filter, the toggle and the summary tiles
+/// outside. Declared exception to the leaf rule, on the same terms as `FreshLeadsList`.
+///
+/// The per-row scope of `EmployeeFileRow` is deliberately kept: it is what makes a list of
+/// two hundred files invalidate two hundred small rows on any other day, when the search
+/// text has not changed and membership has not moved.
+private struct FileSearchResults: View {
+    let office: StationOfficeStore
+    let search: String
+    let block: ShiftBlock?
+    let onlyIssues: Bool
+    let onOpen: (String) -> Void
+
+    var body: some View {
+        TimeScope(.day) { now in
+            let files = office.searchFiles(search, block: block, onlyIssues: onlyIssues, now: now)
+            if files.isEmpty {
+                SupEmptyState(
+                    symbol: "folder.badge.questionmark",
+                    title: "Sin expedientes",
+                    message: "Ningún expediente coincide con la búsqueda."
+                )
+            } else {
+                ForEach(files) { file in
+                    EmployeeFileRow(file: file) { onOpen(file.id) }
+                }
+            }
         }
     }
 }

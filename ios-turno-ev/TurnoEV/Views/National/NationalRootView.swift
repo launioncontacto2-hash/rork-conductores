@@ -12,6 +12,15 @@ struct NationalRootView: View {
     @State private var tab: NationalTab = .country
     @State private var route: NationalRoute?
 
+    /// Instant the header counters are measured against.
+    ///
+    /// A `.badge(_:)` takes a number, so there is nowhere inside it to put a `TimeScope`.
+    /// `ClockAnchor` writes this instead, and the header reads the store *through* it — so
+    /// the count moves both when the clock crosses its boundary and when the network data
+    /// behind it changes. `.minute`, because an exception appears the moment a region's
+    /// backlog goes stale, and the counter must not lag the board behind it.
+    @State private var minuteAnchor: Date = AppClock.now()
+
     init(account: StaffAccount, store: FleetStore) {
         self.account = account
         _national = State(initialValue: NationalStore(account: account, fleet: store))
@@ -42,8 +51,8 @@ struct NationalRootView: View {
         NationalHeader(
             account: account,
             regionCount: StaffDirectory.regions.count,
-            stationCount: national.metrics.stations,
-            alertCount: national.alerts.count,
+            stationCount: national.metrics(now: minuteAnchor).stations,
+            alertCount: national.alerts(now: minuteAnchor).count,
             onRegenerate: { national.regenerateNetwork() },
             onOpenAlerts: { route = .alerts }
         )
@@ -95,6 +104,9 @@ struct NationalRootView: View {
             .badge(national.projects.filter { $0.stage != .operating }.count)
         }
         .tint(NatTone.accent)
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+        }
         .task { national.refresh() }
         .onChange(of: fleet.clockOffsetMinutes) { _, _ in national.refresh() }
         .onChange(of: fleet.activeShift?.id) { _, _ in national.refresh() }
@@ -132,19 +144,25 @@ struct NationalAlertsView: View {
                 NationalBackground()
                 ScrollView {
                     VStack(spacing: 12) {
-                        if national.alerts.isEmpty {
-                            NoticeBanner(
-                                symbol: "checkmark.seal.fill",
-                                title: "Sin excepciones abiertas",
-                                message: "La red opera dentro de los umbrales de meta, plantilla, cartera y aperturas.",
-                                tone: .volt
-                            )
-                        } else {
-                            ForEach(national.alerts) { alert in
-                                NationalAlertCard(
-                                    alert: alert,
-                                    onReview: { national.reviewAlert(id: alert.id) }
+                        // The set of exceptions grows and shrinks with the clock, so the
+                        // board and its empty state share one scope. The `ScrollView`
+                        // around it and the restore button below it stay outside.
+                        TimeScope(.minute) { now in
+                            let alerts = national.alerts(now: now)
+                            if alerts.isEmpty {
+                                NoticeBanner(
+                                    symbol: "checkmark.seal.fill",
+                                    title: "Sin excepciones abiertas",
+                                    message: "La red opera dentro de los umbrales de meta, plantilla, cartera y aperturas.",
+                                    tone: .volt
                                 )
+                            } else {
+                                ForEach(alerts) { alert in
+                                    NationalAlertCard(
+                                        alert: alert,
+                                        onReview: { national.reviewAlert(id: alert.id) }
+                                    )
+                                }
                             }
                         }
 

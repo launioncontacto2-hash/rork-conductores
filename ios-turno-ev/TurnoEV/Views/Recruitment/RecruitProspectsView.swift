@@ -1032,7 +1032,24 @@ struct HireFormView: View {
     @State private var isRejecting: Bool = false
 
     private var station: Station? { StaffDirectory.station(id: prospect.stationId) }
-    private var now: Date { recruit.now }
+
+    /// The day the alta is being judged against — the one temporal input of this sheet.
+    ///
+    /// This replaces a re-export of `RecruitmentStore.now`, and the replacement matters
+    /// more here than anywhere else in the app: `now` does not only word a caption here, it
+    /// decides `canSign`, and therefore whether the signing button is enabled. Under the
+    /// old form the button was kept honest by an accident — `recruit.now` reached
+    /// `FleetStore.now`, which registered a global dependency as a side effect. The day that
+    /// side effect is removed, an authorisation control would have silently frozen.
+    ///
+    /// Now the dependency is real and named. `ClockAnchor` writes this on the day boundary,
+    /// and the sheet reads the prospect through it, so both the conditions and the button
+    /// move for exactly two reasons: the calendar day changed, or the candidate's file did.
+    ///
+    /// Every rule that decides an alta is a date question — `missingDocuments` and
+    /// `isReadyToHire` both resolve document expiry, and `daysInProcess` counts days. There
+    /// is no intraday condition, so one `.day` anchor governs the whole sheet.
+    @State private var dayAnchor: Date = AppClock.now()
 
     /// Open seats of the block the candidate asked for, read from the fleet itself.
     private var blockVacancy: BlockCoverage? {
@@ -1042,7 +1059,7 @@ struct HireFormView: View {
     }
 
     private var conditions: [(label: String, detail: String, isMet: Bool)] {
-        let missing = prospect.missingDocuments(now: now)
+        let missing = prospect.missingDocuments(now: dayAnchor)
         let vacancy = blockVacancy?.deficit ?? 0
         return [
             (
@@ -1070,8 +1087,12 @@ struct HireFormView: View {
         ]
     }
 
+    /// Authorisation, not presentation.
+    ///
+    /// Deliberately reads the same anchor as `conditions`: the four rows the recruiter is
+    /// shown and the button they enable must never disagree about what day it is.
     private var canSign: Bool {
-        prospect.isReadyToHire(now: now) && !employeeNumber.trimmingCharacters(in: .whitespaces).isEmpty
+        prospect.isReadyToHire(now: dayAnchor) && !employeeNumber.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
@@ -1125,6 +1146,9 @@ struct HireFormView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .background {
+            ClockAnchor(.day, date: $dayAnchor)
+        }
         .task { employeeNumber = recruit.suggestedEmployeeNumber(for: prospect) }
         .alert("No contratar", isPresented: $isRejecting) {
             Button("Cancelar", role: .cancel) {}
@@ -1148,7 +1172,7 @@ struct HireFormView: View {
             MetricLine(label: "Estación", value: station?.displayName ?? "—", tone: RecTone.cool)
             MetricLine(label: "Turno", value: prospect.requestedBlock.label, tone: RecTone.cool)
             MetricLine(label: "Experiencia", value: "\(prospect.experienceYears) años · \(prospect.platformsLabel)")
-            MetricLine(label: "Días en proceso", value: "\(prospect.daysInProcess(now: now))")
+            MetricLine(label: "Días en proceso", value: "\(prospect.daysInProcess(now: dayAnchor))")
         }
         .padding(15)
         .panel()

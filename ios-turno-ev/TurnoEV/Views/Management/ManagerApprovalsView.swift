@@ -195,8 +195,8 @@ private struct PendingSignatureTile: View {
     let regional: RegionalStore
 
     var body: some View {
-        TimeScope(.minute) { _ in
-            let metrics = regional.metrics
+        TimeScope(.minute) { now in
+            let metrics = regional.metrics(now: now)
             StatTile(
                 label: "Por firmar",
                 value: "\(metrics.pendingRequests)",

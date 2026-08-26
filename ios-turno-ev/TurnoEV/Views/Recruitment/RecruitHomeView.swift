@@ -13,7 +13,14 @@ struct RecruitHomeView: View {
     let onOpenAnalytics: (RecruitAnalyticsTab) -> Void
     let onOpenAlerts: () -> Void
 
-    private var now: Date { recruit.now }
+    /// Instants the counters of this dashboard are measured against.
+    ///
+    /// Two, because the board mixes semantics: the exception panel and the overdue-lead
+    /// counter turn on a minute — a lead crosses its contact window at an arbitrary hour —
+    /// while documents, altas and the agenda turn on a date. Written by invisible leaves,
+    /// so the `ScrollView` is never invalidated by the clock.
+    @State private var minuteAnchor: Date = AppClock.now()
+    @State private var dayAnchor: Date = AppClock.now()
 
     var body: some View {
         ZStack {
@@ -33,6 +40,10 @@ struct RecruitHomeView: View {
                 .padding(.bottom, 34)
             }
             .scrollIndicators(.hidden)
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+            ClockAnchor(.day, date: $dayAnchor)
         }
     }
 
@@ -107,7 +118,7 @@ struct RecruitHomeView: View {
     /// Does the current pace get there in time? Leads needed vs leads in hand.
     private var paceCard: some View {
         let needed = recruit.totalVacancies + (recruit.projectedVacancies - recruit.totalVacancies)
-        let leadTarget = recruit.leadsNeeded(for: needed)
+        let leadTarget = recruit.leadsNeeded(for: needed, now: dayAnchor)
         let inProcess = recruit.prospects.filter { $0.stage.isOpen }.count
         let isEnough = inProcess >= leadTarget
 
@@ -136,7 +147,7 @@ struct RecruitHomeView: View {
             VStack(spacing: 8) {
                 MetricLine(
                     label: "Conversión lead → contratación",
-                    value: "\(Int((recruit.conversion * 100).rounded())) %",
+                    value: "\(Int((recruit.conversion(now: dayAnchor) * 100).rounded())) %",
                     detail: "Histórico real de la base, no un supuesto",
                     tone: RecTone.cool
                 )
@@ -161,16 +172,19 @@ struct RecruitHomeView: View {
     // MARK: - Exceptions
 
     private var exceptionBoard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // The set of alerts changes with time — `overdueLeads` is one of its terms — so
+        // the heading, the empty state and the cards all read the same minute anchor.
+        let alerts = recruit.alerts(now: minuteAnchor)
+        return VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(
                 title: "Requieren atención",
                 subtitle: "Umbrales de cobertura, contacto y agenda",
-                actionTitle: recruit.alerts.isEmpty ? nil : "Ver todas",
+                actionTitle: alerts.isEmpty ? nil : "Ver todas",
                 accent: RecTone.accent,
-                action: recruit.alerts.isEmpty ? nil : onOpenAlerts
+                action: alerts.isEmpty ? nil : onOpenAlerts
             )
 
-            if recruit.alerts.isEmpty {
+            if alerts.isEmpty {
                 NoticeBanner(
                     symbol: "checkmark.seal.fill",
                     title: "Sin alertas abiertas",
@@ -178,7 +192,7 @@ struct RecruitHomeView: View {
                     tone: .volt
                 )
             } else {
-                ForEach(recruit.alerts.prefix(3)) { alert in
+                ForEach(alerts.prefix(3)) { alert in
                     RecruitAlertCard(
                         alert: alert,
                         onOpen: { open(alert.destination) },
@@ -206,9 +220,9 @@ struct RecruitHomeView: View {
                     label: "Leads nuevos",
                     value: "\(recruit.count(stage: .lead))",
                     symbol: "sparkles",
-                    detail: "\(recruit.overdueLeads.count) sin contactar a tiempo",
-                    tone: recruit.overdueLeads.isEmpty ? RecTone.accent : RecTone.bad,
-                    isAlarming: !recruit.overdueLeads.isEmpty,
+                    detail: "\(recruit.overdueLeads(now: minuteAnchor).count) sin contactar a tiempo",
+                    tone: recruit.overdueLeads(now: minuteAnchor).isEmpty ? RecTone.accent : RecTone.bad,
+                    isAlarming: !recruit.overdueLeads(now: minuteAnchor).isEmpty,
                     action: onOpenLeads
                 )
                 MetricCard(
@@ -229,15 +243,15 @@ struct RecruitHomeView: View {
                 )
                 MetricCard(
                     label: "Citas programadas",
-                    value: "\(recruit.upcomingAppointments.count)",
+                    value: "\(recruit.upcomingAppointments(now: dayAnchor).count)",
                     symbol: "calendar.badge.clock",
-                    detail: "\(recruit.todayAppointments.count) hoy",
+                    detail: "\(recruit.todayAppointments(now: dayAnchor).count) hoy",
                     tone: RecTone.warn,
                     action: onOpenAppointments
                 )
                 MetricCard(
                     label: "Documentación pendiente",
-                    value: "\(recruit.awaitingDocuments.count)",
+                    value: "\(recruit.awaitingDocuments(now: dayAnchor).count)",
                     symbol: "doc.text.fill",
                     detail: "expedientes iniciales incompletos",
                     tone: RecTone.warn,
@@ -245,7 +259,7 @@ struct RecruitHomeView: View {
                 )
                 MetricCard(
                     label: "Listos para contratar",
-                    value: "\(recruit.readyToHire.count)",
+                    value: "\(recruit.readyToHire(now: dayAnchor).count)",
                     symbol: "signature",
                     detail: "expediente completo, falta tu firma",
                     tone: RecTone.warn,

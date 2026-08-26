@@ -28,9 +28,16 @@ final class RegionalStore {
     private let fleet: FleetStore
 
     var now: Date { fleet.now }
+
     /// Station shift the manager is watching, following their own split block.
-    var observedSlot: ShiftSlot { RegionalRules.observedSlot(now: now) }
-    var dutyBlock: RegionalRules.DutyBlock { RegionalRules.dutyBlock(now: now) }
+    ///
+    /// A shift boundary falls on a minute, not on a date, so a consumer of this has to
+    /// listen by the minute. It takes `now` explicitly for the same reason every read in
+    /// this section does: a property that answers differently depending on the hour must
+    /// not hide the hour.
+    func observedSlot(now: Date) -> ShiftSlot { RegionalRules.observedSlot(now: now) }
+
+    func dutyBlock(now: Date) -> RegionalRules.DutyBlock { RegionalRules.dutyBlock(now: now) }
 
     // MARK: - State
 
@@ -68,7 +75,7 @@ final class RegionalStore {
 
     private var currentSeedKey: String {
         let day = ShiftRules.calendar.ordinality(of: .day, in: .era, for: now) ?? 0
-        return "\(station.id)|\(observedSlot.rawValue)|\(day)"
+        return "\(station.id)|\(observedSlot(now: now).rawValue)|\(day)"
     }
 
     private func rebuild() {
@@ -178,11 +185,17 @@ final class RegionalStore {
 
     // MARK: - Reads
 
-    var metrics: RegionMetrics {
+    /// Counts of the region, including `agingRequests`.
+    ///
+    /// `.minute`: a request goes stale twenty-four hours after it was created, and it was
+    /// created at an arbitrary hour. A date cadence would report the backlog late.
+    func metrics(now: Date) -> RegionMetrics {
         RegionalRules.metrics(scorecards: scorecards, requests: requests, now: now)
     }
 
-    var alerts: [RegionalAlert] {
+    /// `.minute`, for the same reason as `metrics`: the set itself grows when a request
+    /// crosses its twenty-four hours.
+    func alerts(now: Date) -> [RegionalAlert] {
         RegionalRules.alerts(
             scorecards: scorecards,
             supervisors: supervisors,
@@ -192,8 +205,8 @@ final class RegionalStore {
         .filter { !resolvedAlertIds.contains($0.id) }
     }
 
-    var criticalAlerts: [RegionalAlert] {
-        alerts.filter { $0.severity == .critical || $0.severity == .high }
+    func criticalAlerts(now: Date) -> [RegionalAlert] {
+        alerts(now: now).filter { $0.severity == .critical || $0.severity == .high }
     }
 
     /// Stations ordered by health, so the card that needs the manager comes first.
@@ -313,7 +326,8 @@ final class RegionalStore {
     }
 
     /// Station billing per day of the current week, against the fixed goal of each day.
-    var weekSeries: [RegionDayPoint] {
+    /// `.day`: the week it covers and the day it marks as today are both calendar facts.
+    func weekSeries(now: Date) -> [RegionDayPoint] {
         let weekStart = ShiftRules.weekStart(for: now)
         return (0..<7).compactMap { offset in
             guard let day = ShiftRules.calendar.date(byAdding: .day, value: offset, to: weekStart) else { return nil }
@@ -335,11 +349,13 @@ final class RegionalStore {
 
     /// The number the whole station chases: authorized units × the driver goal of the
     /// day. It never moves with attendance, so every empty seat shows up as a gap.
-    var goalBoard: StationGoalBoard {
+    /// `.minute`: the goal of the day depends on the group in force and on the shift being
+    /// observed, and both turn on a shift boundary.
+    func goalBoard(now: Date) -> StationGoalBoard {
         StationGoalBoard(
             capacity: station.vehicleCapacity,
             group: ShiftRules.group(for: now),
-            slot: observedSlot,
+            slot: observedSlot(now: now),
             earningsMxn: card?.earningsMxn ?? 0,
             presentDrivers: card?.presentDrivers ?? 0,
             weekEarningsMxn: card?.weekEarningsMxn ?? 0

@@ -16,6 +16,17 @@ struct RecruitmentRootView: View {
     @State private var prospectFilter: RecruitStage?
     @State private var route: RecruitRoute?
 
+    /// Instants the tab badges and the header counter are measured against.
+    ///
+    /// A `.badge(_:)` takes a number, so there is nowhere inside it to put a `TimeScope`.
+    /// `ClockAnchor` writes these instead, and each badge reads the store *through* one —
+    /// so a count moves both when the clock crosses its boundary and when the data behind
+    /// it changes. Two anchors because the desk mixes semantics: the exception board counts
+    /// leads that go past their contact window at an arbitrary hour, while candidates and
+    /// the agenda are decided by a date.
+    @State private var minuteAnchor: Date = AppClock.now()
+    @State private var dayAnchor: Date = AppClock.now()
+
     init(account: StaffAccount, store: FleetStore) {
         self.account = account
         _recruit = State(initialValue: RecruitmentStore(account: account, fleet: store))
@@ -48,7 +59,7 @@ struct RecruitmentRootView: View {
             account: account,
             station: recruit.stations.first,
             vacancies: recruit.totalVacancies,
-            alertCount: recruit.alerts.count,
+            alertCount: recruit.alerts(now: minuteAnchor).count,
             onRegenerate: { recruit.regenerate() },
             onOpenAlerts: { route = .alerts }
         )
@@ -97,7 +108,7 @@ struct RecruitmentRootView: View {
             } label: {
                 Label("Candidatos", systemImage: "person.3.fill")
             }
-            .badge(recruit.awaitingDocuments.count + recruit.readyToHire.count)
+            .badge(recruit.awaitingDocuments(now: dayAnchor).count + recruit.readyToHire(now: dayAnchor).count)
 
             Tab(value: RecruitTab.appointments) {
                 RecruitAppointmentsView(
@@ -108,13 +119,17 @@ struct RecruitmentRootView: View {
             } label: {
                 Label("Citas", systemImage: "calendar")
             }
-            .badge(recruit.todayAppointments.count)
+            .badge(recruit.todayAppointments(now: dayAnchor).count)
 
             Tab("Análisis", systemImage: "chart.bar.xaxis", value: RecruitTab.analytics) {
                 RecruitAnalyticsView(recruit: recruit, header: header, tab: $analyticsTab)
             }
         }
         .tint(RecTone.accent)
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
+            ClockAnchor(.day, date: $dayAnchor)
+        }
         .task { recruit.refresh() }
         .onChange(of: fleet.clockOffsetMinutes) { _, _ in recruit.refresh() }
         .onChange(of: tab) { _, _ in recruit.refresh() }
@@ -173,23 +188,29 @@ struct RecruitAlertsView: View {
                 RecruitmentBackground()
                 ScrollView {
                     VStack(spacing: 12) {
-                        if recruit.alerts.isEmpty {
-                            NoticeBanner(
-                                symbol: "checkmark.seal.fill",
-                                title: "Sin alertas abiertas",
-                                message: "Cobertura, tiempos de contacto, agenda y documentación dentro de los umbrales.",
-                                tone: .volt
-                            )
-                        } else {
-                            ForEach(recruit.alerts) { alert in
-                                RecruitAlertCard(
-                                    alert: alert,
-                                    onOpen: {
-                                        onOpen(alert.destination)
-                                        dismiss()
-                                    },
-                                    onReview: { recruit.reviewAlert(id: alert.id) }
+                        // The set of alerts grows and shrinks with the clock, so the board
+                        // and its empty state share one scope. The `ScrollView` around it
+                        // and the restore button below it stay outside.
+                        TimeScope(.minute) { now in
+                            let alerts = recruit.alerts(now: now)
+                            if alerts.isEmpty {
+                                NoticeBanner(
+                                    symbol: "checkmark.seal.fill",
+                                    title: "Sin alertas abiertas",
+                                    message: "Cobertura, tiempos de contacto, agenda y documentación dentro de los umbrales.",
+                                    tone: .volt
                                 )
+                            } else {
+                                ForEach(alerts) { alert in
+                                    RecruitAlertCard(
+                                        alert: alert,
+                                        onOpen: {
+                                            onOpen(alert.destination)
+                                            dismiss()
+                                        },
+                                        onReview: { recruit.reviewAlert(id: alert.id) }
+                                    )
+                                }
                             }
                         }
 

@@ -20,6 +20,16 @@ struct SupervisorRootView: View {
     @State private var showsIncidents: Bool = false
     @State private var route: SupervisorRoute?
 
+    /// Instants the two tab badges are measured against.
+    ///
+    /// A `.badge(_:)` takes a number, so there is nowhere inside it to put a `TimeScope`.
+    /// `ClockAnchor` writes these instead, and the badges read the store *through* them —
+    /// so a count moves both when the clock crosses its boundary and when the data behind
+    /// it changes. Two anchors because the two badges have different semantics: staffing is
+    /// decided by document expiry, the exception board by a work order missing its hour.
+    @State private var dayAnchor: Date = AppClock.now()
+    @State private var minuteAnchor: Date = AppClock.now()
+
     init(account: StaffAccount, store: FleetStore) {
         self.account = account
         let station = StaffDirectory.station(id: account.stationId) ?? StaffDirectory.stations[0]
@@ -58,8 +68,11 @@ struct SupervisorRootView: View {
     }
 
     /// Alerts of the whole station: operational rules plus people, banking and workshop.
+    ///
+    /// Read against the minute anchor: the office board grows the moment a work order goes
+    /// past its commitment, and the header counter must not lag the screen behind it.
     private var alertCount: Int {
-        supervision.alerts.count + office.criticalAlerts.count
+        supervision.alerts.count + office.criticalAlerts(now: minuteAnchor).count
     }
 
     /// Seats waiting on this supervisor: nobody driving them, or a substitute proposed and
@@ -150,7 +163,7 @@ struct SupervisorRootView: View {
             } label: {
                 Label("Personal", systemImage: "person.text.rectangle.fill")
             }
-            .badge(office.capacityPlan.deficit)
+            .badge(office.capacityPlan(now: dayAnchor).deficit)
 
             Tab(value: SupervisorTab.workshop) {
                 SupervisorWorkshopView(office: office, header: header.titled("Taller"))
@@ -160,6 +173,10 @@ struct SupervisorRootView: View {
             .badge(office.ordersAwaitingValidation.count)
         }
         .tint(SupTone.accent)
+        .background {
+            ClockAnchor(.day, date: $dayAnchor)
+            ClockAnchor(.minute, date: $minuteAnchor)
+        }
         .task {
             supervision.refresh()
             office.refresh()

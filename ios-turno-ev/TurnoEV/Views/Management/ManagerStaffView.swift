@@ -11,6 +11,10 @@ struct ManagerStaffView: View {
 
     @State private var search: String = ""
 
+    /// Instant the coverage counters are measured against. `.minute`, inherited from
+    /// `metrics`.
+    @State private var minuteAnchor: Date = AppClock.now()
+
     private var supervisors: [SupervisorScorecard] {
         let cleaned = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let all = regional.supervisors.sorted { lhs, rhs in
@@ -43,6 +47,9 @@ struct ManagerStaffView: View {
             }
             .scrollIndicators(.hidden)
             .searchable(text: $search, prompt: "Supervisor o número de empleado")
+        }
+        .background {
+            ClockAnchor(.minute, date: $minuteAnchor)
         }
     }
 
@@ -91,7 +98,7 @@ struct ManagerStaffView: View {
     // MARK: - Coverage
 
     private var coverage: some View {
-        let metrics = regional.metrics
+        let metrics = regional.metrics(now: minuteAnchor)
         let required = regional.station.requiredDrivers
         return VStack(alignment: .leading, spacing: 12) {
             CapsLabel(text: "Cobertura de la estación")

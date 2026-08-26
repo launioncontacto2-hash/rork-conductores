@@ -129,28 +129,39 @@ final class StationOfficeStore {
         activeFiles.filter { block == nil || $0.block == block }
     }
 
-    func availableFiles(block: ShiftBlock) -> [EmployeeFile] {
+    // MARK: - Reads decided by a date
+    //
+    // Every read below answers differently depending on what day it is, because a document
+    // expires on a date and an expired document is what makes a driver unavailable. They
+    // therefore take `now` explicitly instead of reaching for `self.now`.
+    //
+    // Hiding the hour inside a computed property is what made these reads dangerous: a view
+    // that touched `office.incompleteFiles` registered a dependency on the global clock
+    // without a single mention of time in its own body, and the day it stopped registering
+    // that dependency the number would have frozen with no error anywhere.
+
+    func availableFiles(block: ShiftBlock, now: Date) -> [EmployeeFile] {
         files(block: block).filter { $0.isOperationallyAvailable(now: now) }
     }
 
     /// Employees the station cannot count on today, with the reason.
-    var unavailableFiles: [EmployeeFile] {
+    func unavailableFiles(now: Date) -> [EmployeeFile] {
         activeFiles.filter { !$0.isOperationallyAvailable(now: now) }
     }
 
-    var incompleteFiles: [EmployeeFile] {
+    func incompleteFiles(now: Date) -> [EmployeeFile] {
         activeFiles.filter { $0.completionPct(now: now) < 100 }
     }
 
-    var expiringDocumentFiles: [EmployeeFile] {
+    func expiringDocumentFiles(now: Date) -> [EmployeeFile] {
         activeFiles.filter { !$0.expiringDocuments(now: now).isEmpty }
     }
 
-    var expiredDocumentFiles: [EmployeeFile] {
+    func expiredDocumentFiles(now: Date) -> [EmployeeFile] {
         activeFiles.filter { !$0.expiredDocuments(now: now).isEmpty }
     }
 
-    func searchFiles(_ query: String, block: ShiftBlock? = nil, onlyIssues: Bool = false) -> [EmployeeFile] {
+    func searchFiles(_ query: String, block: ShiftBlock? = nil, onlyIssues: Bool = false, now: Date) -> [EmployeeFile] {
         let cleaned = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return activeFiles
             .filter { block == nil || $0.block == block }
@@ -193,7 +204,7 @@ final class StationOfficeStore {
         candidates.filter { $0.stage == .interview && ($0.interview?.isComplete != true) }
     }
 
-    var pendingDocumentCandidates: [Candidate] {
+    func pendingDocumentCandidates(now: Date) -> [Candidate] {
         candidates.filter { $0.stage == .documents && !$0.missingDocuments(now: now).isEmpty }
     }
 
@@ -203,7 +214,10 @@ final class StationOfficeStore {
         incorporations.filter { $0.stage.isIncoming }.reduce(0) { $0 + $1.units }
     }
 
-    var capacityPlan: CapacityPlan {
+    /// How many drivers the station has against how many its units demand.
+    ///
+    /// `available` is decided by document expiry, so the whole plan turns on a date.
+    func capacityPlan(now: Date) -> CapacityPlan {
         let perBlock = HRRules.requiredDrivers(activeVehicles: activeVehicles) / HRRules.driversPerVehicle
         let onboardingByBlock = Dictionary(grouping: candidatesInProcess, by: \.requestedBlock)
             .mapValues(\.count)
@@ -212,7 +226,7 @@ final class StationOfficeStore {
             BlockCoverage(
                 block: block,
                 required: perBlock,
-                available: availableFiles(block: block).count,
+                available: availableFiles(block: block, now: now).count,
                 hired: files(block: block).count,
                 onboarding: onboardingByBlock[block] ?? 0
             )
@@ -249,12 +263,12 @@ final class StationOfficeStore {
     }
 
     /// Recruitment target for today's gap.
-    var currentTarget: RecruitmentTarget {
-        HRRules.target(neededDrivers: capacityPlan.deficit, pipeline: pipeline, daysAvailable: nil)
+    func currentTarget(now: Date) -> RecruitmentTarget {
+        HRRules.target(neededDrivers: capacityPlan(now: now).deficit, pipeline: pipeline, daysAvailable: nil)
     }
 
     /// Recruitment target for the units that will start operating.
-    func target(for incorporation: VehicleIncorporation) -> RecruitmentTarget {
+    func target(for incorporation: VehicleIncorporation, now: Date) -> RecruitmentTarget {
         HRRules.target(
             neededDrivers: incorporation.requiredDrivers,
             pipeline: pipeline,
@@ -345,9 +359,14 @@ final class StationOfficeStore {
 
     /// The exception board. The supervisor should never have to read full lists to find
     /// what is broken: every rule that matters produces its own alert here.
-    var alerts: [OpsAlert] {
+    ///
+    /// Mixed cadence, and the finer one governs: most of the board turns on a date —
+    /// expiry, days to an incorporation, coverage deficit — but a work order goes past its
+    /// commitment at an arbitrary hour, so a consumer of this board has to listen by the
+    /// minute to stay honest.
+    func alerts(now: Date) -> [OpsAlert] {
         var result: [OpsAlert] = []
-        let plan = capacityPlan
+        let plan = capacityPlan(now: now)
 
         for coverage in plan.blocks where coverage.deficit > 0 {
             result.append(
@@ -363,7 +382,7 @@ final class StationOfficeStore {
         }
 
         for incorporation in incorporations where incorporation.stage.isIncoming {
-            let target = target(for: incorporation)
+            let target = target(for: incorporation, now: now)
             guard target.level.demandsAction || target.neededDrivers > 0 else { continue }
             let days = incorporation.daysToOperation(now: now)
             result.append(
@@ -378,7 +397,7 @@ final class StationOfficeStore {
             )
         }
 
-        let expired = expiredDocumentFiles.count
+        let expired = expiredDocumentFiles(now: now).count
         if expired > 0 {
             result.append(
                 OpsAlert(
@@ -392,7 +411,7 @@ final class StationOfficeStore {
             )
         }
 
-        let expiring = expiringDocumentFiles.count
+        let expiring = expiringDocumentFiles(now: now).count
         if expiring > 0 {
             result.append(
                 OpsAlert(
@@ -406,7 +425,7 @@ final class StationOfficeStore {
             )
         }
 
-        let incomplete = incompleteFiles.count
+        let incomplete = incompleteFiles(now: now).count
         if incomplete > 0 {
             result.append(
                 OpsAlert(
@@ -492,7 +511,7 @@ final class StationOfficeStore {
         }
     }
 
-    var criticalAlerts: [OpsAlert] { alerts.filter { $0.level.demandsAction } }
+    func criticalAlerts(now: Date) -> [OpsAlert] { alerts(now: now).filter { $0.level.demandsAction } }
 
     // MARK: - Actions: candidates
 

@@ -10,6 +10,10 @@ struct RecruitAppointmentsView: View {
 
     @State private var selected: Appointment?
 
+    /// Instant the two counters of the summary are measured against. `.day`, matching the
+    /// cadence of the lists they count.
+    @State private var dayAnchor: Date = AppClock.now()
+
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -27,6 +31,9 @@ struct RecruitAppointmentsView: View {
             }
             .scrollIndicators(.hidden)
         }
+        .background {
+            ClockAnchor(.day, date: $dayAnchor)
+        }
         .sheet(item: $selected) { appointment in
             AppointmentDetailView(
                 recruit: recruit,
@@ -40,14 +47,14 @@ struct RecruitAppointmentsView: View {
     }
 
     private var summary: some View {
-        let metrics = recruit.recruiterMetrics
+        let metrics = recruit.recruiterMetrics(now: dayAnchor)
         return VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 HeadlineFigure(
-                    value: "\(recruit.todayAppointments.count)",
+                    value: "\(recruit.todayAppointments(now: dayAnchor).count)",
                     caption: "Citas hoy",
                     tone: RecTone.accent,
-                    detail: "\(recruit.upcomingAppointments.count) próximas"
+                    detail: "\(recruit.upcomingAppointments(now: dayAnchor).count) próximas"
                 )
                 HeadlineFigure(
                     value: "\(Int((metrics.attendanceRate * 100).rounded())) %",
@@ -71,15 +78,20 @@ struct RecruitAppointmentsView: View {
             TimeScope(.day) { now in
                 SupSectionHeader(title: "Hoy", subtitle: Fmt.dateLong(now), accent: RecTone.accent)
             }
-            if recruit.todayAppointments.isEmpty {
-                RecEmptyState(
-                    symbol: "calendar",
-                    title: "Sin citas hoy",
-                    message: "Programa entrevistas desde el expediente de cada candidato."
-                )
-            } else {
-                ForEach(recruit.todayAppointments) { appointment in
-                    AppointmentRow(appointment: appointment) { selected = appointment }
+            // Membership again: an appointment joins this list at logical midnight. The
+            // scope covers the list, not the heading above it.
+            TimeScope(.day) { now in
+                let today = recruit.todayAppointments(now: now)
+                if today.isEmpty {
+                    RecEmptyState(
+                        symbol: "calendar",
+                        title: "Sin citas hoy",
+                        message: "Programa entrevistas desde el expediente de cada candidato."
+                    )
+                } else {
+                    ForEach(today) { appointment in
+                        AppointmentRow(appointment: appointment) { selected = appointment }
+                    }
                 }
             }
         }
@@ -93,11 +105,28 @@ struct RecruitAppointmentsView: View {
     }
 
     private var historySection: some View {
-        let past = Array(recruit.pastAppointments.prefix(10))
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Historial", subtitle: "Asistencias e inasistencias", accent: RecTone.accent)
-            ForEach(past) { appointment in
-                AppointmentRow(appointment: appointment) { selected = appointment }
+            AppointmentHistoryList(recruit: recruit) { selected = $0 }
+        }
+    }
+}
+
+/// Appointments already held or closed.
+///
+/// Membership again, and at a finer cadence than its neighbours: an appointment becomes
+/// history at **its own hour**, not at midnight, so this list listens by the minute. The
+/// scope covers the list alone — the `ScrollView`, the summary and the two sections above
+/// stay outside. Declared exception to the leaf rule, on the same terms as
+/// `UpcomingAppointmentsList`.
+private struct AppointmentHistoryList: View {
+    let recruit: RecruitmentStore
+    let onSelect: (Appointment) -> Void
+
+    var body: some View {
+        TimeScope(.minute) { now in
+            ForEach(Array(recruit.pastAppointments(now: now).prefix(10))) { appointment in
+                AppointmentRow(appointment: appointment) { onSelect(appointment) }
             }
         }
     }
@@ -116,7 +145,7 @@ private struct UpcomingAppointmentsList: View {
 
     var body: some View {
         TimeScope(.day) { now in
-            let upcoming = recruit.upcomingAppointments.filter { !$0.isToday(now: now) }
+            let upcoming = recruit.upcomingAppointments(now: now).filter { !$0.isToday(now: now) }
             if upcoming.isEmpty {
                 RecEmptyState(
                     symbol: "calendar.badge.plus",

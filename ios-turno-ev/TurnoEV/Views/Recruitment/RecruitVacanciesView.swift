@@ -8,6 +8,10 @@ struct RecruitVacanciesView: View {
 
     @State private var expanded: Set<String> = []
 
+    /// Instant the planner is measured against. `.day`, inherited from `conversion` →
+    /// `funnel` → `isReadyToHire`, which is decided by document expiry.
+    @State private var dayAnchor: Date = AppClock.now()
+
     var body: some View {
         ZStack {
             RecruitmentBackground()
@@ -25,6 +29,9 @@ struct RecruitVacanciesView: View {
                 .padding(.bottom, 34)
             }
             .scrollIndicators(.hidden)
+        }
+        .background {
+            ClockAnchor(.day, date: $dayAnchor)
         }
     }
 
@@ -158,7 +165,7 @@ struct RecruitVacanciesView: View {
     private func incorporationCard(_ incorporation: VehicleIncorporation, now: Date) -> some View {
         let station = StaffDirectory.station(id: incorporation.stationId)
         let days = max(0, incorporation.daysToOperation(now: now))
-        let projected = recruit.projectedHires(days: days)
+        let projected = recruit.projectedHires(days: days, now: now)
         let gap = max(0, incorporation.requiredDrivers - projected)
         let level = RecruitRules.coverageRisk(
             daysAvailable: days,
@@ -221,8 +228,8 @@ struct RecruitVacanciesView: View {
 
     private var plannerCard: some View {
         let needed = recruit.projectedVacancies
-        let leads = recruit.leadsNeeded(for: needed)
-        let budget = recruit.recommendedBudget(for: needed)
+        let leads = recruit.leadsNeeded(for: needed, now: dayAnchor)
+        let budget = recruit.recommendedBudget(for: needed, now: dayAnchor)
 
         return VStack(alignment: .leading, spacing: 12) {
             SupSectionHeader(
@@ -233,7 +240,7 @@ struct RecruitVacanciesView: View {
 
             VStack(spacing: 8) {
                 MetricLine(label: "Contrataciones requeridas", value: "\(needed)", detail: "Vacantes de hoy más las que traen las unidades compradas", tone: RecTone.warn)
-                MetricLine(label: "Conversión lead → contratación", value: "\(Int((recruit.conversion * 100).rounded())) %", detail: "Calculada sobre la base real", tone: RecTone.cool)
+                MetricLine(label: "Conversión lead → contratación", value: "\(Int((recruit.conversion(now: dayAnchor) * 100).rounded())) %", detail: "Calculada sobre la base real", tone: RecTone.cool)
                 MetricLine(label: "Leads necesarios", value: "\(leads)", detail: "Incluye \(recruit.marginPct) % de margen de seguridad", tone: RecTone.accent)
                 MetricLine(
                     label: "Presupuesto estimado",

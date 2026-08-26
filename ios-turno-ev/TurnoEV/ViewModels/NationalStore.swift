@@ -33,6 +33,10 @@ final class NationalStore {
 
     var credentials: [NetworkCredential] = []
     var projects: [StationProject] = []
+    /// The policy in force. Deliberately **not** a temporal read: it is stored state,
+    /// seeded once at init and replaced only when direction authorises a change. The hour
+    /// it was written with is already baked into the record, so no consumer of this needs a
+    /// cadence — it moves on an event, never on the clock.
     var policy: PolicyBook
     var policyLog: [PolicyChange] = []
     var reviewedAlertIds: [String] = []
@@ -104,39 +108,53 @@ final class NationalStore {
 
     // MARK: - Reads
 
-    var rollups: [RegionRollup] {
+    // MARK: - Reads that answer differently depending on the hour
+    //
+    // All of these used to read `self.now`, which meant the badge of a tab and the cards of
+    // a screen shared one invisible dependency on the global clock. They now take the
+    // instant explicitly, so whoever reads them has to say at what cadence they care.
+
+    /// `.minute`: the roll-up counts requests that have gone stale, and a request crosses
+    /// its twenty-four hours at an arbitrary hour.
+    func rollups(now: Date) -> [RegionRollup] {
         NationalRules.rollups(scorecards: scorecards, requests: requests, now: now)
     }
 
-    var metrics: NetworkMetrics {
-        NationalRules.metrics(rollups: rollups, projects: projects)
+    func metrics(now: Date) -> NetworkMetrics {
+        NationalRules.metrics(rollups: rollups(now: now), projects: projects)
     }
 
-    var alerts: [NationalAlert] {
-        NationalRules.alerts(rollups: rollups, projects: projects, now: now)
+    /// The exception board of the country, and the source of a tab badge.
+    ///
+    /// `.minute`, because the *set* changes with time: an alert appears when a region's
+    /// backlog goes stale and when a project's launch risk turns. Whoever shows the count
+    /// must invalidate at the same cadence as whoever shows the cards, or the badge will
+    /// disagree with the screen behind it.
+    func alerts(now: Date) -> [NationalAlert] {
+        NationalRules.alerts(rollups: rollups(now: now), projects: projects, now: now)
             .filter { !reviewedAlertIds.contains($0.id) }
     }
 
-    var criticalAlerts: [NationalAlert] {
-        alerts.filter { $0.level.demandsAction }
+    func criticalAlerts(now: Date) -> [NationalAlert] {
+        alerts(now: now).filter { $0.level.demandsAction }
     }
 
     /// Regions ordered by health: the one that needs direction comes first.
-    var rollupsByRisk: [RegionRollup] {
-        rollups.sorted { $0.healthScore < $1.healthScore }
+    func rollupsByRisk(now: Date) -> [RegionRollup] {
+        rollups(now: now).sorted { $0.healthScore < $1.healthScore }
     }
 
-    var rollupsByPerformance: [RegionRollup] {
-        rollups.sorted { $0.goalRatio > $1.goalRatio }
+    func rollupsByPerformance(now: Date) -> [RegionRollup] {
+        rollups(now: now).sorted { $0.goalRatio > $1.goalRatio }
     }
 
     var allStations: [StationScorecard] {
         scorecards.sorted { $0.healthScore > $1.healthScore }
     }
 
-    func rollup(id: String?) -> RegionRollup? {
+    func rollup(id: String?, now: Date) -> RegionRollup? {
         guard let id else { return nil }
-        return rollups.first { $0.id == id }
+        return rollups(now: now).first { $0.id == id }
     }
 
     func station(id: String?) -> StationScorecard? {
@@ -149,9 +167,11 @@ final class NationalStore {
     }
 
     /// Monday to Sunday of the whole country against the goal of each day.
-    var weekSeries: [RegionDayPoint] {
+    ///
+    /// `.day`: the week it covers and the day it marks as today are calendar facts.
+    func weekSeries(now: Date) -> [RegionDayPoint] {
         let weekStart = ShiftRules.weekStart(for: now)
-        let boards = rollups
+        let boards = rollups(now: now)
         return (0..<7).compactMap { offset in
             guard let day = ShiftRules.calendar.date(byAdding: .day, value: offset, to: weekStart) else { return nil }
             let amount = boards.reduce(0) { total, region in
