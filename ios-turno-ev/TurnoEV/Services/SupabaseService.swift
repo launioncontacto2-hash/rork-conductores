@@ -744,3 +744,300 @@ enum SupabaseAuthProbe {
         )
     }
 }
+// MARK: - Auth + RLS end-to-end probe
+
+@MainActor
+enum SupabaseAuthProbe {
+
+    nonisolated struct ProfileRow: Decodable, Sendable {
+        let id: UUID
+        let auth_user_id: UUID?
+        let employee_number: String
+        let display_name: String
+        let status: String
+    }
+
+    /// Active operational membership returned by RLS.
+    ///
+    /// The shift assignment belongs to the membership, not to the profile:
+    /// the profile identifies the person; the membership says where, as what
+    /// and in which operational block that person currently works.
+    nonisolated struct MembershipRow: Decodable, Sendable {
+        let id: UUID
+        let profile_id: UUID
+        let station_id: UUID
+        let role: String
+        let shift_group: String?
+        let shift_slot: String?
+        let starts_at: Date
+        let ends_at: Date?
+    }
+
+    nonisolated struct StationRow: Decodable, Sendable {
+        let id: UUID
+        let environment_id: UUID
+        let code: String
+        let name: String
+        let status: String
+    }
+
+    /// Complete identity proved against Auth + RLS.
+    ///
+    /// Nothing here is inferred from MockData. If this result exists, every
+    /// operational field came from the authenticated Supabase world.
+    struct Result: Sendable {
+        let authUserId: UUID
+        let profile: ProfileRow
+        let membership: MembershipRow
+        let station: StationRow
+
+        var employeeNumber: String {
+            profile.employee_number
+        }
+
+        var displayName: String {
+            profile.display_name
+        }
+
+        var role: String {
+            membership.role
+        }
+
+        var stationCode: String {
+            station.code
+        }
+
+        var shiftGroup: String? {
+            membership.shift_group
+        }
+
+        var shiftSlot: String? {
+            membership.shift_slot
+        }
+    }
+
+    enum ProbeError: LocalizedError {
+        case notConfigured
+        case noProfile
+        case multipleProfiles(Int)
+        case noMembership
+        case multipleMemberships(Int)
+        case noStation
+        case multipleStations(Int)
+        case wrongAuthUser(expected: UUID, received: UUID?)
+        case wrongRole(String)
+        case inactiveProfile(String)
+        case inactiveStation(String)
+        case missingShiftGroup
+        case missingShiftSlot
+        case invalidShiftGroup(String)
+        case invalidShiftSlot(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured:
+                return "Supabase no está configurado."
+
+            case .noProfile:
+                return "El usuario inició sesión, pero RLS no devolvió ningún perfil."
+
+            case .multipleProfiles(let count):
+                return "RLS devolvió \(count) perfiles; debía devolver exactamente uno."
+
+            case .noMembership:
+                return "El perfil no tiene una membresía visible."
+
+            case .multipleMemberships(let count):
+                return "RLS devolvió \(count) membresías; para esta prueba debía devolver exactamente una."
+
+            case .noStation:
+                return "La membresía no permite leer ninguna estación."
+
+            case .multipleStations(let count):
+                return "RLS devolvió \(count) estaciones; para esta prueba debía devolver exactamente una."
+
+            case .wrongAuthUser(let expected, let received):
+                return "El perfil no corresponde al usuario Auth. Esperado \(expected), recibido \(received?.uuidString ?? "nil")."
+
+            case .wrongRole(let role):
+                return "La membresía devolvió un rol inesperado: \(role)."
+
+            case .inactiveProfile(let status):
+                return "El perfil no está activo: \(status)."
+
+            case .inactiveStation(let status):
+                return "La estación no está activa: \(status)."
+
+            case .missingShiftGroup:
+                return "La membresía del conductor no tiene shift_group."
+
+            case .missingShiftSlot:
+                return "La membresía del conductor no tiene shift_slot."
+
+            case .invalidShiftGroup(let value):
+                return "La membresía devolvió un shift_group no reconocido: \(value)."
+
+            case .invalidShiftSlot(let value):
+                return "La membresía devolvió un shift_slot no reconocido: \(value)."
+            }
+        }
+    }
+
+    static func run(
+        email: String,
+        password: String
+    ) async throws -> Result {
+
+        guard let client = SupabaseBridge.client else {
+            throw ProbeError.notConfigured
+        }
+
+        // 1. Auth REAL.
+        //
+        // From this point on the Supabase SDK carries the authenticated
+        // user's JWT. The following reads therefore exercise the actual
+        // RLS policies rather than the public API key alone.
+        let session = try await client.auth.signIn(
+            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password
+        )
+
+        let authUserId = session.user.id
+
+        // 2. Profile visible under RLS.
+        let profiles: [ProfileRow] = try await client
+            .from("profiles")
+            .select(
+                """
+                id,
+                auth_user_id,
+                employee_number,
+                display_name,
+                status
+                """
+            )
+            .execute()
+            .value
+
+        guard !profiles.isEmpty else {
+            throw ProbeError.noProfile
+        }
+
+        guard profiles.count == 1 else {
+            throw ProbeError.multipleProfiles(profiles.count)
+        }
+
+        let profile = profiles[0]
+
+        guard profile.auth_user_id == authUserId else {
+            throw ProbeError.wrongAuthUser(
+                expected: authUserId,
+                received: profile.auth_user_id
+            )
+        }
+
+        guard profile.status == "active" else {
+            throw ProbeError.inactiveProfile(profile.status)
+        }
+
+        // 3. Active membership visible under RLS.
+        //
+        // shift_group and shift_slot are intentionally read from this row.
+        // They are operational assignments and must not come from MockData.
+        let memberships: [MembershipRow] = try await client
+            .from("staff_memberships")
+            .select(
+                """
+                id,
+                profile_id,
+                station_id,
+                role,
+                shift_group,
+                shift_slot,
+                starts_at,
+                ends_at
+                """
+            )
+            .execute()
+            .value
+
+        guard !memberships.isEmpty else {
+            throw ProbeError.noMembership
+        }
+
+        guard memberships.count == 1 else {
+            throw ProbeError.multipleMemberships(memberships.count)
+        }
+
+        let membership = memberships[0]
+
+        guard membership.profile_id == profile.id else {
+            throw ProbeError.noMembership
+        }
+
+        guard membership.role == "driver" else {
+            throw ProbeError.wrongRole(membership.role)
+        }
+
+        // For a driver these are required operational assignments.
+        guard let shiftGroup = membership.shift_group,
+              !shiftGroup.isEmpty else {
+            throw ProbeError.missingShiftGroup
+        }
+
+        guard let shiftSlot = membership.shift_slot,
+              !shiftSlot.isEmpty else {
+            throw ProbeError.missingShiftSlot
+        }
+
+        // Validate against the Swift domain now, before these strings are
+        // allowed to reach FleetStore.
+        guard ShiftGroup(rawValue: shiftGroup) != nil else {
+            throw ProbeError.invalidShiftGroup(shiftGroup)
+        }
+
+        guard ShiftSlot(rawValue: shiftSlot) != nil else {
+            throw ProbeError.invalidShiftSlot(shiftSlot)
+        }
+
+        // 4. Station visible under RLS.
+        let stations: [StationRow] = try await client
+            .from("stations")
+            .select(
+                """
+                id,
+                environment_id,
+                code,
+                name,
+                status
+                """
+            )
+            .execute()
+            .value
+
+        guard !stations.isEmpty else {
+            throw ProbeError.noStation
+        }
+
+        guard stations.count == 1 else {
+            throw ProbeError.multipleStations(stations.count)
+        }
+
+        let station = stations[0]
+
+        guard station.id == membership.station_id else {
+            throw ProbeError.noStation
+        }
+
+        guard station.status == "active" else {
+            throw ProbeError.inactiveStation(station.status)
+        }
+
+        return Result(
+            authUserId: authUserId,
+            profile: profile,
+            membership: membership,
+            station: station
+        )
+    }
+}
