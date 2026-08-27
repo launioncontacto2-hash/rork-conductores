@@ -49,7 +49,25 @@ final class FleetStore {
         var notifiedBonusWeeks: [String]
     }
 
-    private static let storageKey = "turnoev.state.v4"
+    /// Storage of the demonstration credentials. Untouched: everything a demo session
+    /// ever wrote stays exactly where it was and keeps being read from here.
+    private static let demoStorageKey = "turnoev.state.v4"
+
+    /// Storage of one identity proved by the backend.
+    ///
+    /// Derived from `profileId` — never from the email and never from the password — so
+    /// the key is stable across renames and carries no credential. One driver per key is
+    /// what makes "driver A never reads the state of driver B" a property of the storage
+    /// itself instead of a filter someone has to remember to apply.
+    nonisolated private static func identityStorageKey(profileId: String) -> String {
+        "\(demoStorageKey).\(profileId)"
+    }
+
+    /// Key the open session reads from and writes to.
+    private var storageKey: String {
+        guard let profileId = session?.principal?.profileId else { return Self.demoStorageKey }
+        return Self.identityStorageKey(profileId: profileId)
+    }
 
     /// Average fleet speed used to estimate distance until real GPS/telemetry lands.
     private static let simulatedKmPerMinute = 0.32
@@ -87,18 +105,13 @@ final class FleetStore {
     var awaitsCredentialChoice: Bool = false
 
     init() {
-        let seedDate = Date()
-        let seedHistory = MockData.shiftHistory(driver: MockData.driver, now: seedDate)
-
-        if let restored = Self.restore() {
+        // The app always opens on the demonstration storage: a backend session is never
+        // restored (see `apply`), so this is the only state that can be standing when the
+        // access screen appears.
+        if let restored = Self.restore(key: Self.demoStorageKey) {
             apply(restored)
         } else {
-            vehicles = MockData.syncOdometers(vehicles: MockData.vehicles, history: seedHistory)
-            history = seedHistory
-            incomes = MockData.incomeHistory(driver: MockData.driver, history: seedHistory)
-            incidents = MockData.incidents(driver: MockData.driver, now: seedDate)
-            notices = MockData.notices(now: seedDate)
-            supervisorReports = MockData.supervisorReports(now: seedDate)
+            seedDemoState()
         }
         // A restored session carries only an account id: the driver profile is not
         // persisted, so it has to be resolved again from the credential. Without this the
@@ -106,6 +119,25 @@ final class FleetStore {
         // is the laboratory's first driver, or `drv-none`, never the signed-in one.
         adoptSessionDriver()
         reloadAssignment()
+    }
+
+    /// Demonstration seeds, unchanged in content.
+    ///
+    /// Extracted from `init` so that leaving a backend session can rebuild them on a
+    /// device that never stored a demonstration state of its own.
+    private func seedDemoState() {
+        let seedDate = Date()
+        let seedHistory = MockData.shiftHistory(driver: MockData.driver, now: seedDate)
+        vehicles = MockData.syncOdometers(vehicles: MockData.vehicles, history: seedHistory)
+        activeShift = nil
+        history = seedHistory
+        incomes = MockData.incomeHistory(driver: MockData.driver, history: seedHistory)
+        incidents = MockData.incidents(driver: MockData.driver, now: seedDate)
+        notices = MockData.notices(now: seedDate)
+        credit = nil
+        supervisorReports = MockData.supervisorReports(now: seedDate)
+        recoveryBookings = []
+        notifiedBonusWeeks = []
     }
 
     /// Aligns `driver` with the credential of the open session.
@@ -401,6 +433,14 @@ final class FleetStore {
             ? try Self.sessionDriver(from: principal)
             : nil
 
+        // Whatever is standing in memory belongs to the identity that is leaving. It is
+        // written under **its own** key before anything is swapped, so opening a backend
+        // session never costs the demonstration state a single record.
+        persist()
+
+        // From here the store holds this identity's operational state and nothing else.
+        adoptIdentityState(profileId: principal.profileId)
+
         if let profile {
             driver = profile
         }
@@ -479,19 +519,79 @@ final class FleetStore {
         persist()
     }
 
+    /// Loads the operational state that belongs to one backend identity, and only that.
+    ///
+    /// Two independent guarantees, on purpose. The storage key already separates one
+    /// driver from another, and on top of it every record is checked against the
+    /// `driverId` it carries. A driver who has never worked — no stored state at all —
+    /// lands on a genuinely empty operation: no shift, no history, no income, no incident,
+    /// no credit, no unit.
+    ///
+    /// `enrolledAccountId` and `clockOffsetMinutes` are deliberately left alone: the
+    /// biometric link and the simulation clock belong to the device, not to the driver.
+    private func adoptIdentityState(profileId: String) {
+        let owned = Self.ownedState(
+            Self.restore(key: Self.identityStorageKey(profileId: profileId)),
+            driverId: profileId
+        )
+        vehicles = owned.vehicles
+        activeShift = owned.activeShift
+        history = owned.history
+        incomes = owned.incomes
+        incidents = owned.incidents
+        notices = owned.notices
+        credit = owned.credit
+        supervisorReports = owned.supervisorReports
+        recoveryBookings = owned.recoveryBookings
+        notifiedBonusWeeks = owned.notifiedBonusWeeks
+        // Resolved again from the assignment book, which is keyed by driver.
+        unitAssignment = nil
+    }
+
+    /// Brings the demonstration state back into memory when a backend session ends.
+    ///
+    /// Without this the empty operation of the backend driver would be the thing standing
+    /// in memory when the next `persist()` writes to the demonstration key — which would
+    /// erase the demo data instead of isolating it.
+    private func adoptDemoState() {
+        driver = MockData.driver
+        if let stored = Self.restore(key: Self.demoStorageKey) {
+            enrolledAccountId = stored.enrolledAccountId
+            applyOperational(stored)
+        } else {
+            seedDemoState()
+        }
+        unitAssignment = nil
+    }
+
     /// Closes the session and returns to the access screen. The automatic scan is held
     /// back so another role can be identified instead of re-entering the same one.
     func signOut() {
+        let wasBackendSession = isBackendSession
+        // Saved under the key of the identity that is leaving, before it stops being the
+        // current one.
+        persist()
         session = nil
         awaitsCredentialChoice = true
+        if wasBackendSession {
+            adoptDemoState()
+            reloadAssignment()
+        }
         persist()
     }
 
     /// Removes the biometric link so the next access requires full credentials.
     func forgetDevice() {
+        let wasBackendSession = isBackendSession
+        persist()
         enrolledAccountId = nil
         session = nil
         awaitsCredentialChoice = true
+        if wasBackendSession {
+            adoptDemoState()
+            enrolledAccountId = nil
+            reloadAssignment()
+        }
         persist()
     }
 
@@ -1086,6 +1186,11 @@ final class FleetStore {
             awaitsCredentialChoice = true
         }
         enrolledAccountId = state.enrolledAccountId
+        applyOperational(state)
+        clockOffsetMinutes = state.clockOffsetMinutes
+    }
+
+    private func applyOperational(_ state: PersistedState) {
         vehicles = state.vehicles
         activeShift = state.activeShift
         history = state.history
@@ -1093,10 +1198,61 @@ final class FleetStore {
         incidents = state.incidents
         notices = state.notices
         credit = state.credit
-        clockOffsetMinutes = state.clockOffsetMinutes
         supervisorReports = state.supervisorReports
         recoveryBookings = state.recoveryBookings
         notifiedBonusWeeks = state.notifiedBonusWeeks
+    }
+
+    /// An operation with nothing in it. What a driver who has never worked must see.
+    nonisolated private static func emptyOperationalState() -> PersistedState {
+        PersistedState(
+            session: nil,
+            enrolledAccountId: nil,
+            vehicles: [],
+            activeShift: nil,
+            history: [],
+            incomes: [],
+            incidents: [],
+            notices: [],
+            credit: nil,
+            clockOffsetMinutes: 0,
+            supervisorReports: [],
+            recoveryBookings: [],
+            notifiedBonusWeeks: []
+        )
+    }
+
+    /// Keeps only what can be **proved** to belong to `driverId`.
+    ///
+    /// Records that carry a `driverId` are filtered by it. Everything else starts empty
+    /// unless it was written under this identity's own key, and even then the credit is
+    /// dropped: `CreditAccount` has no owner field, so a contract cannot be shown to
+    /// belong to the person reading it. It will be restorable when the contract carries
+    /// its driver — until then, a backend session has no credit rather than someone
+    /// else's.
+    ///
+    /// The fleet inventory starts empty as well. A real station's units are the backend's
+    /// to hand out; borrowing the demonstration catalogue is exactly how a driver ends up
+    /// looking at a unit nobody ever assigned to them.
+    nonisolated private static func ownedState(
+        _ stored: PersistedState?,
+        driverId: String
+    ) -> PersistedState {
+        var owned = emptyOperationalState()
+        guard let stored else { return owned }
+
+        owned.vehicles = stored.vehicles
+        owned.activeShift = stored.activeShift.flatMap { $0.driverId == driverId ? $0 : nil }
+        owned.history = stored.history.filter { $0.driverId == driverId }
+        owned.incomes = stored.incomes.filter { $0.driverId == driverId }
+        owned.incidents = stored.incidents.filter { $0.driverId == driverId }
+        // No ownership field of their own; they are trusted only because they were written
+        // under this identity's key, and never inherited from another session.
+        owned.notices = stored.notices
+        owned.supervisorReports = stored.supervisorReports
+        owned.recoveryBookings = stored.recoveryBookings
+        owned.notifiedBonusWeeks = stored.notifiedBonusWeeks
+        return owned
     }
 
     private func persist() {
@@ -1119,14 +1275,14 @@ final class FleetStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(state)
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            UserDefaults.standard.set(data, forKey: storageKey)
         } catch {
             print("No se pudo guardar el estado local: \(error.localizedDescription)")
         }
     }
 
-    nonisolated private static func restore() -> PersistedState? {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
+    nonisolated private static func restore(key: String) -> PersistedState? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601

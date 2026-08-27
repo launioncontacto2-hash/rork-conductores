@@ -165,6 +165,10 @@ nonisolated enum SettlementRules {
         let recordedMxn = weekRecords.reduce(0) { $0 + $1.earningsMxn }
         let trips = weekRecords.reduce(0) { $0 + $1.trips }
         let gross = recordedMxn + activeEarningsMxn
+        // A week the driver never worked is not a week with a balance. Nothing is earned,
+        // nothing is bonused and no station service is consumed, so the settlement is
+        // zero instead of a debt built out of recurring lines that never happened.
+        let hasOperation = !weekRecords.isEmpty || activeEarningsMxn > 0
 
         var lines: [SettlementLine] = [
             SettlementLine(
@@ -176,7 +180,7 @@ nonisolated enum SettlementRules {
             )
         ]
 
-        if bonusMxn > 0 {
+        if bonusMxn > 0, hasOperation {
             lines.append(
                 SettlementLine(
                     id: "bonus",
@@ -230,15 +234,17 @@ nonisolated enum SettlementRules {
             )
         }
 
-        lines.append(
-            SettlementLine(
-                id: "services",
-                concept: "Servicios de estación",
-                detail: "Deducción autorizada en contrato",
-                amountMxn: -serviceDeductionMxn,
-                kind: .deduction
+        if hasOperation {
+            lines.append(
+                SettlementLine(
+                    id: "services",
+                    concept: "Servicios de estación",
+                    detail: "Deducción autorizada en contrato",
+                    amountMxn: -serviceDeductionMxn,
+                    kind: .deduction
+                )
             )
-        )
+        }
 
         let isPast = !ShiftRules.isInSameWeek(now, as: weekStart)
         return WeeklySettlement(
