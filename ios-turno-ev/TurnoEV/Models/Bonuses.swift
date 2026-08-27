@@ -131,18 +131,25 @@ enum NationalBonusBoard {
     }
 }
 
-/// What the engine already decided about a bonus of the month. There is no pending
-/// state on purpose: a bonus is either running, released or cancelled.
+/// What the engine already decided about a bonus of the month.
+///
+/// `notEvaluable` is not a fourth flavour of "running": it is the month the engine
+/// refuses to judge because no week in it carried enough evidence. A bonus nobody can
+/// evaluate is neither released nor cancelled, and saying so out loud is the whole
+/// point — the alternative is a screen that congratulates or punishes a driver for a
+/// month they never worked.
 nonisolated enum BonusDecision: String, Sendable {
     case running
     case authorized
     case cancelled
+    case notEvaluable
 
     var label: String {
         switch self {
         case .running: "En evaluación"
         case .authorized: "Autorizado automáticamente"
         case .cancelled: "Cancelado automáticamente"
+        case .notEvaluable: "Sin evaluar"
         }
     }
 
@@ -151,6 +158,7 @@ nonisolated enum BonusDecision: String, Sendable {
         case .running: "circle.dotted"
         case .authorized: "checkmark.seal.fill"
         case .cancelled: "xmark.seal.fill"
+        case .notEvaluable: "circle.dashed"
         }
     }
 
@@ -159,6 +167,7 @@ nonisolated enum BonusDecision: String, Sendable {
         case .running: "Se libera solo si cierras las 4 semanas en verde."
         case .authorized: "Cumpliste las 4 semanas. Entra en el corte del mes sin que nadie lo firme."
         case .cancelled: "Una semana incumplida lo cancela. Nadie puede reactivarlo en la estación."
+        case .notEvaluable: "Todavía no hay operación registrada que permita evaluar este bono."
         }
     }
 }
@@ -168,6 +177,9 @@ nonisolated enum BonusWeekStatus: String, Codable, Sendable {
     case lost
     case inProgress
     case upcoming
+    /// The week closed — or is running — without evidence of operation, so there is
+    /// nothing to judge. Distinct from `upcoming`, which is a week that has not started.
+    case notEvaluated
 
     var label: String {
         switch self {
@@ -175,6 +187,7 @@ nonisolated enum BonusWeekStatus: String, Codable, Sendable {
         case .lost: "Perdida"
         case .inProgress: "En curso"
         case .upcoming: "Por evaluar"
+        case .notEvaluated: "Sin actividad"
         }
     }
 
@@ -184,6 +197,16 @@ nonisolated enum BonusWeekStatus: String, Codable, Sendable {
         case .lost: "xmark"
         case .inProgress: "circle.dotted"
         case .upcoming: "minus"
+        case .notEvaluated: "questionmark"
+        }
+    }
+
+    /// Whether this week produced a verdict the month can be built on. Only these weeks
+    /// can move a bonus, raise an alert or open the recovery program.
+    var isVerdict: Bool {
+        switch self {
+        case .achieved, .lost, .inProgress: true
+        case .upcoming, .notEvaluated: false
         }
     }
 }
@@ -222,22 +245,35 @@ nonisolated struct BonusEvaluation: Identifiable, Sendable {
     var isLost: Bool { !lostWeeks.isEmpty }
     var isSecured: Bool { achievedCount == weeks.count && !weeks.isEmpty }
 
+    /// Weeks that actually produced a verdict. A month made only of weeks without
+    /// evidence has none, and cannot be secured or cancelled by any of them.
+    var verdictCount: Int { weeks.filter { $0.status.isVerdict }.count }
+
+    /// Nothing in this month can be judged yet.
+    var isNotEvaluable: Bool { verdictCount == 0 }
+
     /// Amount of this bonus with the amounts the national administration has in force.
     var monthlyMxn: Int { schedule.amountMxn(for: kind) }
 
     /// Money actually payable at month end with the current evaluation.
-    var payableMxn: Int { isLost ? 0 : monthlyMxn }
+    ///
+    /// A month with no evaluable week pays nothing rather than projecting the full
+    /// amount: the driver has not earned it, and promising it on the goals screen would
+    /// be the same mistake as the green check, only with money attached.
+    var payableMxn: Int { (isLost || isNotEvaluable) ? 0 : monthlyMxn }
 
     /// The engine's own verdict. No signature exists anywhere in this flow.
     var decision: BonusDecision {
         if isLost { return .cancelled }
         if isSecured { return .authorized }
+        if isNotEvaluable { return .notEvaluable }
         return .running
     }
 
     var statusText: String {
         if isLost { return "Perdido · semana \(lostWeeks.map(String.init).joined(separator: ", "))" }
         if isSecured { return "Asegurado" }
+        if isNotEvaluable { return "Sin actividad para evaluar" }
         return "En camino · \(achievedCount) de \(weeks.count) semanas"
     }
 }
@@ -283,9 +319,6 @@ nonisolated enum BonusRules {
     /// The month is evaluated in four Monday → Sunday windows.
     static let weeksPerMonth = 4
 
-    /// Uber quality score is mocked as positive until the API is connected.
-    static let mockQualityScore = 4.91
-
     static func monthStart(for date: Date) -> Date {
         let calendar = ShiftRules.calendar
         let parts = calendar.dateComponents([.year, .month], from: date)
@@ -323,8 +356,38 @@ nonisolated enum BonusRules {
         let history: [ShiftRecord]
         let incomes: [IncomeEntry]
         let reports: [SupervisorReport]
+        /// The shift open right now, when it belongs to this driver. A week can be
+        /// evaluable before its first shift closes.
+        let activeShift: ActiveShift?
+        /// Platform quality score of **this** driver, or `nil` when no source answers
+        /// for them. There is no default: an absent score is an absent score.
+        let qualityScore: Double?
         let schedule: BonusSchedule
         let now: Date
+    }
+
+    // MARK: - Evidence
+
+    /// Did this driver operate during this week?
+    ///
+    /// The single gate that separates "did not comply" from "there is nothing to judge".
+    /// The calendar advancing is **not** evidence of work: a week only becomes evaluable
+    /// when the driver left a trace of operation inside it — a shift they closed, the
+    /// shift they have open right now, or income they registered.
+    ///
+    /// Every source is matched against `driver.id` here as well as upstream. Evidence
+    /// that cannot name its owner does not count.
+    static func hasOperationalActivity(week: BonusWeekRange, input: EvaluationInput) -> Bool {
+        let driverId = input.driver.id
+        if input.history.contains(where: { $0.driverId == driverId && week.contains($0.startedAt) }) {
+            return true
+        }
+        if let shift = input.activeShift, shift.driverId == driverId, week.contains(shift.startedAt) {
+            return true
+        }
+        return input.incomes.contains {
+            $0.driverId == driverId && week.contains($0.date) && ($0.shiftId != nil || $0.amountMxn > 0)
+        }
     }
 
     static func evaluateAll(_ input: EvaluationInput) -> [BonusEvaluation] {
@@ -343,13 +406,25 @@ nonisolated enum BonusRules {
             return BonusWeekResult(week: week, status: .upcoming, detail: "Aún no inicia")
         }
 
+        // Nothing operated, nothing to judge. This is what stops a driver with an empty
+        // record from being charged five absences they never incurred, missing a billing
+        // target nobody set them, and collecting a cleanliness check for a unit they were
+        // never handed.
+        guard hasOperationalActivity(week: week, input: input) else {
+            return BonusWeekResult(week: week, status: .notEvaluated, detail: "Sin actividad registrada")
+        }
+
         let isRunning = week.contains(input.now)
+        let driverId = input.driver.id
 
         switch kind {
         case .punctuality:
-            let records = input.history.filter { week.contains($0.startedAt) }
+            let records = input.history.filter { $0.driverId == driverId && week.contains($0.startedAt) }
             let pending = records.reduce(0) { $0 + $1.pendingLateMinutes }
             let expected = expectedWorkDays(driver: input.driver, week: week, now: input.now)
+            // Only days the driver was expected to work **and** actually operated in the
+            // week can produce an absence. `expected` is a calendar count; on its own it
+            // manufactures faults out of days nobody ever staffed.
             let absences = max(0, expected - records.count)
 
             if absences > 0 {
@@ -364,7 +439,9 @@ nonisolated enum BonusRules {
             return BonusWeekResult(week: week, status: isRunning ? .inProgress : .achieved, detail: detail)
 
         case .billing:
-            let earned = input.incomes.filter { week.contains($0.date) }.reduce(0) { $0 + $1.amountMxn }
+            let earned = input.incomes
+                .filter { $0.driverId == driverId && week.contains($0.date) }
+                .reduce(0) { $0 + $1.amountMxn }
             let target = input.goals.weeklyMxn
             let detail = "\(Fmt.mxn(earned)) de \(Fmt.mxn(target))"
             if earned >= target {
@@ -373,6 +450,9 @@ nonisolated enum BonusRules {
             return BonusWeekResult(week: week, status: isRunning ? .inProgress : .lost, detail: detail)
 
         case .care:
+            // A report is the only positive fact here, and it always loses the week.
+            // Its absence clears the week only because the guard above already proved
+            // there was an operation a supervisor could have reported on.
             let reports = input.reports.filter { week.contains($0.createdAt) }
             if let first = reports.first {
                 return BonusWeekResult(week: week, status: .lost, detail: first.kind.label)
@@ -384,11 +464,14 @@ nonisolated enum BonusRules {
             )
 
         case .service:
-            // Mocked positive until the Uber quality API is available.
+            // No score, no verdict. Never substitute 0, 5.0 or the demonstration figure.
+            guard let score = input.qualityScore else {
+                return BonusWeekResult(week: week, status: .notEvaluated, detail: "Sin calificación de plataforma")
+            }
             return BonusWeekResult(
                 week: week,
                 status: isRunning ? .inProgress : .achieved,
-                detail: "Calificación \(Fmt.rating(mockQualityScore)) · API Uber"
+                detail: "Calificación \(Fmt.rating(score)) · API Uber"
             )
         }
     }

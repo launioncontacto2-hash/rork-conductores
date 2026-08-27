@@ -25,6 +25,21 @@ nonisolated enum MockData {
         return seededDriver
     }
 
+    /// Platform quality score of the demonstration driver.
+    ///
+    /// A fixture, not a default. It answers for the seeded profile and for nobody else:
+    /// returning it whenever a score was missing is exactly what printed
+    /// "Calificación 4.91 · API Uber" on the screen of a driver the Uber API has never
+    /// heard of. Any driver without a real source has **no** rating — not 0, not 5.0,
+    /// and not this number.
+    static let seededPlatformRating = 4.91
+
+    static func platformRating(for driver: Driver) -> Double? {
+        guard !LabRuntime.isTest else { return nil }
+        guard driver.id == seededDriver.id else { return nil }
+        return seededPlatformRating
+    }
+
     /// Empty driver used while the test environment has no drivers registered.
     static let blankDriver = Driver(
         id: "drv-none",

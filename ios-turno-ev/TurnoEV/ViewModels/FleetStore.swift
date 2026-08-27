@@ -706,13 +706,32 @@ final class FleetStore {
 
     // MARK: - Bonuses
 
+    /// Platform quality score of the driver operating this device, when a source can
+    /// answer for **them**.
+    ///
+    /// Resolved by identity, never by session type: only the seeded demonstration profile
+    /// has a fixture behind it. Every other driver — backend or laboratory — has no score
+    /// until a real rating arrives, and the bonus reports that honestly instead of
+    /// borrowing someone else's stars.
+    var platformRating: Double? { MockData.platformRating(for: driver) }
+
+    /// Everything the bonus engine is allowed to look at, scoped to the current driver.
+    ///
+    /// The state is already isolated per identity, but the ownership test is repeated here
+    /// because this is the boundary that decides whether someone is paid or punished.
+    /// Supervisor reports carry no `driverId`; they are trusted only because they were
+    /// written under this identity's own storage, and they are used solely as grounds to
+    /// lose a week — never as proof that one was earned.
     private func bonusInput(reference: Date) -> BonusRules.EvaluationInput {
-        BonusRules.EvaluationInput(
+        let driverId = driver.id
+        return BonusRules.EvaluationInput(
             driver: driver,
             goals: goals,
-            history: history,
-            incomes: incomes,
+            history: history.filter { $0.driverId == driverId },
+            incomes: incomes.filter { $0.driverId == driverId },
             reports: supervisorReports,
+            activeShift: activeShift.flatMap { $0.driverId == driverId ? $0 : nil },
+            qualityScore: platformRating,
             schedule: NationalBonusBoard.current,
             now: reference
         )
@@ -734,6 +753,10 @@ final class FleetStore {
     }
 
     /// Raises the popup for the first closed week that broke a bonus, once only.
+    ///
+    /// Only a week the engine actually judged and failed can reach here. A week without
+    /// evidence is `notEvaluated`, which is not a loss: it raises no popup, writes no
+    /// notice and opens no recovery.
     @discardableResult
     func raiseBonusAlert(reference: Date) -> BonusAlert? {
         let evaluations = bonusEvaluations(reference: reference)

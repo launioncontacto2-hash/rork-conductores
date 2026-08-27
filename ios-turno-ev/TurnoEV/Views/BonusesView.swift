@@ -161,10 +161,17 @@ struct BonusesView: View {
 
                         guardBonusSection
 
-                        RecoveryProgramSection(
-                            suggestedBonus: lost.first?.kind ?? .punctuality,
-                            today: today
-                        )
+                        // Recovery exists to win back a bonus that was actually lost. A
+                        // week nobody could evaluate has nothing to recover, so the
+                        // calendar stays closed and says why.
+                        if !lost.isEmpty || !store.recoveryBookings.isEmpty {
+                            RecoveryProgramSection(
+                                suggestedBonus: lost.first?.kind ?? .punctuality,
+                                today: today
+                            )
+                        } else {
+                            recoveryClosedNote
+                        }
 
                         supervisorLog
                     }
@@ -209,7 +216,39 @@ struct BonusesView: View {
         case .lost: Palette.danger
         case .inProgress: Palette.info
         case .upcoming: Palette.hairline
+        case .notEvaluated: Palette.neutral
         }
+    }
+
+    /// Headline tint of a bonus card. Neutral is a real answer here, not a shade of
+    /// success: a bonus with nothing to evaluate must not read as won or lost.
+    private func tint(for evaluation: BonusEvaluation) -> Color {
+        if evaluation.isLost { return Palette.danger }
+        if evaluation.isNotEvaluable { return Palette.neutral }
+        return Palette.volt
+    }
+
+    /// Shown instead of the booking calendar while no bonus has actually been lost.
+    private var recoveryClosedNote: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "calendar")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Palette.neutral)
+                .frame(width: 34, height: 34)
+                .background(Palette.neutral.opacity(0.12), in: .rect(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Programa de recuperación de bonos")
+                    .font(.system(.subheadline, weight: .black))
+                Text("Se abre cuando pierdes un bono en una semana evaluada. Una semana sin actividad no cuenta como pérdida y no requiere recuperación.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .panel()
     }
 
     // MARK: - Bonus card
@@ -218,13 +257,15 @@ struct BonusesView: View {
         let kind = evaluation.kind
         let isOpen = expanded.contains(kind.rawValue)
 
+        let accent = tint(for: evaluation)
+
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Image(systemName: kind.symbol)
                     .font(.system(.body, weight: .semibold))
-                    .foregroundStyle(evaluation.isLost ? Palette.danger : Palette.volt)
+                    .foregroundStyle(accent)
                     .frame(width: 42, height: 42)
-                    .background((evaluation.isLost ? Palette.danger : Palette.volt).opacity(0.12), in: .rect(cornerRadius: 14))
+                    .background(accent.opacity(0.12), in: .rect(cornerRadius: 14))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(kind.title)
@@ -240,7 +281,7 @@ struct BonusesView: View {
                     Text(kind.isExternal ? "Uber" : Fmt.mxn(evaluation.monthlyMxn))
                         .font(.system(.subheadline, weight: .black))
                         .monospacedDigit()
-                        .foregroundStyle(evaluation.isLost ? Palette.textMuted : Palette.volt)
+                        .foregroundStyle(evaluation.isLost || evaluation.isNotEvaluable ? Palette.textMuted : Palette.volt)
                         .strikethrough(evaluation.isLost, color: Palette.danger)
                     CapsLabel(text: "Mensual")
                 }
@@ -293,11 +334,19 @@ struct BonusesView: View {
                     ruleRow(symbol: "checkmark.circle.fill", tint: Palette.volt, text: kind.howToWin)
                     ruleRow(symbol: "xmark.circle.fill", tint: Palette.danger, text: kind.howToLose)
                     if kind == .service {
-                        ruleRow(
-                            symbol: "antenna.radiowaves.left.and.right",
-                            tint: Palette.info,
-                            text: "En pruebas la métrica es positiva: \(Fmt.rating(BonusRules.mockQualityScore)) estrellas."
-                        )
+                        if let rating = store.platformRating {
+                            ruleRow(
+                                symbol: "antenna.radiowaves.left.and.right",
+                                tint: Palette.info,
+                                text: "En pruebas la métrica es positiva: \(Fmt.rating(rating)) estrellas."
+                            )
+                        } else {
+                            ruleRow(
+                                symbol: "antenna.radiowaves.left.and.right",
+                                tint: Palette.neutral,
+                                text: "Aún no hay calificación de plataforma ligada a tu cuenta. El bono no se evalúa hasta que llegue."
+                            )
+                        }
                     }
                 }
                 .padding(12)
@@ -314,6 +363,7 @@ struct BonusesView: View {
         case .authorized: Palette.volt
         case .cancelled: Palette.danger
         case .running: Palette.info
+        case .notEvaluable: Palette.neutral
         }
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: decision.symbol)
@@ -338,10 +388,12 @@ struct BonusesView: View {
 
     private func weekChip(result: BonusWeekResult) -> some View {
         let tint = color(for: result.status)
+        // Neither a green check nor a red cross for a week nobody judged.
+        let isMuted = !result.status.isVerdict
         return VStack(spacing: 5) {
             Image(systemName: result.status.symbol)
                 .font(.system(size: 12, weight: .black))
-                .foregroundStyle(result.status == .upcoming ? Palette.textMuted : tint)
+                .foregroundStyle(isMuted ? Palette.textMuted : tint)
                 .frame(width: 34, height: 34)
                 .background(tint.opacity(result.status == .upcoming ? 0.25 : 0.16), in: .circle)
                 .overlay { Circle().stroke(tint.opacity(0.5), lineWidth: 1) }
