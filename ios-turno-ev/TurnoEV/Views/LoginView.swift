@@ -697,19 +697,29 @@ struct LoginView: View {
                     // Supabase has authenticated it.
                     password = ""
 
+                    // La sonda ya exige que ambos valores existan y sean
+                    // válidos antes de devolver el resultado, así que aquí
+                    // sólo se muestran; el "—" nunca debería aparecer.
+                    let shiftGroup = result.shiftGroup ?? "—"
+                    let shiftSlot = result.shiftSlot ?? "—"
+
                     supabaseProbeMessage = """
                     AUTH OK
                     \(result.profile.display_name)
                     \(result.profile.employee_number)
                     \(result.membership.role)
                     \(result.station.code)
+                    \(shiftGroup)
+                    \(shiftSlot)
                     """
 
                     print(
                         "[15B.5] AUTH OK · " +
                         "\(result.profile.employee_number) · " +
                         "\(result.membership.role) · " +
-                        "\(result.station.code)"
+                        "\(result.station.code) · " +
+                        "\(shiftGroup) · " +
+                        "\(shiftSlot)"
                     )
 
                 } catch {
