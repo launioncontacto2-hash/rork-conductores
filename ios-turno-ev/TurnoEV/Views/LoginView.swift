@@ -35,22 +35,37 @@ struct LoginView: View {
     @State private var attempts: Int = 0
     @State private var isScanning: Bool = false
     @State private var lastFailed: Bool = false
+
     /// The automatic scan runs once per appearance of the login screen.
     @State private var didAutoStart: Bool = false
+
     /// Set when the device has no biometric hardware enrolled (simulator included).
     @State private var isBiometryUnavailable: Bool = false
+
     @State private var credentialMode: CredentialMode = .email
     @State private var identifier: String = ""
     @State private var password: String = ""
     @State private var errorMessage: String?
+
+    // MARK: - 15B.5 Supabase Auth / RLS probe
+
+    /// Temporary diagnostic result for the first real Supabase Auth test.
+    @State private var supabaseProbeMessage: String?
+
+    /// Prevents duplicate Auth requests if the button is tapped repeatedly.
+    @State private var isSupabaseProbeRunning: Bool = false
+
     @State private var isRecoveryPresented: Bool = false
     @State private var isDirectoryPresented: Bool = false
     @State private var recoveryTarget: String = ""
     @State private var recoverySent: Bool = false
+
     /// Account already authenticated, shown during the role handoff before the interface opens.
     @State private var handoffAccount: StaffAccount?
 
-    private var enrolled: StaffAccount? { store.enrolledAccount }
+    private var enrolled: StaffAccount? {
+        store.enrolledAccount
+    }
 
     /// One credential per role, so switching interfaces takes a single tap.
     private var roleShortcuts: [StaffAccount] {
@@ -68,8 +83,11 @@ struct LoginView: View {
                 Spacer(minLength: 12)
 
                 switch mode {
-                case .biometric: biometricSection
-                case .credentials: credentialsSection
+                case .biometric:
+                    biometricSection
+
+                case .credentials:
+                    credentialsSection
                 }
 
                 Spacer(minLength: 12)
@@ -85,10 +103,18 @@ struct LoginView: View {
         }
         .animation(.smooth(duration: 0.3), value: handoffAccount?.id)
         .animation(.smooth(duration: 0.3), value: mode)
-        .onAppear { startAutomaticAccess() }
-        .sheet(isPresented: $isRecoveryPresented) { recoverySheet }
-        .sheet(isPresented: $isDirectoryPresented) { directorySheet }
+        .onAppear {
+            startAutomaticAccess()
+        }
+        .sheet(isPresented: $isRecoveryPresented) {
+            recoverySheet
+        }
+        .sheet(isPresented: $isDirectoryPresented) {
+            directorySheet
+        }
     }
+
+    // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 12) {
@@ -96,28 +122,44 @@ struct LoginView: View {
                 .font(.title2)
                 .foregroundStyle(Palette.volt)
                 .frame(width: 48, height: 48)
-                .background(Palette.volt.opacity(0.15), in: .rect(cornerRadius: 16))
+                .background(
+                    Palette.volt.opacity(0.15),
+                    in: .rect(cornerRadius: 16)
+                )
+
             VStack(alignment: .leading, spacing: 3) {
                 Text("TURNO EV")
                     .font(.system(.title3, weight: .black))
+
                 CapsLabel(text: "Acceso por rol y estación")
             }
+
             Spacer()
         }
     }
+
+    // MARK: - Footer
 
     private var footer: some View {
         VStack(spacing: 8) {
             Button {
                 isDirectoryPresented = true
             } label: {
-                Label("Cuentas de demostración", systemImage: "person.3.sequence.fill")
-                    .font(.system(.footnote, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
-            }
-            Text("\(StaffDirectory.stations.count) estaciones · \(StaffDirectory.regions.count) regiones · v1.0 datos simulados")
-                .font(.caption2)
+                Label(
+                    "Cuentas de demostración",
+                    systemImage: "person.3.sequence.fill"
+                )
+                .font(.system(.footnote, weight: .semibold))
                 .foregroundStyle(Palette.textMuted)
+            }
+
+            Text(
+                "\(StaffDirectory.stations.count) estaciones · " +
+                "\(StaffDirectory.regions.count) regiones · " +
+                "v1.0 datos simulados"
+            )
+            .font(.caption2)
+            .foregroundStyle(Palette.textMuted)
         }
     }
 
@@ -128,17 +170,34 @@ struct LoginView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 38)
                     .stroke(
-                        lastFailed ? Palette.danger.opacity(0.6) : (enrolled?.role.accent ?? Palette.volt).opacity(0.45),
+                        lastFailed
+                            ? Palette.danger.opacity(0.6)
+                            : (enrolled?.role.accent ?? Palette.volt).opacity(0.45),
                         lineWidth: 2
                     )
                     .frame(width: 160, height: 160)
                     .scaleEffect(isScanning ? 1.05 : 1)
-                    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isScanning)
+                    .animation(
+                        .easeInOut(duration: 1.2)
+                            .repeatForever(autoreverses: true),
+                        value: isScanning
+                    )
 
                 Image(systemName: "faceid")
                     .font(.system(size: 78, weight: .light))
-                    .foregroundStyle(lastFailed ? Palette.danger : (enrolled?.role.accent ?? Palette.volt))
-                    .shadow(color: (lastFailed ? Palette.danger : (enrolled?.role.accent ?? Palette.volt)).opacity(0.5), radius: 22)
+                    .foregroundStyle(
+                        lastFailed
+                            ? Palette.danger
+                            : (enrolled?.role.accent ?? Palette.volt)
+                    )
+                    .shadow(
+                        color: (
+                            lastFailed
+                                ? Palette.danger
+                                : (enrolled?.role.accent ?? Palette.volt)
+                        ).opacity(0.5),
+                        radius: 22
+                    )
             }
 
             Text(isScanning ? "Verificando rostro…" : "Acceso con Face ID")
@@ -149,41 +208,57 @@ struct LoginView: View {
                 VStack(spacing: 8) {
                     Text(enrolled.name)
                         .font(.system(.subheadline, weight: .bold))
-                    RoleBadge(role: enrolled.role, compact: true)
-                    Text(StaffDirectory.scopeDescription(for: enrolled))
-                        .font(.caption)
-                        .foregroundStyle(Palette.textMuted)
+
+                    RoleBadge(
+                        role: enrolled.role,
+                        compact: true
+                    )
+
+                    Text(
+                        StaffDirectory.scopeDescription(for: enrolled)
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Palette.textMuted)
                 }
                 .padding(.top, 12)
             }
 
             Text(statusMessage)
                 .font(.footnote)
-                .foregroundStyle(lastFailed ? Palette.danger : Palette.textMuted)
+                .foregroundStyle(
+                    lastFailed
+                        ? Palette.danger
+                        : Palette.textMuted
+                )
                 .multilineTextAlignment(.center)
                 .padding(.top, 10)
                 .padding(.horizontal, 8)
 
             VStack(spacing: 10) {
-                // The explicit door in. Signing in opens the profile and nothing else:
-                // it never starts a shift, never files an attendance and never touches
-                // the entry hour.
                 BigButton(
-                    title: isScanning ? "Escaneando…" : "Iniciar sesión",
+                    title: isScanning
+                        ? "Escaneando…"
+                        : "Iniciar sesión",
                     symbol: "person.crop.circle.badge.checkmark",
                     isEnabled: !isScanning
                 ) {
                     beginSession()
                 }
 
-                Text("Entrar a tu perfil no inicia tu turno. El turno se inicia aparte, desde la pantalla Turno y dentro de tu ventana.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.textMuted)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "Entrar a tu perfil no inicia tu turno. " +
+                    "El turno se inicia aparte, desde la pantalla Turno " +
+                    "y dentro de tu ventana."
+                )
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
                 BigButton(
-                    title: isScanning ? "Escaneando" : "Reintentar Face ID",
+                    title: isScanning
+                        ? "Escaneando"
+                        : "Reintentar Face ID",
                     symbol: "faceid",
                     tone: .outline,
                     isEnabled: !isScanning && enrolled != nil
@@ -198,6 +273,7 @@ struct LoginView: View {
                     attempts = 0
                     lastFailed = false
                     errorMessage = nil
+                    supabaseProbeMessage = nil
                 }
                 .font(.system(.subheadline, weight: .semibold))
                 .foregroundStyle(Palette.textMuted)
@@ -213,23 +289,49 @@ struct LoginView: View {
     private var roleSwitcher: some View {
         VStack(spacing: 8) {
             CapsLabel(text: "Entrar por rol")
+
             ScrollView(.horizontal) {
                 HStack(spacing: 8) {
                     ForEach(roleShortcuts) { account in
                         Button {
-                            grantAccess(to: account, method: .credentials)
+                            grantAccess(
+                                to: account,
+                                method: .credentials
+                            )
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: account.role.symbol)
-                                    .font(.system(size: 11, weight: .bold))
+                                Image(
+                                    systemName: account.role.symbol
+                                )
+                                .font(
+                                    .system(
+                                        size: 11,
+                                        weight: .bold
+                                    )
+                                )
+
                                 Text(account.role.shortLabel)
-                                    .font(.system(size: 12, weight: .bold))
+                                    .font(
+                                        .system(
+                                            size: 12,
+                                            weight: .bold
+                                        )
+                                    )
                             }
                             .foregroundStyle(account.role.accent)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 9)
-                            .background(account.role.accent.opacity(0.12), in: .capsule)
-                            .overlay { Capsule().stroke(account.role.accent.opacity(0.45), lineWidth: 1) }
+                            .background(
+                                account.role.accent.opacity(0.12),
+                                in: .capsule
+                            )
+                            .overlay {
+                                Capsule()
+                                    .stroke(
+                                        account.role.accent.opacity(0.45),
+                                        lineWidth: 1
+                                    )
+                            }
                         }
                         .buttonStyle(.plain)
                         .disabled(isScanning)
@@ -244,27 +346,43 @@ struct LoginView: View {
     }
 
     private var statusMessage: String {
-        if let errorMessage { return errorMessage }
+        if let errorMessage {
+            return errorMessage
+        }
+
         if enrolled == nil {
-            return "Este dispositivo aún no tiene credencial vinculada. Ingresa tus datos la primera vez y después entrarás con Face ID en automático."
+            return "Este dispositivo aún no tiene credencial vinculada. " +
+                "Ingresa tus datos la primera vez y después entrarás " +
+                "con Face ID en automático."
         }
+
         if lastFailed {
-            return "Intento \(attempts) de \(Self.maxAttempts). Después de 3 intentos pedimos tus credenciales."
+            return "Intento \(attempts) de \(Self.maxAttempts). " +
+                "Después de 3 intentos pedimos tus credenciales."
         }
+
         if store.awaitsCredentialChoice {
-            return "Sesión cerrada. Entra de nuevo con Face ID o elige el rol con el que quieres trabajar."
+            return "Sesión cerrada. Entra de nuevo con Face ID o elige " +
+                "el rol con el que quieres trabajar."
         }
+
         if isBiometryUnavailable {
-            return "Sin sensor biométrico en este entorno. Se usa el acceso vinculado de demostración."
+            return "Sin sensor biométrico en este entorno. " +
+                "Se usa el acceso vinculado de demostración."
         }
-        return "El escaneo inicia solo y abre la interfaz del rol vinculado a este dispositivo."
+
+        return "El escaneo inicia solo y abre la interfaz del rol " +
+            "vinculado a este dispositivo."
     }
 
     /// Face ID fires on its own so nobody has to tap to enter; without a linked
     /// credential we go straight to the identification form. After an explicit sign out
     /// the scan waits, so another role can be chosen instead of reopening the same one.
     private func startAutomaticAccess() {
-        guard !didAutoStart else { return }
+        guard !didAutoStart else {
+            return
+        }
+
         didAutoStart = true
 
         guard enrolled != nil else {
@@ -273,24 +391,35 @@ struct LoginView: View {
         }
 
         mode = .biometric
-        guard !store.awaitsCredentialChoice else { return }
+
+        guard !store.awaitsCredentialChoice else {
+            return
+        }
+
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(420))
-            guard store.session == nil, handoffAccount == nil, !isScanning else { return }
+            try? await Task.sleep(
+                for: .milliseconds(420)
+            )
+
+            guard
+                store.session == nil,
+                handoffAccount == nil,
+                !isScanning
+            else {
+                return
+            }
+
             authenticate()
         }
     }
 
     /// Opens a session, by the shortest route available on this device.
-    ///
-    /// It authenticates and nothing more. There is no second session and no second
-    /// sign-in path: this lands on the same `grantAccess` → `FleetStore.signIn` as every
-    /// other door.
     private func beginSession() {
         guard enrolled != nil else {
             mode = .credentials
             return
         }
+
         authenticate()
     }
 
@@ -302,34 +431,55 @@ struct LoginView: View {
 
         let context = LAContext()
         context.localizedFallbackTitle = ""
+
         var authError: NSError?
 
-        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
-            // No enrolled biometry (cloud simulator): the linked credential still opens
-            // its own interface, which keeps the role gate intact.
+        guard context.canEvaluatePolicy(
+            .deviceOwnerAuthenticationWithBiometrics,
+            error: &authError
+        ) else {
             isBiometryUnavailable = true
             isScanning = true
+
             Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(900))
+                try? await Task.sleep(
+                    for: .milliseconds(900)
+                )
+
                 isScanning = false
-                grantAccess(to: enrolled, method: .biometric)
+
+                grantAccess(
+                    to: enrolled,
+                    method: .biometric
+                )
             }
+
             return
         }
 
         isScanning = true
         errorMessage = nil
+
         context.evaluatePolicy(
             .deviceOwnerAuthenticationWithBiometrics,
-            localizedReason: "Confirma tu identidad para abrir tu panel"
+            localizedReason:
+                "Confirma tu identidad para abrir tu panel"
         ) { success, _ in
             Task { @MainActor in
                 isScanning = false
+
                 if success {
                     lastFailed = false
-                    grantAccess(to: enrolled, method: .biometric)
+
+                    grantAccess(
+                        to: enrolled,
+                        method: .biometric
+                    )
                 } else {
-                    registerFailure(message: "Face ID no confirmó tu identidad")
+                    registerFailure(
+                        message:
+                            "Face ID no confirmó tu identidad"
+                    )
                 }
             }
         }
@@ -340,6 +490,7 @@ struct LoginView: View {
         attempts += 1
         lastFailed = true
         errorMessage = message
+
         if attempts >= Self.maxAttempts {
             mode = .credentials
             errorMessage = nil
@@ -353,46 +504,105 @@ struct LoginView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Identifícate")
                     .font(.system(.title2, weight: .black))
-                Text("Detectamos tu rol y estación con tus credenciales, y abrimos solo tu interfaz. Iniciar sesión no inicia tu turno.")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.textMuted)
+
+                Text(
+                    "Detectamos tu rol y estación con tus credenciales, " +
+                    "y abrimos solo tu interfaz. Iniciar sesión no inicia tu turno."
+                )
+                .font(.footnote)
+                .foregroundStyle(Palette.textMuted)
             }
 
-            Picker("Método", selection: $credentialMode) {
-                ForEach(CredentialMode.allCases, id: \.self) { option in
-                    Text(option.label).tag(option)
+            Picker(
+                "Método",
+                selection: $credentialMode
+            ) {
+                ForEach(
+                    CredentialMode.allCases,
+                    id: \.self
+                ) { option in
+                    Text(option.label)
+                        .tag(option)
                 }
             }
             .pickerStyle(.segmented)
 
             TextField(
-                credentialMode == .email ? "correo@turnoev.mx" : "EV-1042",
+                credentialMode == .email
+                    ? "correo@turnoev.mx"
+                    : "EV-1042",
                 text: $identifier
             )
-            .textContentType(credentialMode == .email ? .emailAddress : .username)
-            .keyboardType(credentialMode == .email ? .emailAddress : .default)
-            .textInputAutocapitalization(credentialMode == .email ? .never : .characters)
+            .textContentType(
+                credentialMode == .email
+                    ? .emailAddress
+                    : .username
+            )
+            .keyboardType(
+                credentialMode == .email
+                    ? .emailAddress
+                    : .default
+            )
+            .textInputAutocapitalization(
+                credentialMode == .email
+                    ? .never
+                    : .characters
+            )
             .autocorrectionDisabled()
             .padding(.vertical, 16)
             .padding(.horizontal, 16)
             .panelFlat()
 
-            SecureField("Contraseña", text: $password)
-                .textContentType(.password)
-                .padding(.vertical, 16)
-                .padding(.horizontal, 16)
-                .panelFlat()
+            SecureField(
+                "Contraseña",
+                text: $password
+            )
+            .textContentType(.password)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            .panelFlat()
 
             if let errorMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                HStack(
+                    alignment: .top,
+                    spacing: 8
+                ) {
+                    Image(
+                        systemName:
+                            "exclamationmark.triangle.fill"
+                    )
+
                     Text(errorMessage)
                 }
                 .font(.footnote)
                 .foregroundStyle(Palette.danger)
             }
 
-            BigButton(title: "Iniciar sesión", symbol: "checkmark.shield.fill") {
+            if let supabaseProbeMessage {
+                HStack(
+                    alignment: .top,
+                    spacing: 8
+                ) {
+                    Image(
+                        systemName:
+                            "checkmark.seal.fill"
+                    )
+
+                    Text(supabaseProbeMessage)
+                }
+                .font(.footnote)
+                .foregroundStyle(Palette.volt)
+            }
+
+            BigButton(
+                title: isSupabaseProbeRunning
+                    ? "Verificando…"
+                    : "Iniciar sesión",
+                symbol: isSupabaseProbeRunning
+                    ? "hourglass"
+                    : "checkmark.shield.fill",
+                isEnabled: !isSupabaseProbeRunning
+            ) {
                 submitCredentials()
             }
 
@@ -400,92 +610,254 @@ struct LoginView: View {
                 Button {
                     isRecoveryPresented = true
                 } label: {
-                    Label("Recuperar contraseña", systemImage: "key.fill")
-                        .font(.system(.subheadline, weight: .semibold))
-                        .foregroundStyle(Palette.volt)
+                    Label(
+                        "Recuperar contraseña",
+                        systemImage: "key.fill"
+                    )
+                    .font(
+                        .system(
+                            .subheadline,
+                            weight: .semibold
+                        )
+                    )
+                    .foregroundStyle(Palette.volt)
                 }
+
                 Spacer()
+
                 if enrolled != nil {
                     Button("Volver a Face ID") {
                         mode = .biometric
                         attempts = 0
                         lastFailed = false
                         errorMessage = nil
+                        supabaseProbeMessage = nil
                     }
-                    .font(.system(.subheadline, weight: .semibold))
+                    .font(
+                        .system(
+                            .subheadline,
+                            weight: .semibold
+                        )
+                    )
                     .foregroundStyle(Palette.textMuted)
                 }
             }
         }
     }
 
+    // MARK: - Credentials submit
+
     private func submitCredentials() {
-        let outcome = StaffDirectory.authenticate(identifier: identifier, password: password)
+        let cleanedIdentifier = identifier
+            .trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+
+        // ====================================================
+        // 15B.5
+        // Primera prueba REAL de Supabase Auth.
+        //
+        // Sólo esta cuenta TEST usa Supabase por ahora.
+        // Las cuentas de demostración continúan usando
+        // StaffDirectory y no se rompen durante la transición.
+        // ====================================================
+
+        if credentialMode == .email,
+           cleanedIdentifier.lowercased()
+                == "test.driver@joramza.test" {
+
+            guard !isSupabaseProbeRunning else {
+                return
+            }
+
+            guard !password.isEmpty else {
+                errorMessage =
+                    "Escribe la contraseña de la cuenta de prueba."
+                supabaseProbeMessage = nil
+                return
+            }
+
+            errorMessage = nil
+            supabaseProbeMessage = nil
+            isSupabaseProbeRunning = true
+
+            Task { @MainActor in
+                defer {
+                    isSupabaseProbeRunning = false
+                }
+
+                do {
+                    let result =
+                        try await SupabaseAuthProbe.run(
+                            email: cleanedIdentifier,
+                            password: password
+                        )
+
+                    // The password is discarded from the view after
+                    // Supabase has authenticated it.
+                    password = ""
+
+                    supabaseProbeMessage = """
+                    AUTH OK
+                    \(result.profile.display_name)
+                    \(result.profile.employee_number)
+                    \(result.membership.role)
+                    \(result.station.code)
+                    """
+
+                    print(
+                        "[15B.5] AUTH OK · " +
+                        "\(result.profile.employee_number) · " +
+                        "\(result.membership.role) · " +
+                        "\(result.station.code)"
+                    )
+
+                } catch {
+                    password = ""
+                    supabaseProbeMessage = nil
+                    errorMessage =
+                        error.localizedDescription
+
+                    print(
+                        "[15B.5] Auth/RLS probe failed · " +
+                        error.localizedDescription
+                    )
+                }
+            }
+
+            return
+        }
+
+        // ====================================================
+        // LOGIN DEMO ORIGINAL
+        // Permanece intacto durante 15B.5.
+        // ====================================================
+
+        let outcome =
+            StaffDirectory.authenticate(
+                identifier: identifier,
+                password: password
+            )
+
         switch outcome {
         case .granted(let account):
             errorMessage = nil
+            supabaseProbeMessage = nil
             password = ""
-            grantAccess(to: account, method: .credentials)
-        case .unknownIdentity, .wrongPassword, .suspended, .missingAssignment:
+
+            grantAccess(
+                to: account,
+                method: .credentials
+            )
+
+        case .unknownIdentity,
+             .wrongPassword,
+             .suspended,
+             .missingAssignment:
+
+            supabaseProbeMessage = nil
             errorMessage = outcome.message
         }
     }
 
     /// Shows the identified role for a beat, then opens that role's interface only.
-    ///
-    /// The pause is cosmetic and the sign-in must never depend on it. This runs from a
-    /// sheet that dismisses in the same gesture, so the beat can be interrupted; a second
-    /// longer watchdog guarantees the overlay is always retired. The transition may be
-    /// slow, but it can never stay on screen forever.
-    private func grantAccess(to account: StaffAccount, method: SignInMethod) {
+    private func grantAccess(
+        to account: StaffAccount,
+        method: SignInMethod
+    ) {
         handoffAccount = account
+
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1_150))
-            completeHandoff(to: account, method: method, reason: "beat")
+            try? await Task.sleep(
+                for: .milliseconds(1_150)
+            )
+
+            completeHandoff(
+                to: account,
+                method: method,
+                reason: "beat"
+            )
         }
+
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
-            completeHandoff(to: account, method: method, reason: "watchdog")
+            try? await Task.sleep(
+                for: .seconds(3)
+            )
+
+            completeHandoff(
+                to: account,
+                method: method,
+                reason: "watchdog"
+            )
         }
     }
 
-    /// Single exit of the handoff. Idempotent: whichever path arrives first opens the
-    /// session and retires the overlay, the other finds nothing left to do. If no session
-    /// resulted, the access screen comes back with a readable reason instead of hanging.
-    private func completeHandoff(to account: StaffAccount, method: SignInMethod, reason: String) {
-        guard handoffAccount != nil else { return }
-        if store.session == nil {
-            store.signIn(account: account, method: method)
+    /// Single exit of the handoff.
+    private func completeHandoff(
+        to account: StaffAccount,
+        method: SignInMethod,
+        reason: String
+    ) {
+        guard handoffAccount != nil else {
+            return
         }
+
+        if store.session == nil {
+            store.signIn(
+                account: account,
+                method: method
+            )
+        }
+
         handoffAccount = nil
+
         let opened = store.session != nil
+
         if !opened {
             mode = .credentials
-            errorMessage = "No se pudo abrir la sesión de \(account.role.label). Intenta de nuevo."
+
+            errorMessage =
+                "No se pudo abrir la sesión de " +
+                "\(account.role.label). Intenta de nuevo."
         }
-        print("[login] handoff \(reason) · rol=\(account.role.label) · sesión=\(opened)")
+
+        print(
+            "[login] handoff \(reason) · " +
+            "rol=\(account.role.label) · " +
+            "sesión=\(opened)"
+        )
     }
 
     // MARK: - Recovery
 
     private var recoverySheet: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Los conductores restablecen con el supervisor de su estación. Supervisores, gerencia y mantenimiento lo hacen con dirección nacional.")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.textMuted)
+            VStack(
+                alignment: .leading,
+                spacing: 16
+            ) {
+                Text(
+                    "Los conductores restablecen con el supervisor de su estación. " +
+                    "Supervisores, gerencia y mantenimiento lo hacen con dirección nacional."
+                )
+                .font(.footnote)
+                .foregroundStyle(Palette.textMuted)
 
-                TextField("Correo o número de empleado", text: $recoveryTarget)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(16)
-                    .panelFlat()
+                TextField(
+                    "Correo o número de empleado",
+                    text: $recoveryTarget
+                )
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(16)
+                .panelFlat()
 
                 if recoverySent {
                     NoticeBanner(
                         symbol: "checkmark.seal.fill",
                         title: "Solicitud enviada",
-                        message: "Quien generó tu registro validará el restablecimiento.",
+                        message:
+                            "Quien generó tu registro validará el restablecimiento.",
                         tone: .volt
                     )
                 }
@@ -493,7 +865,12 @@ struct LoginView: View {
                 BigButton(
                     title: "Enviar solicitud",
                     symbol: "paperplane.fill",
-                    isEnabled: recoveryTarget.trimmingCharacters(in: .whitespaces).count > 3
+                    isEnabled:
+                        recoveryTarget
+                            .trimmingCharacters(
+                                in: .whitespaces
+                            )
+                            .count > 3
                 ) {
                     recoverySent = true
                     recoveryTarget = ""
@@ -502,10 +879,14 @@ struct LoginView: View {
                 Spacer()
             }
             .padding(20)
-            .navigationTitle("Recuperar contraseña")
+            .navigationTitle(
+                "Recuperar contraseña"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(
+                    placement: .topBarTrailing
+                ) {
                     Button("Cerrar") {
                         isRecoveryPresented = false
                         recoverySent = false
@@ -521,41 +902,93 @@ struct LoginView: View {
     private var directorySheet: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Toca una cuenta para entrar con ella y vincularla a este dispositivo: los siguientes accesos abren ese rol con Face ID en automático.")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.textMuted)
+                VStack(
+                    alignment: .leading,
+                    spacing: 12
+                ) {
+                    Text(
+                        "Toca una cuenta para entrar con ella y vincularla " +
+                        "a este dispositivo: los siguientes accesos abren " +
+                        "ese rol con Face ID en automático."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
 
-                    ForEach(StaffDirectory.accounts) { account in
+                    ForEach(
+                        StaffDirectory.accounts
+                    ) { account in
                         Button {
                             credentialMode = .email
                             identifier = account.email
                             password = account.password
                             mode = .credentials
                             errorMessage = nil
+                            supabaseProbeMessage = nil
                             isDirectoryPresented = false
-                            // Entering with the picked account links it to the device, so the
-                            // next launch opens this role automatically with Face ID.
-                            grantAccess(to: account, method: .credentials)
+
+                            grantAccess(
+                                to: account,
+                                method: .credentials
+                            )
+
                         } label: {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(
+                                alignment: .leading,
+                                spacing: 8
+                            ) {
                                 HStack {
-                                    RoleBadge(role: account.role, compact: true)
+                                    RoleBadge(
+                                        role: account.role,
+                                        compact: true
+                                    )
+
                                     Spacer()
-                                    Text(account.employeeNumber)
-                                        .font(.system(.caption, weight: .semibold))
-                                        .foregroundStyle(Palette.textMuted)
+
+                                    Text(
+                                        account.employeeNumber
+                                    )
+                                    .font(
+                                        .system(
+                                            .caption,
+                                            weight: .semibold
+                                        )
+                                    )
+                                    .foregroundStyle(
+                                        Palette.textMuted
+                                    )
                                 }
+
                                 Text(account.name)
-                                    .font(.system(.subheadline, weight: .bold))
-                                Text(StaffDirectory.scopeDescription(for: account))
-                                    .font(.caption)
-                                    .foregroundStyle(Palette.textMuted)
-                                Text("\(account.email) · \(account.password)")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Palette.textMuted)
+                                    .font(
+                                        .system(
+                                            .subheadline,
+                                            weight: .bold
+                                        )
+                                    )
+
+                                Text(
+                                    StaffDirectory
+                                        .scopeDescription(
+                                            for: account
+                                        )
+                                )
+                                .font(.caption)
+                                .foregroundStyle(
+                                    Palette.textMuted
+                                )
+
+                                Text(
+                                    "\(account.email) · \(account.password)"
+                                )
+                                .font(.system(size: 11))
+                                .foregroundStyle(
+                                    Palette.textMuted
+                                )
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(
+                                maxWidth: .infinity,
+                                alignment: .leading
+                            )
                             .padding(14)
                             .panelFlat()
                         }
@@ -565,11 +998,17 @@ struct LoginView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 24)
             }
-            .navigationTitle("Cuentas de demostración")
+            .navigationTitle(
+                "Cuentas de demostración"
+            )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cerrar") { isDirectoryPresented = false }
+                ToolbarItem(
+                    placement: .topBarTrailing
+                ) {
+                    Button("Cerrar") {
+                        isDirectoryPresented = false
+                    }
                 }
             }
         }
@@ -584,45 +1023,116 @@ private struct RoleHandoffOverlay: View {
 
     var body: some View {
         ZStack {
-            Palette.canvas.opacity(0.92).ignoresSafeArea()
+            Palette.canvas
+                .opacity(0.92)
+                .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Image(systemName: account.role.symbol)
-                    .font(.system(size: 46, weight: .light))
-                    .foregroundStyle(account.role.accent)
-                    .frame(width: 104, height: 104)
-                    .background(account.role.accent.opacity(0.12), in: .circle)
-                    .overlay {
-                        Circle()
-                            .stroke(account.role.accent.opacity(0.5), lineWidth: 2)
-                            .scaleEffect(appeared ? 1.12 : 0.9)
-                            .opacity(appeared ? 0 : 1)
-                            .animation(.easeOut(duration: 1.1).repeatForever(autoreverses: false), value: appeared)
-                    }
-
-                VStack(spacing: 6) {
-                    CapsLabel(text: "Rol identificado")
-                    Text(account.role.label)
-                        .font(.system(.title2, weight: .black))
-                        .foregroundStyle(account.role.accent)
-                    Text(account.name)
-                        .font(.system(.subheadline, weight: .semibold))
-                    Text(StaffDirectory.scopeDescription(for: account))
-                        .font(.caption)
-                        .foregroundStyle(Palette.textMuted)
+                Image(
+                    systemName: account.role.symbol
+                )
+                .font(
+                    .system(
+                        size: 46,
+                        weight: .light
+                    )
+                )
+                .foregroundStyle(
+                    account.role.accent
+                )
+                .frame(
+                    width: 104,
+                    height: 104
+                )
+                .background(
+                    account.role.accent.opacity(0.12),
+                    in: .circle
+                )
+                .overlay {
+                    Circle()
+                        .stroke(
+                            account.role.accent.opacity(0.5),
+                            lineWidth: 2
+                        )
+                        .scaleEffect(
+                            appeared ? 1.12 : 0.9
+                        )
+                        .opacity(
+                            appeared ? 0 : 1
+                        )
+                        .animation(
+                            .easeOut(duration: 1.1)
+                                .repeatForever(
+                                    autoreverses: false
+                                ),
+                            value: appeared
+                        )
                 }
 
-                Text("Abriendo \(account.role.workspaceTitle.lowercased())…")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.textMuted)
-                    .padding(.top, 4)
+                VStack(spacing: 6) {
+                    CapsLabel(
+                        text: "Rol identificado"
+                    )
+
+                    Text(account.role.label)
+                        .font(
+                            .system(
+                                .title2,
+                                weight: .black
+                            )
+                        )
+                        .foregroundStyle(
+                            account.role.accent
+                        )
+
+                    Text(account.name)
+                        .font(
+                            .system(
+                                .subheadline,
+                                weight: .semibold
+                            )
+                        )
+
+                    Text(
+                        StaffDirectory
+                            .scopeDescription(
+                                for: account
+                            )
+                    )
+                    .font(.caption)
+                    .foregroundStyle(
+                        Palette.textMuted
+                    )
+                }
+
+                Text(
+                    "Abriendo " +
+                    "\(account.role.workspaceTitle.lowercased())…"
+                )
+                .font(.footnote)
+                .foregroundStyle(
+                    Palette.textMuted
+                )
+                .padding(.top, 4)
             }
             .padding(30)
-            .scaleEffect(appeared ? 1 : 0.94)
-            .opacity(appeared ? 1 : 0)
-            .animation(.spring(response: 0.45, dampingFraction: 0.8), value: appeared)
+            .scaleEffect(
+                appeared ? 1 : 0.94
+            )
+            .opacity(
+                appeared ? 1 : 0
+            )
+            .animation(
+                .spring(
+                    response: 0.45,
+                    dampingFraction: 0.8
+                ),
+                value: appeared
+            )
         }
-        .onAppear { appeared = true }
+        .onAppear {
+            appeared = true
+        }
     }
 }
 
