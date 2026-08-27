@@ -1,6 +1,31 @@
 import Foundation
 import Observation
 
+/// Why a proved identity was still not allowed to open a session.
+///
+/// A driver whose membership is incomplete is a data problem, not a login the app may
+/// paper over: nothing here is defaulted, so the session simply does not open and the
+/// reason is legible on the access screen.
+nonisolated enum SessionOpenError: LocalizedError, Sendable {
+    case missingStation
+    case missingStationName
+    case missingShiftGroup
+    case missingShiftSlot
+
+    var errorDescription: String? {
+        switch self {
+        case .missingStation:
+            return "Tu cuenta no tiene estación asignada. Contacta a tu supervisor."
+        case .missingStationName:
+            return "La estación de tu cuenta no tiene nombre registrado. Contacta a tu supervisor."
+        case .missingShiftGroup:
+            return "Tu cuenta no tiene grupo de turno asignado. Contacta a tu supervisor."
+        case .missingShiftSlot:
+            return "Tu cuenta no tiene horario de turno asignado. Contacta a tu supervisor."
+        }
+    }
+}
+
 /// Single source of truth for the driver session, the active shift and every log.
 /// Persists to `UserDefaults` so a reopened app keeps the shift running.
 @Observable
@@ -89,6 +114,10 @@ final class FleetStore {
     /// actually answer for that credential; anything else leaves the current profile
     /// untouched.
     private func adoptSessionDriver() {
+        // A backend session already carries its own driver, built from the principal the
+        // server proved. The directory has no entry for that person and must never be
+        // asked to supply one.
+        guard session?.principal == nil else { return }
         guard let account = currentAccount, account.role == .driver else { return }
         guard let profile = MockData.driver(for: account) else { return }
         driver = profile
@@ -185,7 +214,18 @@ final class FleetStore {
 
     var isAuthenticated: Bool { session != nil }
 
+    /// Demonstration credential behind the session, when there is one.
+    ///
+    /// A Supabase session resolves to `nil` here on purpose: no `StaffAccount` is
+    /// fabricated for it, because inventing a directory entry would put a password-bearing
+    /// demo model back in the path of a real identity.
     var currentAccount: StaffAccount? { StaffDirectory.account(id: session?.accountId) }
+
+    /// Identity proved by the backend for the open session, if it came from there.
+    var currentPrincipal: SessionPrincipal? { session?.principal }
+
+    /// The one test that separates a backend session from a demonstration one.
+    var isBackendSession: Bool { session?.principal != nil }
 
     var currentRole: StaffRole? { session?.role }
 
@@ -342,6 +382,82 @@ final class FleetStore {
 
     // MARK: - Session
 
+    /// Opens the session of an identity already proved by the backend.
+    ///
+    /// Deliberately a separate door from the demonstration one: it never consults
+    /// `StaffDirectory`, never adds an account to it, and never resolves the driver
+    /// through `MockData`. Everything the session shows about the person comes from the
+    /// `principal` the server returned.
+    ///
+    /// The device is **not** enrolled for biometric unlock here. Repeating this sign-in
+    /// without the password would require keeping a credential, which this phase does not
+    /// do; Face ID keeps working exactly as before, for demonstration accounts only.
+    ///
+    /// Throws when a driver's membership is incomplete, before any state is touched.
+    func signIn(principal: SessionPrincipal, method: SignInMethod) throws {
+        // Built first: if the membership is incomplete this throws and the store is left
+        // exactly as it was, with no half-open session.
+        let profile: Driver? = principal.role == .driver
+            ? try Self.sessionDriver(from: principal)
+            : nil
+
+        if let profile {
+            driver = profile
+        }
+
+        session = StaffSession(
+            accountId: principal.profileId,
+            role: principal.role,
+            stationId: principal.stationId,
+            method: method,
+            startedAt: Date(),
+            principal: principal
+        )
+        awaitsCredentialChoice = false
+        reloadAssignment()
+        persist()
+    }
+
+    /// Builds the driver profile of a backend session from the principal alone.
+    ///
+    /// `password` is the empty string because `Driver` still declares that legacy field;
+    /// it is a placeholder for a model shape, never a stored credential, and the password
+    /// typed on the access screen never reaches this point.
+    ///
+    /// `authorizedVehicleIds` is empty because no real assignment exists yet for this
+    /// person. An invented unit would be worse than none: the driver would see a vehicle
+    /// the station never gave them.
+    nonisolated private static func sessionDriver(
+        from principal: SessionPrincipal
+    ) throws -> Driver {
+        guard let stationId = principal.stationId, !stationId.isEmpty else {
+            throw SessionOpenError.missingStation
+        }
+        guard let stationName = principal.stationName, !stationName.isEmpty else {
+            throw SessionOpenError.missingStationName
+        }
+        guard let group = principal.shiftGroup else {
+            throw SessionOpenError.missingShiftGroup
+        }
+        guard let slot = principal.shiftSlot else {
+            throw SessionOpenError.missingShiftSlot
+        }
+
+        return Driver(
+            id: principal.profileId,
+            name: principal.name,
+            employeeNumber: principal.employeeNumber,
+            email: principal.email,
+            password: "",
+            photoAsset: "rideshare_driver_portrait",
+            stationId: stationId,
+            station: stationName,
+            group: group,
+            slot: slot,
+            authorizedVehicleIds: []
+        )
+    }
+
     /// Opens the session for an already authenticated account and links the device
     /// so future biometric unlocks resolve to this same credential.
     func signIn(account: StaffAccount, method: SignInMethod) {
@@ -386,8 +502,13 @@ final class FleetStore {
         // Same reasoning as in `init`: the session outlives the environment switch, so the
         // profile is resolved from the credential and only falls back to the
         // environment's default driver when the credential has none.
-        driver = MockData.driver
-        adoptSessionDriver()
+        //
+        // A backend session is exempt: its driver was proved by the server and no
+        // environment switch may replace that person with a seeded or laboratory one.
+        if session?.principal == nil {
+            driver = MockData.driver
+            adoptSessionDriver()
+        }
         let source = MockData.vehicles
         let activeVehicleId = activeShift?.vehicleId
 
@@ -952,7 +1073,18 @@ final class FleetStore {
     // MARK: - Persistence
 
     private func apply(_ state: PersistedState) {
-        session = state.session
+        // A backend session is not restored from disk. Identity there is proved by a live
+        // exchange with Supabase Auth, and no credential is kept to repeat it, so a
+        // restored one would be a driver the app can no longer vouch for. It is dropped
+        // and the access screen asks for credentials again; every operational record in
+        // the same payload is kept untouched.
+        if state.session?.principal == nil {
+            session = state.session
+        } else {
+            session = nil
+            // Never hand the relaunch to a biometric unlock of a different identity.
+            awaitsCredentialChoice = true
+        }
         enrolledAccountId = state.enrolledAccountId
         vehicles = state.vehicles
         activeShift = state.activeShift

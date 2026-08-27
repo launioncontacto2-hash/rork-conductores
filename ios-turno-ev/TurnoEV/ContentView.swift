@@ -10,6 +10,36 @@ struct ContentView: View {
 
     var body: some View {
         Group {
+            // A backend session resolves to no directory account on purpose, so it is
+            // routed by the role the server proved. Only the driver interface is wired to
+            // a real session today; any other role reaching this branch is refused rather
+            // than opened against demonstration data.
+            if let principal = store.currentPrincipal {
+                if principal.role == .driver, store.hasAccess(to: .driver) {
+                    RootTabView()
+                } else {
+                    AccessDeniedView()
+                }
+            } else {
+                demonstrationWorkspace
+            }
+        }
+        .labModeBanner()
+        .animation(.smooth(duration: 0.35), value: store.session?.accountId)
+        // The laboratory credential unlocks the editor and the simulation controls for
+        // this device. Both stay unlocked while the administrator reviews the interface of
+        // any other role through "Ver como…".
+        .task(id: store.session?.accountId) {
+            editor.observe(account: store.currentAccount)
+            EnvironmentControl.observe(account: store.currentAccount)
+        }
+    }
+
+    /// The original router, untouched: every demonstration credential still opens exactly
+    /// the interface it opened before.
+    @ViewBuilder
+    private var demonstrationWorkspace: some View {
+        Group {
             switch store.currentAccount {
             case .none:
                 LoginView()
@@ -66,15 +96,6 @@ struct ContentView: View {
             case .some(let account):
                 RoleWorkspaceView(account: account)
             }
-        }
-        .labModeBanner()
-        .animation(.smooth(duration: 0.35), value: store.session?.accountId)
-        // The laboratory credential unlocks the editor and the simulation controls for
-        // this device. Both stay unlocked while the administrator reviews the interface of
-        // any other role through "Ver como…".
-        .task(id: store.session?.accountId) {
-            editor.observe(account: store.currentAccount)
-            EnvironmentControl.observe(account: store.currentAccount)
         }
     }
 }

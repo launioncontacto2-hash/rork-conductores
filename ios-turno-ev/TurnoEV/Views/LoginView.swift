@@ -722,6 +722,63 @@ struct LoginView: View {
                         "\(shiftSlot)"
                     )
 
+                    // ============================================
+                    // 15B.7
+                    // El resultado deja de ser sólo diagnóstico:
+                    // abre la sesión real del conductor.
+                    // ============================================
+
+                    guard let role = StaffRole(
+                        rawValue: result.membership.role
+                    ) else {
+                        supabaseProbeMessage = nil
+                        errorMessage =
+                            "La membresía devolvió un rol que la app " +
+                            "no reconoce: \(result.membership.role)."
+                        return
+                    }
+
+                    // Sin contraseña: el correo entra sólo como dato
+                    // identificador del principal.
+                    let principal = SessionPrincipal(
+                        authUserId: result.authUserId.uuidString,
+                        profileId: result.profile.id.uuidString,
+                        name: result.profile.display_name,
+                        employeeNumber: result.profile.employee_number,
+                        email: cleanedIdentifier,
+                        role: role,
+                        stationId: result.station.id.uuidString,
+                        stationCode: result.station.code,
+                        stationName: result.station.name,
+                        shiftGroup: result.shiftGroup
+                            .flatMap(ShiftGroup.init(rawValue:)),
+                        shiftSlot: result.shiftSlot
+                            .flatMap(ShiftSlot.init(rawValue:))
+                    )
+
+                    do {
+                        try store.signIn(
+                            principal: principal,
+                            method: .credentials
+                        )
+                    } catch {
+                        supabaseProbeMessage = nil
+                        errorMessage = error.localizedDescription
+
+                        print(
+                            "[15B.7] sesión no abierta · " +
+                            error.localizedDescription
+                        )
+
+                        return
+                    }
+
+                    print(
+                        "[15B.7] sesión Supabase abierta · " +
+                        "\(principal.employeeNumber) · " +
+                        "\(role.label)"
+                    )
+
                 } catch {
                     password = ""
                     supabaseProbeMessage = nil

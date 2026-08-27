@@ -280,15 +280,88 @@ nonisolated enum SignInMethod: String, Codable, Sendable {
     }
 }
 
+/// Identity and authorisation proved by the backend, with **no credential inside**.
+///
+/// This is what an authenticated Supabase session carries: who the person is, what role
+/// the server granted, which station that role is bound to and which operational block
+/// they work. It deliberately has no `password` field — the password is verified by
+/// Supabase Auth and never travels into the app's models, its storage or its logs.
+///
+/// Everything here comes from the server. Nothing is defaulted, inferred or borrowed
+/// from the demonstration directory.
+nonisolated struct SessionPrincipal: Codable, Sendable {
+    /// `auth.users` identifier. Optional because identity in the app is the profile,
+    /// not the credential row behind it.
+    let authUserId: String?
+    /// `profiles.id`. This is the person, and the id every operational record uses.
+    let profileId: String
+    let name: String
+    let employeeNumber: String
+    let email: String
+    /// Role granted by the active membership, never chosen by the client.
+    let role: StaffRole
+    let stationId: String?
+    let stationCode: String?
+    let stationName: String?
+    /// Operational block of the membership. Required for a driver; absent for roles
+    /// that do not work a shift.
+    let shiftGroup: ShiftGroup?
+    let shiftSlot: ShiftSlot?
+}
+
 /// Active session. The role stored here is the only thing that opens an interface.
+///
+/// Two kinds of session share this type. A demonstration session carries an
+/// `accountId` resolvable in `StaffDirectory` and leaves `principal` nil; a Supabase
+/// session carries the `principal` the server proved and resolves to no directory
+/// account at all. `principal != nil` is the only test that separates them.
 nonisolated struct StaffSession: Codable, Identifiable, Sendable {
     let accountId: String
     let role: StaffRole
     let stationId: String?
     let method: SignInMethod
     let startedAt: Date
+    /// Present only on sessions opened against the backend.
+    let principal: SessionPrincipal?
 
     var id: String { accountId }
+
+    /// `principal` defaults to nil so every existing demonstration call site keeps
+    /// compiling and keeps meaning exactly what it meant before.
+    init(
+        accountId: String,
+        role: StaffRole,
+        stationId: String?,
+        method: SignInMethod,
+        startedAt: Date,
+        principal: SessionPrincipal? = nil
+    ) {
+        self.accountId = accountId
+        self.role = role
+        self.stationId = stationId
+        self.method = method
+        self.startedAt = startedAt
+        self.principal = principal
+    }
+
+    /// Decoded by hand so a session stored by an earlier build — one whose JSON has no
+    /// `principal` key at all — still restores.
+    ///
+    /// The synthesized `Decodable` would treat the missing key as a hard failure for a
+    /// non-optional field and, for the optional one, its behaviour is not something to
+    /// leave to chance here: `FleetStore.restore()` decodes the whole persisted state in
+    /// one shot, so a single unreadable session would silently discard the driver's
+    /// entire operational history. `decodeIfPresent` makes the absence explicit and
+    /// harmless.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accountId = try container.decode(String.self, forKey: .accountId)
+        role = try container.decode(StaffRole.self, forKey: .role)
+        stationId = try container.decodeIfPresent(String.self, forKey: .stationId)
+        method = try container.decode(SignInMethod.self, forKey: .method)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        principal = try container.decodeIfPresent(SessionPrincipal.self, forKey: .principal)
+    }
 }
 
 /// Credential directory. Replace with the real identity provider when the backend lands.
