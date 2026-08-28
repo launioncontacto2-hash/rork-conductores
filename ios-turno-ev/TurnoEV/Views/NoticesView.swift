@@ -11,7 +11,12 @@ struct NoticesView: View {
 
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach(store.notices) { notice in
+                        // Provenance, not the raw array: a notice written by a laboratory
+                        // session is not something the station said.
+                        if store.visibleNotices.isEmpty {
+                            emptyState
+                        }
+                        ForEach(store.visibleNotices) { notice in
                             Button {
                                 store.markNoticeRead(id: notice.id)
                             } label: {
@@ -40,6 +45,31 @@ struct NoticesView: View {
                 }
             }
         }
+    }
+
+    /// An empty bell is a legitimate state, and the honest one for a proved identity:
+    /// the station has published nothing because it cannot publish yet.
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bell.slash")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(Palette.textMuted)
+                .frame(width: 62, height: 62)
+                .background(Palette.surfaceRaised.opacity(0.6), in: .circle)
+
+            Text("Sin avisos")
+                .font(.system(.subheadline, weight: .bold))
+
+            Text(store.canPublishStationNotices
+                 ? "Aquí aparecerán los avisos de tu estación."
+                 : "Los avisos los publica el sistema operativo de tu estación. En cuanto la aplicación quede conectada, los verás aquí.")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 44)
+        .padding(.horizontal, 20)
     }
 
     private func noticeRow(_ notice: Notice) -> some View {

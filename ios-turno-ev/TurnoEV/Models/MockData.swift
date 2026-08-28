@@ -313,7 +313,8 @@ nonisolated enum MockData {
                 title: "Recuerda cargar al 100% antes de entregar",
                 body: "La unidad debe quedar conectada al cargador de la bahía asignada al terminar tu turno.",
                 createdAt: hoursAgo(1),
-                read: false
+                read: false,
+                origin: .simulated
             ),
             Notice(
                 id: "not-004",
@@ -321,7 +322,8 @@ nonisolated enum MockData {
                 title: "Mantenimiento programado · TEV-014",
                 body: "Servicio de 40,000 km el viernes a las 15:00 en Estación Norte. Entrega la unidad 30 min antes.",
                 createdAt: hoursAgo(6),
-                read: false
+                read: false,
+                origin: .simulated
             ),
             Notice(
                 id: "not-003",
@@ -329,7 +331,8 @@ nonisolated enum MockData {
                 title: "Pago de crédito por vencer",
                 body: "Tu abono semanal de $1,200 se aplica el domingo. Saldo restante $46,800.",
                 createdAt: hoursAgo(20),
-                read: false
+                read: false,
+                origin: .simulated
             ),
             Notice(
                 id: "not-002",
@@ -337,7 +340,8 @@ nonisolated enum MockData {
                 title: "Aviso de estación · Bahía 4 cerrada",
                 body: "La bahía 4 estará fuera de servicio por instalación de cargador rápido. Usa bahías 1 a 3.",
                 createdAt: hoursAgo(30),
-                read: true
+                read: true,
+                origin: .simulated
             ),
             Notice(
                 id: "not-001",
@@ -345,7 +349,8 @@ nonisolated enum MockData {
                 title: "Revisión de llantas quincenal",
                 body: "Reporta presión y desgaste en el reporte de incidencias si detectas algo fuera de rango.",
                 createdAt: hoursAgo(52),
-                read: true
+                read: true,
+                origin: .simulated
             ),
         ]
     }

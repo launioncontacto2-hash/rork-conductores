@@ -753,6 +753,302 @@ struct CoverageDemonstrationTests {
     }
 }
 
+// MARK: - 15B.14 · notices and the station's voice
+
+/// 15B.14 · the app may not speak in the station's voice.
+///
+/// A notice is the smallest thing in this app and the most persuasive: it is a sentence
+/// addressed to the driver, in the second person, asserting that some desk somewhere
+/// received, approved or confirmed something. Eighteen producers existed and every one
+/// of them minted its sentence locally.
+@MainActor
+struct NoticeBoundaryTests {
+
+    // MARK: Provenance
+
+    /// A · a notice stored before provenance existed is read as simulated.
+    @Test func legacyNoticeDecodesAsSimulated() throws {
+        let json = #"""
+        {
+          "id": "not-legacy",
+          "kind": "station",
+          "title": "Incidencia enviada a la estación",
+          "body": "Tu reporte de daño quedó en revisión.",
+          "createdAt": "2026-08-20T11:07:00Z",
+          "read": false
+        }
+        """#
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let notice = try decoder.decode(Notice.self, from: Data(json.utf8))
+
+        #expect(notice.origin == .simulated)
+        #expect(notice.isAuthoritative == false)
+        // And absence is never promoted: the sentence above is exactly the one that must
+        // not survive into a real operation.
+        #expect(NoticeRules.adopts(origin: notice.origin, authority: .stationPublished) == false)
+    }
+
+    /// B · a simulated notice is invisible to a proved identity in production.
+    ///
+    /// Notices carry no owner field — the container says whose they are — so provenance
+    /// is the whole test, and it is the one that was missing.
+    @Test func simulatedNoticesAreNotShownInProduction() {
+        let simulated = Self.notice(id: "not-sim", title: "Reserva confirmada", origin: .simulated)
+
+        #expect(NoticeRules.visible([simulated], authority: .stationPublished).isEmpty)
+        #expect(NoticeRules.visible([simulated], authority: .localBulletin).count == 1)
+    }
+
+    /// C · a notice the station genuinely published is shown.
+    ///
+    /// Nothing can mint one today, and that is the point of asserting it: the cut must
+    /// close the local door without walling off the real one. The day a station publishes
+    /// a bay closure, this is the path it arrives on.
+    @Test func backendNoticesAreShownInProduction() throws {
+        let published = Self.notice(
+            id: "not-backend",
+            title: "Aviso de estación · Bahía 4 cerrada",
+            origin: .backend
+        )
+
+        #expect(NoticeRules.visible([published], authority: .stationPublished).count == 1)
+        #expect(NoticeRules.visible([published], authority: .localBulletin).count == 1)
+
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.store.notices = [published, Self.notice(id: "not-sim", title: "Crédito aprobado", origin: .simulated)]
+
+        #expect(bench.store.visibleNotices.count == 1)
+        #expect(bench.store.visibleNotices.first?.id == "not-backend")
+    }
+
+    // MARK: The single frontier
+
+    /// D · no local operation can publish in the station's voice under a proved identity.
+    ///
+    /// Walked through the actual producers rather than through `pushNotice` alone: the
+    /// failure being fixed was that each of these narrated its own local success as an
+    /// authority's acknowledgement.
+    @Test func blockedOperationsPublishNoNotice() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(bench.store.canPublishStationNotices == false)
+        #expect(bench.store.noticeAuthority == .stationPublished)
+
+        // The frontier itself.
+        #expect(bench.store.pushNotice(kind: .station, title: "Depósito notificado a gerencia", body: "—") == false)
+
+        // "Reporte enviado a supervisión".
+        #expect(bench.store.notifySupervisor(reason: "La unidad no enciende") == false)
+
+        // "Incidencia enviada a la estación".
+        #expect(throws: OperationalMutationError.backendRequired) {
+            try bench.store.reportIncident(kind: .damage, description: "Golpe menor.", photos: [])
+        }
+
+        // "Crédito aprobado".
+        #expect(throws: FinancialMutationError.backendRequired) {
+            try bench.store.requestCredit()
+        }
+
+        #expect(bench.store.notices.isEmpty)
+        #expect(bench.store.visibleNotices.isEmpty)
+        #expect(bench.store.unreadNoticeCount == 0)
+    }
+
+    /// E · the recovery programme holds no seat it cannot actually hold.
+    ///
+    /// The most seductive of the eighteen: a driver who has just been told they lost a
+    /// bonus, offered a way back, and shown "Reserva confirmada" for a day nobody
+    /// reserved — who would then arrive at a station not expecting them.
+    @Test func recoveryBookingIsRefusedInProductionWithNoNotice() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let day = ShiftRules.calendar.date(byAdding: .day, value: 7, to: bench.store.now) ?? bench.store.now
+
+        #expect(bench.store.bookRecovery(date: day, slot: .morning, bonus: .punctuality) == false)
+
+        #expect(bench.store.recoveryBookings.isEmpty)
+        #expect(bench.store.upcomingRecoveryBookings.isEmpty)
+        #expect(bench.store.recoveryBooking(on: day) == nil)
+        #expect(bench.store.notices.isEmpty)
+
+        // Inside the laboratory the programme works exactly as it did.
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        let labDay = BonusRules.recoveryGroup(for: bench.store.driver) == bench.store.driver.group
+            ? nil
+            : Self.firstBookableDay(bench)
+        if let labDay {
+            #expect(bench.store.bookRecovery(date: labDay, slot: .morning, bonus: .punctuality))
+            #expect(bench.store.recoveryBookings.count == 1)
+            #expect(bench.store.visibleNotices.contains { $0.title.contains("Reserva confirmada") })
+            #expect(bench.store.visibleNotices.allSatisfy { $0.origin == .simulated })
+        }
+    }
+
+    // MARK: Environment
+
+    /// F · a notice written in the laboratory does not follow the driver out of it.
+    ///
+    /// Not deleted — filtered. It is waiting where it was written.
+    @Test func laboratoryNoticesDoNotLeakIntoProductionAndComeBack() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.pushNotice(kind: .station, title: "Guardia confirmada", body: "Sábado matutino."))
+        #expect(bench.store.visibleNotices.count == 1)
+        #expect(bench.store.visibleNotices.first?.origin == .simulated)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.notices.isEmpty)
+        #expect(bench.store.visibleNotices.isEmpty)
+        #expect(bench.store.unreadNoticeCount == 0)
+        // Both blobs are still on disk; nothing was cleaned up to reach that empty bell.
+        #expect(bench.defaults.data(forKey: bench.productionKey) != nil)
+        #expect(bench.defaults.data(forKey: bench.laboratoryKey) != nil)
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.visibleNotices.count == 1)
+        #expect(bench.store.visibleNotices.first?.title == "Guardia confirmada")
+    }
+
+    /// G · the unread badge counts only what may be shown.
+    ///
+    /// A bell badge over an empty list is its own small lie, and it is the one a filter
+    /// applied at the view layer alone would have left standing.
+    @Test func unreadCountRespectsProvenance() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.store.notices = [
+            Self.notice(id: "not-sim-1", title: "Turno cerrado", origin: .simulated),
+            Self.notice(id: "not-sim-2", title: "Crédito aprobado", origin: .simulated),
+            Self.notice(id: "not-backend", title: "Aviso de estación", origin: .backend),
+        ]
+
+        #expect(bench.store.visibleNotices.count == 1)
+        #expect(bench.store.unreadNoticeCount == 1)
+
+        bench.store.markAllNoticesRead()
+
+        #expect(bench.store.unreadNoticeCount == 0)
+        // The laboratory's own notices were not dismissed by a reader who could not see
+        // them: they come back unread, in their own environment.
+        #expect(bench.store.notices.filter { $0.origin == .simulated }.allSatisfy { !$0.read })
+    }
+
+    /// H · the demonstration bell is untouched.
+    @Test func theDemonstrationSessionKeepsItsNotices() throws {
+        let suiteName = "turnoev.tests.notices.demo.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = FleetStore(environment: RuntimeEnvironment(defaults: defaults), defaults: defaults)
+
+        #expect(store.canPublishStationNotices)
+        #expect(store.noticeAuthority == .localBulletin)
+        // Everything the seed wrote is still readable: nothing was filtered out from under
+        // the demonstration.
+        #expect(store.visibleNotices.count == store.notices.count)
+        #expect(store.notices.allSatisfy { $0.origin == .simulated })
+
+        let before = store.notices.count
+        #expect(store.pushNotice(kind: .station, title: "Incidencia enviada a la estación", body: "En revisión."))
+        #expect(store.notices.count == before + 1)
+        #expect(store.visibleNotices.count == before + 1)
+        #expect(store.unreadNoticeCount >= 1)
+    }
+
+    // MARK: Bench
+
+    private struct Bench {
+        let suiteName: String
+        let defaults: UserDefaults
+        let environment: RuntimeEnvironment
+        let store: FleetStore
+        let profileId: String
+
+        var productionKey: String { "turnoev.state.v4.\(profileId)" }
+        var laboratoryKey: String { "turnoev.state.v4.lab.\(profileId)" }
+
+        func discard() {
+            defaults.removePersistentDomain(forName: suiteName)
+            AssignmentBook.remove(driverId: profileId)
+        }
+    }
+
+    private static func bench() throws -> Bench {
+        let suiteName = "turnoev.tests.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+        let profileId = "DRV-NOTICE-\(UUID().uuidString.prefix(8))"
+
+        try store.signIn(
+            principal: SessionPrincipal(
+                authUserId: UUID().uuidString,
+                profileId: profileId,
+                name: "Conductor de prueba",
+                employeeNumber: "EMP-TEST",
+                email: "notice.driver@joramza.test",
+                role: .driver,
+                stationId: "est-001",
+                stationCode: "IZT",
+                stationName: "Estación Iztapalapa",
+                shiftGroup: .weekday,
+                shiftSlot: .morning
+            ),
+            method: .credentials
+        )
+
+        return Bench(
+            suiteName: suiteName,
+            defaults: defaults,
+            environment: environment,
+            store: store,
+            profileId: profileId
+        )
+    }
+
+    /// First day the recovery calendar actually accepts, so the laboratory half of E is
+    /// exercising the boundary and not the programme's own eligibility rules.
+    private static func firstBookableDay(_ bench: Bench) -> Date? {
+        let calendar = ShiftRules.calendar
+        let driver = bench.store.driver
+        for offset in 1...21 {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: bench.store.now) else { continue }
+            if BonusRules.canBook(driver: driver, date: day, now: bench.store.now) { return day }
+        }
+        return nil
+    }
+
+    private static func notice(id: String, title: String, origin: NoticeOrigin) -> Notice {
+        Notice(
+            id: id,
+            kind: .station,
+            title: title,
+            body: "—",
+            createdAt: Date(),
+            read: false,
+            origin: origin
+        )
+    }
+}
+
 // MARK: - 15B.13.3 · shift cycle and incident boundary
 
 /// 15B.13.3 · a shift and an incident are facts of a station's day, not rows of a phone.

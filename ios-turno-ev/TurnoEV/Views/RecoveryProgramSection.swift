@@ -274,21 +274,40 @@ struct RecoveryProgramSection: View {
             if let feedback {
                 Text(feedback)
                     .font(.footnote)
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(canReserve ? Palette.volt : Palette.amber)
+            }
+
+            if !canReserve {
+                // The programme is explained above and stays explained: what is missing is
+                // the register that would hold the seat, not the driver's right to it.
+                NoticeBanner(
+                    symbol: "antenna.radiowaves.left.and.right.slash",
+                    title: "La reserva aún no puede enviarse",
+                    message: "El programa existe y tu grupo aplica, pero el lugar lo aparta el sistema operativo de tu estación. En cuanto la aplicación quede conectada, podrás reservar desde aquí.",
+                    tone: .amber
+                )
             }
 
             BigButton(
-                title: "Reservar día de recuperación",
-                symbol: "checkmark.circle.fill",
-                isEnabled: selectedDay != nil
+                title: canReserve ? "Reservar día de recuperación" : "Reserva no disponible",
+                symbol: canReserve ? "checkmark.circle.fill" : "clock.badge.exclamationmark",
+                tone: canReserve ? .volt : .outline,
+                isEnabled: canReserve && selectedDay != nil
             ) {
                 reserve()
             }
         }
     }
 
+    /// Whether a seat can actually be held on the other end.
+    private var canReserve: Bool { store.canSimulateOperationalCoordination }
+
     private func reserve() {
         guard let day = selectedDay else { return }
+        guard canReserve else {
+            feedback = "Esta operación requiere conexión con el sistema operativo de la estación."
+            return
+        }
         let saved = store.bookRecovery(date: day, slot: activeSlot, bonus: activeBonus)
         if saved {
             feedback = "Reserva confirmada para \(Fmt.dateShort(day).capitalized) en turno \(activeSlot.label.lowercased())."

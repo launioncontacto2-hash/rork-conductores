@@ -417,6 +417,35 @@ final class FleetStore {
     /// one restoration will accept back.
     var operationalOrigin: OperationalRecordOrigin { operationalCapability.origin }
 
+    // MARK: - Notice boundary
+
+    /// Whether this session may write into the driver's bell in the station's voice.
+    ///
+    /// The fifth boundary, and the smallest thing any of them guards — which is exactly
+    /// why it needs its own. The four above stop records: a contract, a claimed guard, an
+    /// assignment, a shift. A notice is not a record; it is a sentence addressed to the
+    /// driver, and it is how every one of those records *announces itself*. "Depósito en
+    /// efectivo notificado a gerencia" is not a row somebody might later read — it is the
+    /// app telling a person, in the second person, that a manager has their receipt.
+    ///
+    /// It gets its own property rather than riding on the others because its future is
+    /// the opposite of theirs. The others end when a service lands and the app starts
+    /// writing real records. This one ends when the station starts *sending* — notices
+    /// that correspond to no local record at all: a bay closed, a policy changed, a
+    /// summons. That day this flips on its own, and the four below may still be refusing.
+    var canPublishStationNotices: Bool { !runsAgainstStation }
+
+    /// Whose voice the bell speaks in for the open session.
+    var noticeAuthority: NoticeAuthority {
+        canPublishStationNotices ? .localBulletin : .stationPublished
+    }
+
+    /// What the bell may show. Filtered by provenance, never emptied by deletion: a
+    /// laboratory notice stays in the laboratory blob and returns with it.
+    var visibleNotices: [Notice] {
+        NoticeRules.visible(notices, authority: noticeAuthority)
+    }
+
     /// Whether the shift standing in memory is one this session may act on.
     ///
     /// A `.simulated` shift left open inside the laboratory is not closeable from
@@ -475,7 +504,9 @@ final class FleetStore {
         return vehicles.first { $0.id == shift.vehicleId }
     }
 
-    var unreadNoticeCount: Int { notices.filter { !$0.read }.count }
+    /// The badge on the bell. Counted over what may be shown, so a simulated notice can
+    /// never leave a proved identity with an unread mark on an empty list.
+    var unreadNoticeCount: Int { visibleNotices.filter { !$0.read }.count }
 
     var hasCredit: Bool { credit != nil }
 
@@ -714,13 +745,20 @@ final class FleetStore {
         let capability: OperationalCapability = adoptedEnvironment == .production
             ? .stationRequired
             : .localWorkflow
+        // Resolved from the same environment, separately on purpose: the two boundaries
+        // answer alike today and are expected to diverge — a station can start publishing
+        // notices long before it can certify a shift.
+        let authority: NoticeAuthority = adoptedEnvironment == .production
+            ? .stationPublished
+            : .localBulletin
         let owned = Self.ownedState(
             Self.restore(
                 key: Self.identityStorageKey(profileId: profileId, environment: adoptedEnvironment),
                 defaults: defaults
             ),
             driverId: profileId,
-            capability: capability
+            capability: capability,
+            noticeAuthority: authority
         )
         vehicles = owned.vehicles
         activeShift = owned.activeShift
@@ -1024,8 +1062,21 @@ final class FleetStore {
         recoveryBookings.sorted { $0.date < $1.date }
     }
 
+    /// Reserves a seat in the recovery programme.
+    ///
+    /// Refuses under a proved identity before anything is written, and the boundary it
+    /// asks is the coordination one — deliberately reused, because this is literally the
+    /// same act it was created for. Booking a recovery day is asking the station to hold
+    /// a shift open for you on a date; an absence request and a claimed guard are the
+    /// same sentence with different subjects. There is one desk on the other end, absent
+    /// in the same way, and the day it exists all three become possible together.
+    ///
+    /// Nothing here is a permission problem: the driver is entitled to the programme.
+    /// What is missing is the register that would hold the seat, so the seat is not
+    /// promised.
     @discardableResult
     func bookRecovery(date: Date, slot: ShiftSlot, bonus: BonusKind) -> Bool {
+        guard canSimulateOperationalCoordination else { return false }
         guard BonusRules.canBook(driver: driver, date: date, now: now) else { return false }
         guard recoveryBooking(on: date) == nil else { return false }
 
@@ -1543,8 +1594,12 @@ final class FleetStore {
         persist()
     }
 
+    /// Marks read only what this session can actually see. A notice belonging to another
+    /// environment is not the reader's to dismiss.
     func markAllNoticesRead() {
+        let visible = Set(visibleNotices.map(\.id))
         notices = notices.map { notice in
+            guard visible.contains(notice.id) else { return notice }
             var updated = notice
             updated.read = true
             return updated
@@ -1552,7 +1607,24 @@ final class FleetStore {
         persist()
     }
 
-    func pushNotice(kind: NoticeKind, title: String, body: String) {
+    /// Publishes a notice in the station's voice — and the single frontier where that is
+    /// decided, for every producer in the app.
+    ///
+    /// There are eighteen call sites across five stores, and auditing them one by one
+    /// found the same shape each time: an operation succeeds locally and narrates itself
+    /// as received by an authority. "Incidencia enviada a la estación." "Reserva
+    /// confirmada." "Crédito aprobado." "Depósito notificado a gerencia." Gating each one
+    /// separately would mean eighteen chances to forget, and every new feature would be
+    /// a nineteenth. So the refusal lives here, once, where the sentence is minted.
+    ///
+    /// Returns whether anything was published, rather than throwing: a notice is a
+    /// side effect of an operation that has already made its own decision, and forcing
+    /// every caller into `try?` would hide the refusal instead of stating it. Callers
+    /// that show a confirmation to the driver — `notifySupervisor`, `bookRecovery` — read
+    /// this and say something true instead.
+    @discardableResult
+    func pushNotice(kind: NoticeKind, title: String, body: String) -> Bool {
+        guard canPublishStationNotices else { return false }
         notices.insert(
             Notice(
                 id: "not-\(UUID().uuidString.prefix(8))",
@@ -1560,11 +1632,13 @@ final class FleetStore {
                 title: title,
                 body: body,
                 createdAt: now,
-                read: false
+                read: false,
+                origin: noticeAuthority.origin
             ),
             at: 0
         )
         persist()
+        return true
     }
 
     // MARK: - Persistence
@@ -1652,7 +1726,8 @@ final class FleetStore {
     nonisolated private static func ownedState(
         _ stored: PersistedState?,
         driverId: String,
-        capability: OperationalCapability
+        capability: OperationalCapability,
+        noticeAuthority: NoticeAuthority
     ) -> PersistedState {
         var owned = emptyOperationalState()
         guard let stored else { return owned }
@@ -1687,9 +1762,12 @@ final class FleetStore {
             capability: capability
         )
         owned.credit = stored.credit.flatMap { $0.driverId == driverId && $0.origin == .backend ? $0 : nil }
-        // No ownership field of their own; they are trusted only because they were written
-        // under this identity's key, and never inherited from another session.
-        owned.notices = stored.notices
+        // No ownership field of their own — the container establishes whose they are — so
+        // provenance is the only question left, and it is the one that matters: a bell
+        // full of "enviado", "aprobado" and "confirmado" written by a laboratory run is
+        // the most persuasive thing this app can show a driver, and the least true. The
+        // rows stay on disk and come back with their own environment.
+        owned.notices = NoticeRules.visible(stored.notices, authority: noticeAuthority)
         owned.supervisorReports = stored.supervisorReports
         owned.recoveryBookings = stored.recoveryBookings
         owned.notifiedBonusWeeks = stored.notifiedBonusWeeks

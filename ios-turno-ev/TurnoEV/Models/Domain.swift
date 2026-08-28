@@ -404,6 +404,34 @@ nonisolated struct Notice: Codable, Identifiable, Sendable {
     let body: String
     let createdAt: Date
     var read: Bool
+    /// Who is speaking. A notice is written in the second person, in the voice of the
+    /// station — "tu reporte quedó en revisión" — so without this stamp a sentence this
+    /// device invented was indistinguishable from one a desk actually sent.
+    let origin: NoticeOrigin
+
+    var isAuthoritative: Bool { origin == .backend }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, title, body, createdAt, read, origin
+    }
+}
+
+extension Notice {
+    /// Notices stored before 15B.14 decode as `.simulated`.
+    ///
+    /// Absence is never read as authority: everything written before this boundary
+    /// existed was written by this device, and a missing field cannot be evidence that a
+    /// station spoke.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        kind = try container.decode(NoticeKind.self, forKey: .kind)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        read = try container.decode(Bool.self, forKey: .read)
+        origin = try container.decodeIfPresent(NoticeOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 nonisolated enum CreditStatus: String, Codable, Sendable {
