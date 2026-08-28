@@ -105,8 +105,9 @@ struct StartShiftView: View {
             }
             .alert("Inicio bloqueado", isPresented: .constant(!issues.isEmpty)) {
                 Button("Notificar a supervisor", role: .destructive) {
-                    store.notifySupervisor(reason: issues.map(\.message).joined(separator: " · "))
-                    supervisorNotified = true
+                    supervisorNotified = store.notifySupervisor(
+                        reason: issues.map(\.message).joined(separator: " · ")
+                    )
                     issues = []
                 }
                 Button("Corregir", role: .cancel) { issues = [] }
@@ -366,10 +367,21 @@ struct StartShiftView: View {
                 .font(.footnote)
                 .foregroundStyle(Palette.textMuted)
                 .multilineTextAlignment(.center)
-            BigButton(title: "Solicitar unidad a supervisión", symbol: "paperplane.fill", tone: .outline) {
-                store.notifySupervisor(reason: "\(store.driver.name) solicita asignación de unidad para su turno \(store.driver.slot.label.lowercased()).")
-                supervisorNotified = true
-                dismiss()
+            if store.canSimulateOperationalCoordination {
+                BigButton(title: "Solicitar unidad a supervisión", symbol: "paperplane.fill", tone: .outline) {
+                    supervisorNotified = store.notifySupervisor(
+                        reason: "\(store.driver.name) solicita asignación de unidad para su turno \(store.driver.slot.label.lowercased())."
+                    )
+                    dismiss()
+                }
+            } else {
+                // No station service receives this yet. A button that answers "enviado"
+                // would be the second lie on a screen whose whole job is to say the truth
+                // about a unit that does not exist.
+                Text("La solicitud de unidad se registra en el sistema de tu estación. Aún no está disponible desde la aplicación.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.textMuted)
+                    .multilineTextAlignment(.center)
             }
         }
         .padding(28)
@@ -379,6 +391,13 @@ struct StartShiftView: View {
 
     private func handleDetected(code: String) {
         let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // Two different truths, and saying the wrong one sends the driver looking for a
+        // sticker problem that does not exist. "No pertenece a la flotilla" is a claim
+        // about the code; with no published assignment the problem is upstream of it.
+        guard store.unitAssignment != nil else {
+            scanMessage = "Todavía no tienes una unidad asignada. El cotejo se activa cuando tu estación la registre."
+            return
+        }
         guard let found = store.vehicles.first(where: {
             $0.qrCode.uppercased() == normalized || $0.internalNumber.uppercased() == normalized
         }) else {
@@ -434,13 +453,25 @@ struct StartShiftView: View {
             return
         }
 
-        store.startShift(
-            vehicle: vehicle,
-            odometerKm: odometer,
-            batteryPct: battery,
-            odometerPhoto: odometerPhoto,
-            batteryPhoto: batteryPhoto
-        )
+        do {
+            try store.startShift(
+                vehicle: vehicle,
+                odometerKm: odometer,
+                batteryPct: battery,
+                odometerPhoto: odometerPhoto,
+                batteryPhoto: batteryPhoto
+            )
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            issues = [
+                AssignmentIssue(
+                    code: .notAssigned,
+                    message: (error as? UnitAssignmentError)?.failureReason
+                        ?? "No se pudo iniciar el turno con esta unidad."
+                )
+            ]
+            return
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
     }

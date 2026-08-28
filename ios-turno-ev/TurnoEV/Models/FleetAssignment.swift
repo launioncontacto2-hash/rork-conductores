@@ -45,8 +45,39 @@ nonisolated struct VehicleAssignment: Codable, Identifiable, Sendable {
     var note: String
     var assignedBy: String
     var assignedAt: Date
+    /// Who tied this unit to this driver. Never defaulted at the writing end: every
+    /// caller has to say where the assignment came from.
+    let origin: AssignmentOrigin
 
     var isSubstitute: Bool { kind == .substitute }
+
+    /// Whether this record can be presented as the station's own act.
+    var isAuthoritative: Bool { origin == .backend }
+}
+
+extension VehicleAssignment {
+    /// Conservative reading of a record written before provenance existed.
+    ///
+    /// Everything already on a device was written by a demonstration session — the only
+    /// kind that could write one — so a missing stamp reads `.simulated`. It is never
+    /// promoted: an old row keeps working for the demonstration world and stays invisible
+    /// to a proved identity, which is the whole point of reading it conservatively.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        stationId = try container.decode(String.self, forKey: .stationId)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        driverName = try container.decode(String.self, forKey: .driverName)
+        vehicleId = try container.decode(String.self, forKey: .vehicleId)
+        vehicleNumber = try container.decode(String.self, forKey: .vehicleNumber)
+        kind = try container.decode(AssignedUnitKind.self, forKey: .kind)
+        titularVehicleId = try container.decodeIfPresent(String.self, forKey: .titularVehicleId)
+        titularVehicleNumber = try container.decodeIfPresent(String.self, forKey: .titularVehicleNumber)
+        note = try container.decode(String.self, forKey: .note)
+        assignedBy = try container.decode(String.self, forKey: .assignedBy)
+        assignedAt = try container.decode(Date.self, forKey: .assignedAt)
+        origin = try container.decodeIfPresent(AssignmentOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 /// Shared assignment registry. Same bridge pattern as the recruitment handoff: what the
@@ -115,6 +146,7 @@ nonisolated enum AssignmentBook {
         kind: AssignedUnitKind,
         note: String,
         assignedBy: String,
+        origin: AssignmentOrigin,
         now: Date,
         previous: VehicleAssignment?
     ) -> VehicleAssignment {
@@ -142,7 +174,8 @@ nonisolated enum AssignmentBook {
             titularVehicleNumber: titularNumber,
             note: note.trimmingCharacters(in: .whitespacesAndNewlines),
             assignedBy: assignedBy,
-            assignedAt: now
+            assignedAt: now,
+            origin: origin
         )
     }
 }

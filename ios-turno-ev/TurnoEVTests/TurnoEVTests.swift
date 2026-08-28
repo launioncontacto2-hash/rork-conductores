@@ -752,3 +752,181 @@ struct CoverageDemonstrationTests {
         #expect(free.kind == .rest)
     }
 }
+
+// MARK: - 15B.13.2 · unit assignment boundary
+
+/// 15B.13.2 · a unit is adopted only when the station can be shown to have given it.
+///
+/// The rules are pure on purpose: restoration, an environment switch and a data wipe all
+/// ask the same question, and three private copies of the answer is exactly how the
+/// documented contradiction appeared.
+nonisolated struct UnitAssignmentBoundaryTests {
+
+    private static let backendDriverId = "DRV-TEST-001"
+
+    private static func assignment(
+        driverId: String,
+        origin: AssignmentOrigin,
+        vehicleId: String = "veh-014",
+        vehicleNumber: String = "TEV-014"
+    ) -> VehicleAssignment {
+        VehicleAssignment(
+            id: "asg-test",
+            stationId: "est-001",
+            driverId: driverId,
+            driverName: "Conductor de prueba",
+            vehicleId: vehicleId,
+            vehicleNumber: vehicleNumber,
+            kind: .titular,
+            titularVehicleId: nil,
+            titularVehicleNumber: nil,
+            note: "",
+            assignedBy: "Supervisión de estación",
+            assignedAt: Date(),
+            origin: origin
+        )
+    }
+
+    /// A · a record written before provenance existed reads as local, never as the
+    /// station's act. Everything already on a device was written by a demonstration
+    /// session, which is the only kind that could write one.
+    @Test func legacyAssignmentWithoutOriginReadsAsSimulated() throws {
+        let json = """
+        {
+          "id": "asg-legacy",
+          "stationId": "est-001",
+          "driverId": "drv-001",
+          "driverName": "Carlos Méndez Rivas",
+          "vehicleId": "veh-014",
+          "vehicleNumber": "TEV-014",
+          "kind": "titular",
+          "note": "Asignación inicial del perfil de demostración.",
+          "assignedBy": "Supervisión de estación",
+          "assignedAt": "2026-08-01T12:00:00Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(VehicleAssignment.self, from: Data(json.utf8))
+
+        #expect(decoded.origin == .simulated)
+        #expect(decoded.isAuthoritative == false)
+        // Still perfectly usable by the world that wrote it.
+        #expect(decoded.vehicleNumber == "TEV-014")
+    }
+
+    /// B · the same `driverId` is not the station vouching for a unit.
+    ///
+    /// This is the case the module was one coincidence away from: a local row naming the
+    /// proved identity would have been adopted whole.
+    @Test func simulatedAssignmentIsRefusedEvenWithTheExactBackendProfileId() {
+        let local = Self.assignment(driverId: Self.backendDriverId, origin: .simulated)
+
+        let adopted = UnitAssignmentRules.resolve(
+            stored: local,
+            driverId: Self.backendDriverId,
+            capability: .stationRequired
+        )
+
+        #expect(adopted == nil)
+    }
+
+    /// C · provenance alone is not enough either: a station record belongs to the person
+    /// it names.
+    @Test func backendAssignmentOfAnotherDriverIsRefused() {
+        let other = Self.assignment(driverId: "DRV-TEST-777", origin: .backend)
+
+        let adopted = UnitAssignmentRules.resolve(
+            stored: other,
+            driverId: Self.backendDriverId,
+            capability: .stationRequired
+        )
+
+        #expect(adopted == nil)
+    }
+
+    /// D · the legitimate case resolves, so the boundary refuses rather than blocks.
+    @Test func backendAssignmentOfTheSameDriverResolves() throws {
+        let mine = Self.assignment(driverId: Self.backendDriverId, origin: .backend)
+
+        let adopted = try #require(
+            UnitAssignmentRules.resolve(
+                stored: mine,
+                driverId: Self.backendDriverId,
+                capability: .stationRequired
+            )
+        )
+
+        #expect(adopted.driverId == Self.backendDriverId)
+        #expect(adopted.isAuthoritative)
+    }
+
+    /// E · with nothing stored there is no unit and no inventory to cross-check against.
+    @Test func backendSessionWithoutAssignmentHasNoUnitAndNoFleet() {
+        let adopted = UnitAssignmentRules.resolve(
+            stored: nil,
+            driverId: Self.backendDriverId,
+            capability: .stationRequired
+        )
+        #expect(adopted == nil)
+        #expect(UnitAssignmentRules.catalogue([], capability: .stationRequired).isEmpty)
+    }
+
+    /// G · no route can hand the demonstration fleet to a proved identity.
+    ///
+    /// The three that could — an environment switch, a data wipe and the restoration of a
+    /// stored catalogue — now ask this one function, so the guarantee is a property of
+    /// the rule instead of a promise repeated in three comments.
+    @Test func noEnvironmentCanIntroduceTheDemonstrationFleetIntoABackendSession() {
+        let demoFleet = MockData.vehicles
+        #expect(!demoFleet.isEmpty)
+
+        #expect(UnitAssignmentRules.catalogue(demoFleet, capability: .stationRequired).isEmpty)
+        // And a catalogue already persisted under the identity's own key is not adopted
+        // either: only the server may fill it.
+        #expect(UnitAssignmentRules.catalogue(demoFleet, capability: .localSimulation).count == demoFleet.count)
+    }
+
+    /// F · the demonstration world keeps TEV-014 and every previous behaviour.
+    @Test func demonstrationSessionKeepsItsTitularUnitAndFleet() throws {
+        let carlos = MockData.seededDriver
+        let legacy = Self.assignment(
+            driverId: carlos.id,
+            origin: .simulated,
+            vehicleId: MockData.seededTitularVehicleId
+        )
+
+        let adopted = try #require(
+            UnitAssignmentRules.resolve(
+                stored: legacy,
+                driverId: carlos.id,
+                capability: .localSimulation
+            )
+        )
+
+        #expect(adopted.vehicleId == MockData.seededTitularVehicleId)
+        #expect(adopted.vehicleNumber == "TEV-014")
+        #expect(UnitAssignmentRules.catalogue(MockData.vehicles, capability: .localSimulation).contains {
+            $0.id == MockData.seededTitularVehicleId
+        })
+    }
+
+    /// A unit cross-check without a published assignment is not a wrong sticker.
+    ///
+    /// The distinction the start screen makes in words, held by the rule underneath it:
+    /// the issue raised is `.notAssigned`, not `.wrongVehicle`.
+    @Test func missingAssignmentIsReportedAsUnassignedNotAsAWrongUnit() throws {
+        let driver = MockData.seededDriver
+        let vehicle = try #require(MockData.vehicles.first)
+
+        let issues = ShiftRules.validateUnit(
+            driver: driver,
+            vehicle: vehicle,
+            assignedVehicleId: nil,
+            now: Date()
+        )
+
+        #expect(issues.count == 1)
+        #expect(issues.first?.code == .notAssigned)
+    }
+}

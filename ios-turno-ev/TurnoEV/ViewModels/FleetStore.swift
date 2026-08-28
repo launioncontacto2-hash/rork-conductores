@@ -171,11 +171,18 @@ final class FleetStore {
     /// and the start screen says so. That is the correct operational state, and it is what
     /// every driver gets.
     func reloadAssignment() {
-        if let stored = AssignmentBook.assignment(driverId: driver.id) {
-            unitAssignment = stored
+        let capability = unitAssignmentCapability
+        if let adopted = UnitAssignmentRules.resolve(
+            stored: AssignmentBook.assignment(driverId: driver.id),
+            driverId: driver.id,
+            capability: capability
+        ) {
+            unitAssignment = adopted
             return
         }
-        guard let seeded = demoTitularUnit() else {
+        // Seeding is a write into the shared book, so it is the boundary's business too:
+        // a proved identity never fabricates its own assignment, not even the demo pair.
+        guard capability.allowsLocalSimulation, let seeded = demoTitularUnit() else {
             unitAssignment = nil
             return
         }
@@ -188,6 +195,7 @@ final class FleetStore {
             kind: .titular,
             note: "Asignación inicial del perfil de demostración.",
             assignedBy: "Supervisión de estación",
+            origin: .simulated,
             now: now,
             previous: nil
         )
@@ -305,6 +313,24 @@ final class FleetStore {
     /// from getting it wrong.
     var coordinationCapability: CoordinationCapability {
         canSimulateOperationalCoordination ? .localWorkflow : .stationRequired
+    }
+
+    // MARK: - Unit assignment boundary
+
+    /// Whether this session may create fleet inventory and unit assignments locally.
+    ///
+    /// The third boundary, and a third property rather than a reuse of the other two.
+    /// A unit is not money and it is not a coverage request: it is a physical vehicle a
+    /// supervisor hands to a person, and the station's system is the only authority that
+    /// can say who holds which one. A demonstration session mints them freely, because a
+    /// demonstration with no unit has nothing to demonstrate. A proved identity gets what
+    /// the server assigned, which today is nothing — and "todavía no tienes unidad" is a
+    /// true sentence, while a borrowed TEV-014 is not.
+    var canSimulateUnitAssignment: Bool { !isBackendSession }
+
+    /// The capability every read and write of the assignment book is judged against.
+    var unitAssignmentCapability: UnitAssignmentCapability {
+        canSimulateUnitAssignment ? .localSimulation : .stationRequired
     }
 
     var currentRole: StaffRole? { session?.role }
@@ -657,7 +683,11 @@ final class FleetStore {
             driver = MockData.driver
             adoptSessionDriver()
         }
-        let source = MockData.vehicles
+        // The environment is a **demonstration** world: switching it may not hand its
+        // catalogue to an identity the server never sent one to. This was the documented
+        // contradiction — with an empty inventory every unit fell through to `incoming`
+        // and the whole demo fleet landed on a proved driver.
+        let source = UnitAssignmentRules.catalogue(MockData.vehicles, capability: unitAssignmentCapability)
         let activeVehicleId = activeShift?.vehicleId
 
         vehicles = source.map { incoming in
@@ -675,8 +705,14 @@ final class FleetStore {
     }
 
     /// Wipes every operational record of the driver interface, leaving it at zero.
+    ///
+    /// "At zero" means different things per session, and both are literal. A
+    /// demonstration one is rebuilt on the seeded catalogue so the world stays walkable;
+    /// a proved identity is left with no inventory at all, because a wipe that ends with
+    /// a fleet the station never sent is not a wipe.
     func clearOperationalData() {
-        vehicles = MockData.vehicles
+        let capability = unitAssignmentCapability
+        vehicles = UnitAssignmentRules.catalogue(MockData.vehicles, capability: capability)
         activeShift = nil
         history = []
         incomes = []
@@ -687,8 +723,13 @@ final class FleetStore {
         recoveryBookings = []
         notifiedBonusWeeks = []
         clockOffsetMinutes = 0
-        driver = MockData.driver
-        AssignmentBook.clear()
+        // The book is shared by the whole device and a proved identity owns no row in it.
+        // Wiping it from here would erase the station's demonstration assignments — other
+        // people's records — as a side effect of clearing this driver's own operation.
+        if capability.allowsLocalSimulation {
+            driver = MockData.driver
+            AssignmentBook.clear()
+        }
         unitAssignment = nil
         persist()
     }
@@ -721,15 +762,29 @@ final class FleetStore {
     var startWindow: (opensAt: Date, closesAt: Date) { ShiftRules.startWindow(slot: driver.slot, now: now) }
 
     /// Sends the blocking reason to the station so the supervisor can act on it.
-    func notifySupervisor(reason: String) {
+    ///
+    /// Returns whether the report was actually filed. There is no station service behind
+    /// this yet — it writes a notice into local storage — so a proved identity gets a
+    /// refusal instead of a "Reporte enviado a supervisión" nobody will ever read.
+    @discardableResult
+    func notifySupervisor(reason: String) -> Bool {
+        guard canSimulateOperationalCoordination else { return false }
         pushNotice(
             kind: .station,
             title: "Reporte enviado a supervisión",
             body: reason
         )
+        return true
     }
 
     func resetDemoData() {
+        // Rebuilding the demonstration world for a proved identity would hand it a fleet,
+        // a history, incomes and a fabricated contract in one call. There is nothing of
+        // this driver's to reset locally: the wipe is the honest answer.
+        guard canSimulateUnitAssignment else {
+            clearOperationalData()
+            return
+        }
         guard !LabRuntime.isTest else {
             clearOperationalData()
             return
@@ -894,6 +949,12 @@ final class FleetStore {
     }
 
     /// Closes the three-step flow: opens the shift and files the captured evidence.
+    ///
+    /// The shift is still entirely local — connecting it to the server is 15B.13.3 — but
+    /// it may no longer be opened on a **fabricated** unit: the vehicle has to be the one
+    /// currently resolved as assigned, and it has to exist in the session's own
+    /// inventory. Without this the boundary would stop at the assignment and leak one
+    /// step later, when `assign` writes `status` and `occupiedBy` onto a vehicle.
     @discardableResult
     func startShift(
         vehicle: Vehicle,
@@ -901,7 +962,13 @@ final class FleetStore {
         batteryPct: Int,
         odometerPhoto: Data?,
         batteryPhoto: Data?
-    ) -> ActiveShift {
+    ) throws -> ActiveShift {
+        guard let assigned = unitAssignment, assigned.vehicleId == vehicle.id else {
+            throw UnitAssignmentError.unitNotAssigned
+        }
+        guard vehicles.contains(where: { $0.id == vehicle.id }) else {
+            throw UnitAssignmentError.unitNotAssigned
+        }
         let shift = assign(vehicle: vehicle, odometerKm: odometerKm, batteryPct: batteryPct)
         if let odometerPhoto { saveInspectionPhoto(slot: .odometer, data: odometerPhoto) }
         if let batteryPhoto { saveInspectionPhoto(slot: .battery, data: batteryPhoto) }
@@ -1410,7 +1477,12 @@ final class FleetStore {
         var owned = emptyOperationalState()
         guard let stored else { return owned }
 
-        owned.vehicles = stored.vehicles
+        // Deliberately **not** `stored.vehicles`. The comment above has said since 15B.10
+        // that the inventory starts empty, but the code restored whatever was on disk — so
+        // one demonstration catalogue leaking in through an environment switch became
+        // permanent the moment `persist()` ran. Nothing is deleted: the stored array stays
+        // on disk, it is simply not adopted until a server catalogue exists to fill it.
+        owned.vehicles = []
         owned.activeShift = stored.activeShift.flatMap { $0.driverId == driverId ? $0 : nil }
         owned.history = stored.history.filter { $0.driverId == driverId }
         owned.incomes = stored.incomes.filter { $0.driverId == driverId }

@@ -390,6 +390,11 @@ final class SupervisionStore {
         kind: AssignedUnitKind,
         note: String
     ) -> Bool {
+        // A supervisor board only exists behind a demonstration credential, so this is a
+        // guard that should never fire. It is here anyway: the day a real supervisor signs
+        // in through the server, the first thing that must not happen is this device
+        // minting unit assignments in the station's name.
+        guard fleet.canSimulateUnitAssignment else { return false }
         guard let vehicle = vehicles.first(where: { $0.id == vehicleId }) else { return false }
         let previous = assignment(driverId: driverId)
         let assignment = AssignmentBook.make(
@@ -401,6 +406,7 @@ final class SupervisionStore {
             kind: kind,
             note: note,
             assignedBy: account.name,
+            origin: .simulated,
             now: now,
             previous: previous
         )
@@ -430,6 +436,7 @@ final class SupervisionStore {
 
     /// Removes the unit from a driver. The seat stays on the roster without a unit.
     func removeAssignment(driverId: String) {
+        guard fleet.canSimulateUnitAssignment else { return }
         let previous = assignment(driverId: driverId)
         AssignmentBook.remove(driverId: driverId)
         if let previous, let index = vehicles.firstIndex(where: { $0.id == previous.vehicleId }),
@@ -454,6 +461,7 @@ final class SupervisionStore {
 
     /// Turns the simulated roster into real assignment records so the board opens coherent.
     private func seedAssignmentsFromRoster() {
+        guard fleet.canSimulateUnitAssignment else { return }
         for peer in peers {
             guard let vehicleId = peer.vehicleId, let vehicleNumber = peer.vehicleNumber else { continue }
             guard AssignmentBook.assignment(driverId: peer.id) == nil else { continue }
@@ -468,6 +476,7 @@ final class SupervisionStore {
                     kind: .titular,
                     note: "Asignación de planta.",
                     assignedBy: account.name,
+                    origin: .simulated,
                     now: now,
                     previous: nil
                 )
