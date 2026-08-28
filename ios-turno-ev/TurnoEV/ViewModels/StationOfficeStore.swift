@@ -83,6 +83,7 @@ final class StationOfficeStore {
             supervisorName: supervisor?.name ?? actorName,
             supervisorId: supervisor?.id ?? actor?.id ?? "acc-sup",
             liveDriver: fleet.driver.stationId == station.id ? fleet.driver : nil,
+            mayFabricateLiveDriverFile: !fleet.runsAgainstStation,
             now: now
         )
         activeVehicles = snapshot.activeVehicles
@@ -1170,7 +1171,19 @@ final class StationOfficeStore {
         fleet.pushNotice(kind: .station, title: title, body: body)
     }
 
+    /// Publishes into the national CLABE registry every account this office holds.
+    ///
+    /// Refused outright while the session answers to a real station. The registry is one
+    /// global dictionary keyed by CLABE and valued by driver id, and the accounts in this
+    /// office are fixtures: registering them during a proved session would reserve invented
+    /// CLABEs — including one under the live driver's own `profileId` when a blob written
+    /// by an earlier demonstration is still on disk — so that the day the real account is
+    /// filed the registry answers that the person already has one.
+    ///
+    /// A refusal to write, not a deletion: whatever a demonstration already registered is
+    /// left exactly as it is.
     private func registerClabes() {
+        guard !fleet.runsAgainstStation else { return }
         for file in files {
             guard let bank = file.bank else { continue }
             NationalBankRegistry.register(clabe: bank.clabe, driverId: file.id)

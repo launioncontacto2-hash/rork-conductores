@@ -989,6 +989,25 @@ final class FleetStore {
     /// borrowing someone else's stars.
     var platformRating: Double? { MockData.platformRating(for: driver) }
 
+    /// The bonus amounts this session is judged and paid against.
+    ///
+    /// `NationalBonusBoard` is a shared blob on this device: the national direction screen
+    /// of this same app publishes into it, and nothing else does. That is a legitimate
+    /// simulation — a demonstration exists to move a number and watch it land — but the
+    /// number that lands is the ceiling a driver is told they can earn.
+    ///
+    /// For an identity answering to a real station the published blob is not consulted at
+    /// all. What is used instead is `networkDefault`: the baseline written in the source as
+    /// the product's own reference, which no console can edit. It is not a truer policy
+    /// than the stored one, but it is the only one that was never presented as a national
+    /// decision somebody made about this person.
+    ///
+    /// Read, never persisted, and the storage is left untouched — a demonstration on this
+    /// same device keeps its published calendar exactly as it left it.
+    var bonusSchedule: BonusSchedule {
+        runsAgainstStation ? .networkDefault : NationalBonusBoard.current
+    }
+
     /// Everything the bonus engine is allowed to look at, scoped to the current driver.
     ///
     /// The state is already isolated per identity, but the ownership test is repeated here
@@ -1007,7 +1026,7 @@ final class FleetStore {
             reports: supervisorReports,
             activeShift: OperationalRecordRules.shift(activeShift, driverId: driverId, capability: capability),
             qualityScore: platformRating,
-            schedule: NationalBonusBoard.current,
+            schedule: bonusSchedule,
             now: reference
         )
     }
@@ -1021,10 +1040,10 @@ final class FleetStore {
         bonusEvaluations(reference: reference).reduce(0) { $0 + $1.payableMxn }
     }
 
-    /// Everything the month can pay with the amounts the national administration has
-    /// in force. Stations cannot alter this number.
+    /// Everything the month can pay with the amounts in force for this session. Stations
+    /// cannot alter this number, and neither can a console under a proved identity.
     func bonusTotalMxn() -> Int {
-        NationalBonusBoard.current.ceilingMxn
+        bonusSchedule.ceilingMxn
     }
 
     /// Raises the popup for the first closed week that broke a bonus, once only.

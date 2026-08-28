@@ -106,6 +106,7 @@ final class RecruitmentStore {
                 supervisorName: supervisor?.name ?? "Supervisión",
                 supervisorId: supervisor?.id ?? "acc-sup",
                 liveDriver: fleet.driver.stationId == station.id ? fleet.driver : nil,
+                mayFabricateLiveDriverFile: !fleet.runsAgainstStation,
                 now: now
             )
             let activeFiles = snapshot.files.filter { $0.status != .terminated }

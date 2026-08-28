@@ -36,11 +36,18 @@ nonisolated enum StationOfficeMockData {
 
     // MARK: - Snapshot
 
+    /// - Parameter mayFabricateLiveDriverFile: whether the credential running the driver
+    ///   app may have an employee file invented for it here. Deliberately without a
+    ///   default: this generator is the only place where a real `profileId` gets handed a
+    ///   bank account, a CLABE and a `.verified` badge that nobody registered, and a new
+    ///   call site must state which side of that line it stands on rather than inherit the
+    ///   permissive answer. The caller derives it from `FleetStore.runsAgainstStation`.
     static func snapshot(
         station: Station,
         supervisorName: String,
         supervisorId: String,
         liveDriver: Driver?,
+        mayFabricateLiveDriverFile: Bool,
         now: Date
     ) -> Snapshot {
         if LabRuntime.isTest {
@@ -52,7 +59,7 @@ nonisolated enum StationOfficeMockData {
         let files = employeeFiles(
             station: station,
             supervisorName: supervisorName,
-            liveDriver: liveDriver,
+            liveDriver: mayFabricateLiveDriverFile ? liveDriver : nil,
             now: now,
             random: &random
         )
@@ -239,6 +246,13 @@ nonisolated enum StationOfficeMockData {
         }
 
         // The credential running the driver app owns a real file too.
+        //
+        // Only when the session may be simulated. `liveDriver` arrives nil for an identity
+        // proved by the backend and standing in production: everything below — the hire
+        // event, the signed credit contract, and above all the BBVA account with its
+        // `.verified` status and its printed proof — would otherwise be written under that
+        // person's own `profileId`. The wallet reads exactly this file, so a fixture would
+        // be telling a real driver where their week is going to be deposited.
         if let liveDriver, liveDriver.stationId == station.id {
             let block = ShiftBlock.block(group: liveDriver.group, slot: liveDriver.slot)
             let hiredAt = now.addingTimeInterval(-420 * 86_400)

@@ -54,11 +54,7 @@ struct WalletView: View {
         }
         .task {
             if wallet == nil { wallet = WalletStore(fleet: store) }
-            if office == nil, let station = StaffDirectory.station(id: store.driver.stationId) {
-                let created = StationOfficeStore(station: station, fleet: store, actor: store.currentAccount)
-                created.refresh()
-                office = created
-            }
+            adoptBankSourceIfAvailable()
         }
         .sheet(isPresented: $showsBreakdown) {
             if let wallet, let settlement = wallet.currentSettlement(now: dayAnchor) {
@@ -96,6 +92,28 @@ struct WalletView: View {
         } message: {
             Text("Tu supervisor revisará el cálculo. La liquidación cerrada no se modifica: cualquier ajuste se registra como un movimiento aparte.")
         }
+    }
+
+    /// Adopts the station office as the source of this driver's bank file, when it is
+    /// allowed to speak for one.
+    ///
+    /// The office is a deterministic simulator: it invents sixty employee files for the
+    /// station and, until now, a sixty-first for whoever was signed in — carrying a BBVA
+    /// account, a CLABE and a `.verified` badge under that person's own id. For a
+    /// demonstration credential that is the point. For an identity proved by the backend
+    /// it is an answer nobody authorised, on the one question this screen exists to
+    /// answer: where the week gets deposited.
+    ///
+    /// So the source is not built at all under a proved identity in production. Not
+    /// hidden, not filtered downstream — never constructed, which also keeps its
+    /// `refresh()` from writing fixtures to disk on this session's behalf.
+    private func adoptBankSourceIfAvailable() {
+        guard office == nil else { return }
+        guard !store.runsAgainstStation else { return }
+        guard let station = StaffDirectory.station(id: store.driver.stationId) else { return }
+        let created = StationOfficeStore(station: station, fleet: store, actor: store.currentAccount)
+        created.refresh()
+        office = created
     }
 
     private var header: some View {

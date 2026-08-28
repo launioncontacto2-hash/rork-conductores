@@ -2380,3 +2380,299 @@ nonisolated struct UnitAssignmentBoundaryTests {
         #expect(issues.first?.code == .notAssigned)
     }
 }
+
+// MARK: - 15B.16 · residual leaks of locally originated data
+
+/// 15B.16 · three fixtures that were reaching a proved identity, closed.
+///
+/// None of these is a new boundary. All three reuse `runsAgainstStation`, the authority
+/// that already exists, and none of them deletes anything: the demonstration keeps its
+/// bank file, its network account and its published bonus calendar, byte for byte.
+///
+/// The decision is never taken by recognising a particular driver. Every case below
+/// builds its identity with a random `profileId`, so a rule that had been written against
+/// `DRV-TEST-001` would fail here.
+@MainActor
+struct ResidualFixtureLeakTests {
+
+    /// The BBVA account `StationOfficeMockData` writes for whoever is signed in.
+    private static let fabricatedClabe = "012180001234564587"
+    private static let bonusStorageKey = "turnoev.bonus.schedule.v1"
+
+    private static func station(id: String) -> Station {
+        Station(
+            id: id,
+            code: "TST",
+            name: "Estaci\u{00f3}n de prueba",
+            city: "CDMX",
+            regionId: "reg-centro",
+            vehicleCapacity: 20
+        )
+    }
+
+    private static func driver(id: String, stationId: String) -> Driver {
+        Driver(
+            id: id,
+            name: "Conductor de prueba",
+            employeeNumber: "EMP-TEST",
+            email: "residual.driver@joramza.test",
+            password: "",
+            photoAsset: "rideshare_driver_portrait",
+            stationId: stationId,
+            station: "Estaci\u{00f3}n de prueba",
+            group: .weekday,
+            slot: .morning,
+            authorizedVehicleIds: []
+        )
+    }
+
+    private static func principal(profileId: String, stationId: String) -> SessionPrincipal {
+        SessionPrincipal(
+            authUserId: UUID().uuidString,
+            profileId: profileId,
+            name: "Conductor de prueba",
+            employeeNumber: "EMP-TEST",
+            email: "residual.driver@joramza.test",
+            role: .driver,
+            stationId: stationId,
+            stationCode: "TST",
+            stationName: "Estaci\u{00f3}n de prueba",
+            shiftGroup: .weekday,
+            shiftSlot: .morning
+        )
+    }
+
+    /// A signed-in backend identity standing in production, on storage of its own.
+    private static func provedStore(
+        defaults: UserDefaults,
+        profileId: String,
+        stationId: String
+    ) throws -> FleetStore {
+        let store = FleetStore(environment: RuntimeEnvironment(defaults: defaults), defaults: defaults)
+        try store.signIn(principal: principal(profileId: profileId, stationId: stationId), method: .credentials)
+        return store
+    }
+
+    // MARK: - F1 · the fabricated employee file
+
+    /// A · the office invents no bank account for an identity that answers to a station.
+    ///
+    /// Asserted on the generator, not on the screen: the leak was a fixture carrying a
+    /// CLABE and a `.verified` badge under the proved `profileId`, and hiding the card
+    /// downstream would have left the row on disk for the next reader.
+    @Test func provedIdentityGetsNoFabricatedBankFileFromTheOffice() {
+        let station = Self.station(id: "est-residual-a")
+        let live = Self.driver(id: "DRV-PROVED-\(UUID().uuidString.prefix(8))", stationId: station.id)
+
+        let snapshot = StationOfficeMockData.snapshot(
+            station: station,
+            supervisorName: "Supervisi\u{00f3}n",
+            supervisorId: "acc-sup",
+            liveDriver: live,
+            mayFabricateLiveDriverFile: false,
+            now: Date()
+        )
+
+        #expect(snapshot.files.contains { $0.id == live.id } == false)
+        #expect(snapshot.files.contains { $0.isLiveSession } == false)
+        #expect(snapshot.files.contains { $0.bank?.clabe == Self.fabricatedClabe } == false)
+        #expect(snapshot.files.contains { $0.bank?.holder == live.name } == false)
+        #expect(snapshot.bankRequests.contains { $0.driverId == live.id } == false)
+
+        // A targeted refusal, not a gutted station: the rest of the office is intact.
+        #expect(snapshot.files.isEmpty == false)
+        #expect(snapshot.files.allSatisfy { $0.bank != nil })
+    }
+
+    /// C · the demonstration keeps the file it has always had.
+    ///
+    /// Same station, same driver, same generator — the single flag apart. What the gate
+    /// removes is exactly one row, and it is the row naming the live credential.
+    @Test func demonstrationKeepsTheLiveBankFileUnchanged() throws {
+        let station = Self.station(id: "est-residual-c")
+        let live = Self.driver(id: "DRV-DEMO-\(UUID().uuidString.prefix(8))", stationId: station.id)
+        let now = Date()
+
+        let demo = StationOfficeMockData.snapshot(
+            station: station,
+            supervisorName: "Supervisi\u{00f3}n",
+            supervisorId: "acc-sup",
+            liveDriver: live,
+            mayFabricateLiveDriverFile: true,
+            now: now
+        )
+        let proved = StationOfficeMockData.snapshot(
+            station: station,
+            supervisorName: "Supervisi\u{00f3}n",
+            supervisorId: "acc-sup",
+            liveDriver: live,
+            mayFabricateLiveDriverFile: false,
+            now: now
+        )
+
+        let file = try #require(demo.files.first { $0.id == live.id })
+        let bank = try #require(file.bank)
+        #expect(bank.clabe == Self.fabricatedClabe)
+        #expect(bank.status == .verified)
+        #expect(bank.hasProof)
+        #expect(file.isLiveSession)
+
+        #expect(demo.files.count == proved.files.count + 1)
+    }
+
+    /// B · and nothing of that account reaches the national CLABE registry.
+    ///
+    /// The registry is one global dictionary keyed by CLABE. A fixture registered under a
+    /// real `profileId` would reserve an invented account in that person's name — so the
+    /// day they file their real one, the network answers that they already have it.
+    ///
+    /// Runs the real store against the shared registry and restores it afterwards, because
+    /// this is precisely the write that must not happen.
+    @Test func provedIdentityRegistersNoClabeNationally() throws {
+        let suiteName = "turnoev.tests.residual.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let station = Self.station(id: "est-residual-b-\(UUID().uuidString.prefix(8))")
+        let profileId = "DRV-PROVED-\(UUID().uuidString.prefix(8))"
+
+        let registryKey = "turnoev.clabe.national.v1"
+        let officeKey = "turnoev.office.v1.\(station.id)"
+        let registryBefore = UserDefaults.standard.dictionary(forKey: registryKey)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            UserDefaults.standard.removeObject(forKey: officeKey)
+            if let registryBefore {
+                UserDefaults.standard.set(registryBefore, forKey: registryKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: registryKey)
+            }
+        }
+
+        let fleet = try Self.provedStore(defaults: defaults, profileId: profileId, stationId: station.id)
+        #expect(fleet.runsAgainstStation)
+        #expect(fleet.driver.stationId == station.id)
+
+        let office = StationOfficeStore(station: station, fleet: fleet, actor: nil)
+        office.refresh()
+
+        // The read the wallet performs, answering nothing.
+        #expect(office.file(id: fleet.driver.id) == nil)
+        #expect(office.bankRequests(driverId: fleet.driver.id).isEmpty)
+
+        // And the registry never heard this person's name, under any CLABE.
+        #expect(NationalBankRegistry.owner(of: Self.fabricatedClabe) != profileId)
+        let registryAfter = UserDefaults.standard.dictionary(forKey: registryKey) as? [String: String] ?? [:]
+        #expect(registryAfter.values.contains(profileId) == false)
+        // Not one fixture account of this office was published either.
+        #expect(registryAfter.count == (registryBefore?.count ?? 0))
+    }
+
+    // MARK: - F2 · the cash deposit account
+
+    /// D · a proved identity is given no account to deposit real cash into.
+    ///
+    /// The screen is read standing at a counter with money in hand. `networkDefault` is a
+    /// fictitious BBVA written into the source, so a plausible CLABE here is worse than
+    /// none at all.
+    @Test func provedIdentityGetsNoCashDepositAccount() throws {
+        let suiteName = "turnoev.tests.residual.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fleet = try Self.provedStore(
+            defaults: defaults,
+            profileId: "DRV-PROVED-\(UUID().uuidString.prefix(8))",
+            stationId: "est-001"
+        )
+
+        #expect(fleet.runsAgainstStation)
+        #expect(fleet.cashDepositAccount == nil)
+    }
+
+    /// E · the demonstration keeps the network account exactly as it was.
+    ///
+    /// Same store, same person, same instant: only the environment moves.
+    @Test func demonstrationKeepsTheNetworkCashAccount() throws {
+        let suiteName = "turnoev.tests.residual.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let fleet = FleetStore(environment: environment, defaults: defaults)
+        try fleet.signIn(
+            principal: Self.principal(
+                profileId: "DRV-PROVED-\(UUID().uuidString.prefix(8))",
+                stationId: "est-001"
+            ),
+            method: .credentials
+        )
+
+        #expect(fleet.cashDepositAccount == nil)
+
+        environment.set(.test)
+
+        #expect(fleet.runsAgainstStation == false)
+        #expect(fleet.cashDepositAccount == NationalCashBoard.current)
+        #expect(fleet.cashDepositAccount?.clabe.isEmpty == false)
+    }
+
+    // MARK: - F3 · the national bonus calendar
+
+    /// F and G · what a demonstration desk publishes governs the demonstration only.
+    ///
+    /// One store, one identity, both sides of the environment. In production the ceiling
+    /// is the baseline written in the source, which no console can move; inside the
+    /// laboratory the published calendar is visible exactly as before.
+    ///
+    /// H · and the blob is still on disk when it is done. Production stops consuming it;
+    /// nothing migrates it and nothing deletes it.
+    @Test func publishedBonusCalendarNeverReachesAProvedIdentity() throws {
+        let suiteName = "turnoev.tests.residual.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let published = BonusSchedule(
+            punctualityMxn: 9_000,
+            billingMxn: 9_000,
+            careMxn: 9_000,
+            version: 99,
+            updatedAt: Date(timeIntervalSince1970: 1_767_225_600),
+            updatedBy: "Direcci\u{00f3}n nacional (demostraci\u{00f3}n)"
+        )
+
+        let stored = UserDefaults.standard.data(forKey: Self.bonusStorageKey)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            NationalBonusBoard.reset()
+            if let stored { UserDefaults.standard.set(stored, forKey: Self.bonusStorageKey) }
+        }
+
+        // The demonstration desk moves the amounts.
+        NationalBonusBoard.publish(published)
+        #expect(NationalBonusBoard.current == published)
+
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let fleet = FleetStore(environment: environment, defaults: defaults)
+        try fleet.signIn(
+            principal: Self.principal(
+                profileId: "DRV-PROVED-\(UUID().uuidString.prefix(8))",
+                stationId: "est-001"
+            ),
+            method: .credentials
+        )
+
+        // F · production reads the baseline, not the publication.
+        #expect(fleet.runsAgainstStation)
+        #expect(fleet.bonusSchedule == .networkDefault)
+        #expect(fleet.bonusTotalMxn() == BonusSchedule.networkDefault.ceilingMxn)
+        #expect(fleet.bonusTotalMxn() != published.ceilingMxn)
+
+        // G · the same publication is still what the laboratory sees.
+        environment.set(.test)
+        #expect(fleet.runsAgainstStation == false)
+        #expect(fleet.bonusSchedule == published)
+        #expect(fleet.bonusTotalMxn() == published.ceilingMxn)
+
+        // H · and the stored calendar was never touched by any of it.
+        let raw = try #require(UserDefaults.standard.data(forKey: Self.bonusStorageKey))
+        let decoded = try JSONDecoder().decode(BonusSchedule.self, from: raw)
+        #expect(decoded == published)
+    }
+}
