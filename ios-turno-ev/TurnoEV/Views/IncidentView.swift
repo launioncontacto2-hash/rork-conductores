@@ -63,13 +63,29 @@ struct IncidentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .panelFlat()
 
+                        if !store.canRunOperationalCycle {
+                            disconnectedBanner
+                        }
+
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.footnote)
                                 .foregroundStyle(Palette.danger)
                         }
 
-                        BigButton(title: "Enviar reporte", symbol: "paperplane.fill", tone: .danger) {
+                        // The screen stays fully usable so the flow can be explained and
+                        // the evidence gathered, but the button never says "enviar" when
+                        // nothing is on the other end to receive it.
+                        BigButton(
+                            title: store.canRunOperationalCycle
+                                ? "Enviar reporte"
+                                : "El envío requiere conexión",
+                            symbol: store.canRunOperationalCycle
+                                ? "paperplane.fill"
+                                : "antenna.radiowaves.left.and.right.slash",
+                            tone: store.canRunOperationalCycle ? .danger : .outline,
+                            isEnabled: store.canRunOperationalCycle
+                        ) {
                             submit()
                         }
                     }
@@ -96,6 +112,41 @@ struct IncidentView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Says what the captured photographs are, and what they are not.
+    ///
+    /// They stay on this screen as a draft the view holds: nothing here reaches
+    /// `FleetStore.incidents`, which is the list that means "la estación lo recibió".
+    /// After a collision, believing supervision is already reviewing the case is worse
+    /// than knowing there is still a call to make.
+    private var disconnectedBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                    .font(.system(size: 12, weight: .bold))
+                Text("Reporte sin enviar")
+                    .font(.system(.footnote, weight: .black))
+            }
+            .foregroundStyle(Palette.amber)
+
+            Text(OperationalMutationError.backendRequired.errorDescription ?? "")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("Lo que captures aquí queda en tu dispositivo como borrador. Para una incidencia en curso, comunícate con tu supervisor de estación.")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.amber.opacity(0.1), in: .rect(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Palette.amber.opacity(0.4), lineWidth: 1)
+        }
     }
 
     /// Everything the driver may be asked for on the road, in one tap: the papers of
@@ -203,7 +254,14 @@ struct IncidentView: View {
             errorMessage = "Describe la incidencia con al menos una frase."
             return
         }
-        store.reportIncident(kind: kind, description: text, photos: photos.compactMap { $0 })
+        do {
+            try store.reportIncident(kind: kind, description: text, photos: photos.compactMap { $0 })
+        } catch {
+            let failure = error as? OperationalMutationError
+            errorMessage = failure?.errorDescription
+                ?? "No se pudo enviar el reporte de incidencia."
+            return
+        }
         dismiss()
     }
 }

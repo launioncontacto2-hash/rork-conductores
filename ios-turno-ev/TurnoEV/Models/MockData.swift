@@ -235,7 +235,8 @@ nonisolated enum MockData {
                     startBatteryPct: 92 - (index % 4) * 3,
                     endBatteryPct: 24 + (index % 5) * 4,
                     trips: trips,
-                    earningsMxn: earnings
+                    earningsMxn: earnings,
+                    origin: .simulated
                 )
             )
             index += 1
@@ -284,7 +285,8 @@ nonisolated enum MockData {
                 createdAt: now.addingTimeInterval(-3 * 86400),
                 description: "Rayón en salpicadera trasera derecha al salir del estacionamiento de la estación.",
                 photos: [],
-                status: .review
+                status: .review,
+                origin: .simulated
             ),
             Incident(
                 id: "inci-001",
@@ -295,7 +297,8 @@ nonisolated enum MockData {
                 createdAt: now.addingTimeInterval(-9 * 86400),
                 description: "Sensor de proximidad trasero intermitente, la alarma se activa sin obstáculos.",
                 photos: [],
-                status: .closed
+                status: .closed,
+                origin: .simulated
             ),
         ]
     }

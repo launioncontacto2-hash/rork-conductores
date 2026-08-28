@@ -753,6 +753,509 @@ struct CoverageDemonstrationTests {
     }
 }
 
+// MARK: - 15B.13.3 · shift cycle and incident boundary
+
+/// 15B.13.3 · a shift and an incident are facts of a station's day, not rows of a phone.
+///
+/// The pure cases come first, because provenance is what the whole cut rests on: a row
+/// carrying the right `profileId` is not a station certifying that nine hours were
+/// worked, and until 15B.13.3 the two were indistinguishable.
+@MainActor
+struct OperationalCycleBoundaryTests {
+
+    private static let backendDriverId = "DRV-TEST-001"
+
+    // MARK: Provenance
+
+    /// A · an open shift stored before provenance existed is read as simulated.
+    @Test func legacyActiveShiftDecodesAsSimulated() throws {
+        let json = #"""
+        {
+          "id": "shift-legacy",
+          "driverId": "DRV-TEST-001",
+          "vehicleId": "veh-014",
+          "group": "weekday",
+          "slot": "morning",
+          "scheduledStartAt": "2026-08-20T11:00:00Z",
+          "startedAt": "2026-08-20T11:07:00Z",
+          "lateMinutes": 7,
+          "startOdometerKm": 96480,
+          "startBatteryPct": 91,
+          "photos": {},
+          "trips": 3,
+          "earningsMxn": 640
+        }
+        """#
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let shift = try decoder.decode(ActiveShift.self, from: Data(json.utf8))
+
+        #expect(shift.origin == .simulated)
+        #expect(shift.isAuthoritative == false)
+    }
+
+    /// B · and so is a closed one — the row a settlement multiplies.
+    @Test func legacyShiftRecordDecodesAsSimulated() throws {
+        let json = #"""
+        {
+          "id": "shift-h-3",
+          "driverId": "DRV-TEST-001",
+          "vehicleId": "veh-014",
+          "vehicleInternalNumber": "TEV-014",
+          "group": "weekday",
+          "slot": "morning",
+          "scheduledStartAt": "2026-08-18T11:00:00Z",
+          "startedAt": "2026-08-18T11:00:00Z",
+          "endedAt": "2026-08-18T20:00:00Z",
+          "lateMinutes": 0,
+          "paidBackMinutes": 0,
+          "startOdometerKm": 96000,
+          "endOdometerKm": 96180,
+          "startBatteryPct": 92,
+          "endBatteryPct": 26,
+          "trips": 14,
+          "earningsMxn": 1450
+        }
+        """#
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let record = try decoder.decode(ShiftRecord.self, from: Data(json.utf8))
+
+        #expect(record.origin == .simulated)
+        #expect(record.isAuthoritative == false)
+
+        // An incident behaves the same way, and for the same reason: `.open` renders as
+        // "waiting for supervision" on every screen that shows it.
+        let incidentJSON = #"""
+        {
+          "id": "inci-legacy",
+          "driverId": "DRV-TEST-001",
+          "vehicleId": "veh-014",
+          "vehicleInternalNumber": "TEV-014",
+          "kind": "damage",
+          "createdAt": "2026-08-18T20:10:00Z",
+          "description": "Rayón en salpicadera.",
+          "photos": [],
+          "status": "open"
+        }
+        """#
+        let incident = try decoder.decode(Incident.self, from: Data(incidentJSON.utf8))
+        #expect(incident.origin == .simulated)
+    }
+
+    /// C · a simulated shift carrying the proved identity's own id is still refused.
+    ///
+    /// This is the exact row a laboratory session run by DRV-TEST-001 produces, and the
+    /// one that used to restore straight into production because `driverId` matched.
+    @Test func simulatedShiftOfTheSameDriverIsRefusedInProduction() {
+        let shift = Self.activeShift(driverId: Self.backendDriverId, origin: .simulated)
+
+        #expect(
+            OperationalRecordRules.shift(shift, driverId: Self.backendDriverId, capability: .stationRequired) == nil
+        )
+        // And it is not gone: the laboratory still adopts it.
+        #expect(
+            OperationalRecordRules.shift(shift, driverId: Self.backendDriverId, capability: .localWorkflow)?.id == shift.id
+        )
+    }
+
+    /// D · a certified shift belonging to somebody else is refused too.
+    @Test func backendShiftOfAnotherDriverIsRefused() {
+        let foreign = Self.activeShift(driverId: "DRV-OTHER-777", origin: .backend)
+
+        #expect(
+            OperationalRecordRules.shift(foreign, driverId: Self.backendDriverId, capability: .stationRequired) == nil
+        )
+        #expect(
+            OperationalRecordRules.shift(foreign, driverId: Self.backendDriverId, capability: .localWorkflow) == nil
+        )
+
+        let history = [
+            Self.record(driverId: Self.backendDriverId, origin: .simulated),
+            Self.record(driverId: "DRV-OTHER-777", origin: .backend),
+        ]
+        #expect(
+            OperationalRecordRules.history(history, driverId: Self.backendDriverId, capability: .stationRequired).isEmpty
+        )
+    }
+
+    /// E · the one combination that is adoptable: certified, and this driver's.
+    @Test func backendShiftOfTheSameDriverIsAdopted() {
+        let own = Self.activeShift(driverId: Self.backendDriverId, origin: .backend)
+
+        #expect(
+            OperationalRecordRules.shift(own, driverId: Self.backendDriverId, capability: .stationRequired)?.id == own.id
+        )
+
+        let history = [
+            Self.record(driverId: Self.backendDriverId, origin: .backend),
+            Self.record(driverId: Self.backendDriverId, origin: .simulated),
+        ]
+        let adopted = OperationalRecordRules.history(
+            history,
+            driverId: Self.backendDriverId,
+            capability: .stationRequired
+        )
+        #expect(adopted.count == 1)
+        #expect(adopted.first?.origin == .backend)
+    }
+
+    // MARK: Writes under a proved identity in production
+
+    /// F · the start of shift stops before the first byte it would have written.
+    ///
+    /// Asserted one effect at a time, because opening a shift is not one record: it mints
+    /// the shift, takes the unit, overwrites its odometer and battery, files evidence and
+    /// may register a late arrival.
+    @Test func startShiftWritesNothingUnderAProvedIdentityInProduction() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(bench.store.canRunOperationalCycle == false)
+        #expect(bench.store.operationalCapability == .stationRequired)
+
+        let unit = Self.vehicle()
+        #expect(throws: OperationalMutationError.backendRequired) {
+            try bench.store.startShift(
+                vehicle: unit,
+                odometerKm: 96_500,
+                batteryPct: 88,
+                odometerPhoto: Data([0x01]),
+                batteryPhoto: Data([0x02])
+            )
+        }
+
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.vehicles.isEmpty)
+        #expect(bench.store.notices.isEmpty)
+        #expect(bench.store.capturedPhotoCount == 0)
+        #expect(bench.store.history.isEmpty)
+
+        // Nothing reached storage either: the refusal is upstream of `persist`.
+        let stored = try #require(bench.defaults.data(forKey: bench.productionKey))
+        let text = try #require(String(data: stored, encoding: .utf8))
+        #expect(text.contains("\"activeShift\":null") || !text.contains(unit.id))
+    }
+
+    /// G · and the close of shift never turns a local shift into a closed record.
+    @Test func finishShiftCreatesNoRecordUnderAProvedIdentityInProduction() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(throws: OperationalMutationError.backendRequired) {
+            try bench.store.finishShift(endOdometerKm: 96_700, endBatteryPct: 24, photo: Data([0x03]))
+        }
+
+        #expect(bench.store.history.isEmpty)
+        #expect(bench.store.notices.isEmpty)
+        #expect(bench.store.activeShift == nil)
+    }
+
+    /// H · an incident is not filed, and does not pretend to have been sent.
+    @Test func reportIncidentCreatesNothingUnderAProvedIdentityInProduction() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(throws: OperationalMutationError.backendRequired) {
+            try bench.store.reportIncident(
+                kind: .accident,
+                description: "Colisión con tercero en Calzada Ermita.",
+                photos: [Data([0x04])]
+            )
+        }
+
+        #expect(bench.store.incidents.isEmpty)
+        #expect(bench.store.notices.isEmpty)
+    }
+
+    /// K · no refused attempt moves a single derived number.
+    ///
+    /// The chain in full: shift → history → income → bonus → settlement. A blocked start
+    /// must leave "Sin evaluar" standing, the day at zero and the week's net untouched.
+    @Test func refusedAttemptsLeaveBonusesGoalsAndWalletUntouched() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let wallet = WalletStore(fleet: bench.store)
+        let reference = bench.store.now
+        let netBefore = wallet.currentSettlement(now: reference)?.netMxn ?? 0
+
+        #expect(throws: (any Error).self) {
+            try bench.store.startShift(
+                vehicle: Self.vehicle(),
+                odometerKm: 96_500,
+                batteryPct: 88,
+                odometerPhoto: nil,
+                batteryPhoto: nil
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try bench.store.finishShift(endOdometerKm: 96_700, endBatteryPct: 24, photo: nil)
+        }
+        #expect(throws: (any Error).self) {
+            try bench.store.reportIncident(kind: .damage, description: "Golpe menor.", photos: [])
+        }
+
+        #expect(bench.store.history.isEmpty)
+        #expect(bench.store.incomes.isEmpty)
+        #expect(bench.store.earnedToday(reference: reference) == 0)
+        #expect(bench.store.tripsToday(reference: reference) == 0)
+        #expect(bench.store.bonusPayableMxn(reference: reference) == 0)
+
+        // Every bonus stays unevaluated: a week with no evidence is not a week lost.
+        let evaluations = bench.store.bonusEvaluations(reference: reference)
+        #expect(!evaluations.isEmpty)
+        for evaluation in evaluations {
+            #expect(evaluation.payableMxn == 0)
+        }
+
+        #expect((wallet.currentSettlement(now: reference)?.netMxn ?? 0) == netBefore)
+        #expect(bench.store.raiseBonusAlert(reference: reference) == nil)
+    }
+
+    // MARK: The laboratory keeps working
+
+    /// I · inside the laboratory the whole cycle runs exactly as before.
+    @Test func theLaboratoryStillRunsTheCompleteCycle() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let unit = try Self.enterLaboratoryWithAUnit(bench)
+
+        #expect(bench.store.canRunOperationalCycle)
+        #expect(bench.store.operationalCapability == .localWorkflow)
+
+        let shift = try bench.store.startShift(
+            vehicle: unit,
+            odometerKm: unit.odometerKm,
+            batteryPct: 88,
+            odometerPhoto: Data([0x01]),
+            batteryPhoto: Data([0x02])
+        )
+
+        #expect(shift.origin == .simulated)
+        #expect(bench.store.activeShift?.id == shift.id)
+        #expect(bench.store.capturedPhotoCount == 2)
+        #expect(bench.store.isInspectionComplete)
+
+        let taken = try #require(bench.store.vehicles.first { $0.id == unit.id })
+        #expect(taken.status == .occupied)
+        #expect(taken.occupiedBy == bench.profileId)
+
+        try bench.store.reportIncident(kind: .damage, description: "Rayón lateral en patio.", photos: [])
+        #expect(bench.store.incidents.count == 1)
+        #expect(bench.store.incidents.first?.origin == .simulated)
+
+        let summary = try bench.store.finishShift(
+            endOdometerKm: unit.odometerKm + 180,
+            endBatteryPct: 26,
+            photo: Data([0x03])
+        )
+
+        #expect(summary.kmDriven == 180)
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.history.count == 1)
+        #expect(bench.store.history.first?.origin == .simulated)
+
+        let released = try #require(bench.store.vehicles.first { $0.id == unit.id })
+        #expect(released.status == .available)
+        #expect(released.occupiedBy == nil)
+    }
+
+    /// J · a simulated shift left running does not follow the driver into production.
+    ///
+    /// Not deleted, not closeable, not blocking — and waiting where it was left.
+    @Test func aSimulatedShiftDoesNotSurviveIntoProductionAndComesBack() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let unit = try Self.enterLaboratoryWithAUnit(bench)
+        let shift = try bench.store.startShift(
+            vehicle: unit,
+            odometerKm: unit.odometerKm,
+            batteryPct: 90,
+            odometerPhoto: nil,
+            batteryPhoto: nil
+        )
+        #expect(bench.store.activeShift?.id == shift.id)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        // Gone from production, in every sense the interface can read.
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.activeVehicle == nil)
+        #expect(bench.store.canActOnActiveShift == false)
+        #expect(bench.store.history.isEmpty)
+        #expect(bench.store.incidents.isEmpty)
+        // And it does not stand in the way of the real operation starting one day.
+        #expect(throws: OperationalMutationError.backendRequired) {
+            try bench.store.finishShift(endOdometerKm: unit.odometerKm + 40, endBatteryPct: 30, photo: nil)
+        }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        // Exactly where it was left, on the same identity, with no sign in.
+        #expect(bench.store.activeShift?.id == shift.id)
+        #expect(bench.store.activeShift?.origin == .simulated)
+        #expect(bench.store.canActOnActiveShift)
+        #expect(bench.store.isBackendSession)
+
+        // And it closes there, which is where it belongs.
+        let summary = try bench.store.finishShift(
+            endOdometerKm: unit.odometerKm + 120,
+            endBatteryPct: 28,
+            photo: nil
+        )
+        #expect(summary.kmDriven == 120)
+        #expect(bench.store.history.first?.origin == .simulated)
+    }
+
+    // MARK: Bench
+
+    private struct Bench {
+        let suiteName: String
+        let defaults: UserDefaults
+        let environment: RuntimeEnvironment
+        let store: FleetStore
+        let profileId: String
+
+        var productionKey: String { "turnoev.state.v4.\(profileId)" }
+
+        func discard() {
+            defaults.removePersistentDomain(forName: suiteName)
+            // The assignment book lives on the device, not in the suite.
+            AssignmentBook.remove(driverId: profileId)
+        }
+    }
+
+    private static func bench() throws -> Bench {
+        let suiteName = "turnoev.tests.cycle.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+        let profileId = "DRV-CYCLE-\(UUID().uuidString.prefix(8))"
+
+        try store.signIn(
+            principal: SessionPrincipal(
+                authUserId: UUID().uuidString,
+                profileId: profileId,
+                name: "Conductor de prueba",
+                employeeNumber: "EMP-TEST",
+                email: "cycle.driver@joramza.test",
+                role: .driver,
+                stationId: "est-001",
+                stationCode: "IZT",
+                stationName: "Estación Iztapalapa",
+                shiftGroup: .weekday,
+                shiftSlot: .morning
+            ),
+            method: .credentials
+        )
+
+        return Bench(
+            suiteName: suiteName,
+            defaults: defaults,
+            environment: environment,
+            store: store,
+            profileId: profileId
+        )
+    }
+
+    /// Moves the open session into the laboratory and gives it a unit the way a
+    /// supervisor would: a row in the shared book, never a fabrication by the driver.
+    private static func enterLaboratoryWithAUnit(_ bench: Bench) throws -> Vehicle {
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        let unit = try #require(
+            bench.store.vehicles.first { $0.id != MockData.seededTitularVehicleId && $0.status == .available }
+        )
+        AssignmentBook.upsert(
+            AssignmentBook.make(
+                stationId: bench.store.driver.stationId,
+                driverId: bench.profileId,
+                driverName: bench.store.driver.name,
+                vehicleId: unit.id,
+                vehicleNumber: unit.internalNumber,
+                kind: .titular,
+                note: "Asignación de laboratorio.",
+                assignedBy: "Supervisión de estación",
+                origin: .simulated,
+                now: bench.store.now,
+                previous: nil
+            )
+        )
+        bench.store.reloadAssignment()
+        #expect(bench.store.hasAssignedUnit)
+        return unit
+    }
+
+    // MARK: Fixtures
+
+    private static func activeShift(driverId: String, origin: OperationalRecordOrigin) -> ActiveShift {
+        ActiveShift(
+            id: "shift-\(driverId)-\(origin.rawValue)",
+            driverId: driverId,
+            vehicleId: "veh-014",
+            group: .weekday,
+            slot: .morning,
+            scheduledStartAt: Date(),
+            startedAt: Date(),
+            lateMinutes: 0,
+            startOdometerKm: 96_000,
+            startBatteryPct: 92,
+            photos: [:],
+            trips: 0,
+            earningsMxn: 0,
+            origin: origin
+        )
+    }
+
+    private static func record(driverId: String, origin: OperationalRecordOrigin) -> ShiftRecord {
+        ShiftRecord(
+            id: "rec-\(driverId)-\(origin.rawValue)",
+            driverId: driverId,
+            vehicleId: "veh-014",
+            vehicleInternalNumber: "TEV-014",
+            group: .weekday,
+            slot: .morning,
+            scheduledStartAt: Date(),
+            startedAt: Date(),
+            endedAt: Date(),
+            lateMinutes: 0,
+            paidBackMinutes: 0,
+            startOdometerKm: 96_000,
+            endOdometerKm: 96_180,
+            startBatteryPct: 92,
+            endBatteryPct: 26,
+            trips: 14,
+            earningsMxn: 1_450,
+            origin: origin
+        )
+    }
+
+    private static func vehicle() -> Vehicle {
+        Vehicle(
+            id: "veh-014",
+            qrCode: "TEV-014-QR",
+            internalNumber: "TEV-014",
+            model: "BYD Dolphin Mini",
+            plates: "ABC-123-A",
+            odometerKm: 96_480,
+            batteryPct: 92,
+            stationId: "est-001",
+            station: "Estación Iztapalapa",
+            status: .available,
+            occupiedBy: nil,
+            photoAsset: "ev_taxi_side"
+        )
+    }
+}
+
 // MARK: - 15B.13.2.1 · environment transitions under one identity
 
 /// 15B.13.2.1 · the laboratory and the proved identity are one session, not two.

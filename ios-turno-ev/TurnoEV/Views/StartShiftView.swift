@@ -61,7 +61,7 @@ struct StartShiftView: View {
             ZStack {
                 StationBackground()
 
-                if assignment != nil, let assignedVehicle {
+                if assignment != nil, let assignedVehicle, store.canRunOperationalCycle {
                     ScrollView {
                         VStack(spacing: 18) {
                             stepper
@@ -89,6 +89,12 @@ struct StartShiftView: View {
                         .padding(.bottom, 34)
                     }
                     .scrollIndicators(.hidden)
+                } else if assignment != nil, !store.canRunOperationalCycle {
+                    // Having a unit and being able to open a shift are two different
+                    // facts, and only one of them is missing here. Reusing "sin unidad
+                    // asignada" would send the driver to their supervisor to ask for a
+                    // vehicle they already have.
+                    disconnectedCycleState
                 } else {
                     unassignedState
                 }
@@ -354,7 +360,37 @@ struct StartShiftView: View {
         }
     }
 
-    // MARK: - Empty state
+    // MARK: - Empty states
+
+    /// The unit is assigned; what is missing is the system that registers the start.
+    private var disconnectedCycleState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(Palette.amber)
+
+            Text("Inicio de turno sin conexión")
+                .font(.system(.title3, weight: .black))
+
+            if let vehicle = assignedVehicle {
+                Text("Tu unidad \(vehicle.internalNumber) está asignada a tu nombre.")
+                    .font(.system(.footnote, weight: .bold))
+                    .foregroundStyle(Palette.volt)
+                    .multilineTextAlignment(.center)
+            }
+
+            Text(OperationalMutationError.backendRequired.errorDescription ?? "")
+                .font(.footnote)
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+
+            Text(OperationalMutationError.backendRequired.failureReason ?? "")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .padding(28)
+    }
 
     private var unassignedState: some View {
         VStack(spacing: 16) {
@@ -463,13 +499,18 @@ struct StartShiftView: View {
             )
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
-            issues = [
-                AssignmentIssue(
-                    code: .notAssigned,
-                    message: (error as? UnitAssignmentError)?.failureReason
-                        ?? "No se pudo iniciar el turno con esta unidad."
-                )
-            ]
+            // Two refusals reach here and they are not the same sentence: one is about
+            // this unit, the other about the system that registers the start.
+            let message: String
+            if let operational = error as? OperationalMutationError {
+                message = [operational.errorDescription, operational.failureReason]
+                    .compactMap { $0 }
+                    .joined(separator: "\n\n")
+            } else {
+                message = (error as? UnitAssignmentError)?.failureReason
+                    ?? "No se pudo iniciar el turno con esta unidad."
+            }
+            issues = [AssignmentIssue(code: .notAssigned, message: message)]
             return
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)

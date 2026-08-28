@@ -150,11 +150,23 @@ struct FinishShiftView: View {
             return
         }
         errorMessage = nil
-        summary = store.finishShift(
-            endOdometerKm: odometerValue,
-            endBatteryPct: Int(battery) ?? 20,
-            photo: photo
-        )
+        do {
+            summary = try store.finishShift(
+                endOdometerKm: odometerValue,
+                endBatteryPct: Int(battery) ?? 20,
+                photo: photo
+            )
+        } catch {
+            // Nothing was written, so nothing is claimed. The sentence names the missing
+            // system instead of the driver: closing is not a right they lack.
+            let failure = error as? OperationalMutationError
+            errorMessage = [failure?.errorDescription, failure?.failureReason]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .isEmpty == false
+                ? "\(failure?.errorDescription ?? "") \(failure?.failureReason ?? "")"
+                : "No se pudo cerrar el turno."
+        }
     }
 }
 

@@ -391,6 +391,47 @@ final class FleetStore {
         canSimulateUnitAssignment ? .localSimulation : .stationRequired
     }
 
+    // MARK: - Operational cycle boundary
+
+    /// Whether this session may open, close and report the shift cycle locally.
+    ///
+    /// The fourth boundary, and a fourth property on purpose — the three above are not
+    /// reused here even though all four read the same expression today. A unit assignment
+    /// is a supervisor writing a row; a shift is the station certifying that a person
+    /// drove for nine hours, and an incident is a report a human being has to receive.
+    /// Those services arrive on different days: assignment is the one already being wired,
+    /// and when it lands exactly one of these flips while the rest keep refusing.
+    ///
+    /// A demonstration or laboratory session runs the whole cycle, unchanged. A proved
+    /// identity in production does not: there is nothing on the other end to register a
+    /// start, so an `ActiveShift` minted here would be a nine-hour block the station never
+    /// saw, feeding a history, a settlement and four bonuses.
+    var canRunOperationalCycle: Bool { !runsAgainstStation }
+
+    /// The capability the shift cycle and the incident report are judged against.
+    var operationalCapability: OperationalCapability {
+        canRunOperationalCycle ? .localWorkflow : .stationRequired
+    }
+
+    /// Provenance every operational record this session produces is stamped with, and the
+    /// one restoration will accept back.
+    var operationalOrigin: OperationalRecordOrigin { operationalCapability.origin }
+
+    /// Whether the shift standing in memory is one this session may act on.
+    ///
+    /// A `.simulated` shift left open inside the laboratory is not closeable from
+    /// production: it is state of another operation that the container policy keeps, and
+    /// closing it here would file a real `ShiftRecord` built out of a simulation.
+    var canActOnActiveShift: Bool {
+        guard let activeShift else { return false }
+        return OperationalRecordRules.adopts(
+            owner: activeShift.driverId,
+            origin: activeShift.origin,
+            driverId: driver.id,
+            capability: operationalCapability
+        )
+    }
+
     var currentRole: StaffRole? { session?.role }
 
     var currentStation: Station? { StaffDirectory.station(id: session?.stationId) }
@@ -666,12 +707,20 @@ final class FleetStore {
     /// `enrolledAccountId` and `clockOffsetMinutes` are deliberately left alone: the
     /// biometric link and the simulation clock belong to the device, not to the driver.
     private func adoptIdentityState(profileId: String) {
+        // The capability of the environment the state is being read **for**. Taken from
+        // `adoptedEnvironment` rather than from `operationalCapability` because this runs
+        // mid-swap, before the session is necessarily standing: inside the laboratory a
+        // proved identity keeps its simulated cycle, in production it keeps none of it.
+        let capability: OperationalCapability = adoptedEnvironment == .production
+            ? .stationRequired
+            : .localWorkflow
         let owned = Self.ownedState(
             Self.restore(
                 key: Self.identityStorageKey(profileId: profileId, environment: adoptedEnvironment),
                 defaults: defaults
             ),
-            driverId: profileId
+            driverId: profileId,
+            capability: capability
         )
         vehicles = owned.vehicles
         activeShift = owned.activeShift
@@ -911,13 +960,14 @@ final class FleetStore {
     /// lose a week — never as proof that one was earned.
     private func bonusInput(reference: Date) -> BonusRules.EvaluationInput {
         let driverId = driver.id
+        let capability = operationalCapability
         return BonusRules.EvaluationInput(
             driver: driver,
             goals: goals,
-            history: history.filter { $0.driverId == driverId },
+            history: OperationalRecordRules.history(history, driverId: driverId, capability: capability),
             incomes: incomes.filter { $0.driverId == driverId },
             reports: supervisorReports,
-            activeShift: activeShift.flatMap { $0.driverId == driverId ? $0 : nil },
+            activeShift: OperationalRecordRules.shift(activeShift, driverId: driverId, capability: capability),
             qualityScore: platformRating,
             schedule: NationalBonusBoard.current,
             now: reference
@@ -1034,11 +1084,15 @@ final class FleetStore {
 
     /// Closes the three-step flow: opens the shift and files the captured evidence.
     ///
-    /// The shift is still entirely local — connecting it to the server is 15B.13.3 — but
-    /// it may no longer be opened on a **fabricated** unit: the vehicle has to be the one
-    /// currently resolved as assigned, and it has to exist in the session's own
-    /// inventory. Without this the boundary would stop at the assignment and leak one
-    /// step later, when `assign` writes `status` and `occupiedBy` onto a vehicle.
+    /// **The whole write is behind one guard.** Opening a shift is not one record: it
+    /// mints an `ActiveShift`, flips a vehicle to `.occupied`, writes `occupiedBy`,
+    /// overwrites the unit's odometer and battery with numbers typed on this phone,
+    /// files two photographs as evidence and may register a late arrival that costs a
+    /// bonus. Every one of those is asserted to be a fact of the station's day. So the
+    /// refusal is taken here, before the first of them.
+    ///
+    /// The unit checks stay after it and unchanged: inside a simulation the shift is
+    /// still only openable on the unit actually assigned.
     @discardableResult
     func startShift(
         vehicle: Vehicle,
@@ -1047,6 +1101,7 @@ final class FleetStore {
         odometerPhoto: Data?,
         batteryPhoto: Data?
     ) throws -> ActiveShift {
+        guard canRunOperationalCycle else { throw OperationalMutationError.backendRequired }
         guard let assigned = unitAssignment, assigned.vehicleId == vehicle.id else {
             throw UnitAssignmentError.unitNotAssigned
         }
@@ -1059,8 +1114,13 @@ final class FleetStore {
         return activeShift ?? shift
     }
 
+    /// The write itself, with no boundary of its own.
+    ///
+    /// Private since 15B.13.3: it was reachable from anywhere, and it is the method that
+    /// actually opens a shift and takes a vehicle. Every caller now has to cross
+    /// `startShift` — where the refusal lives — instead of arriving here directly.
     @discardableResult
-    func assign(vehicle: Vehicle, odometerKm: Int, batteryPct: Int) -> ActiveShift {
+    private func assign(vehicle: Vehicle, odometerKm: Int, batteryPct: Int) -> ActiveShift {
         let startedAt = now
         let scheduled = ShiftRules.scheduledStart(slot: driver.slot, on: startedAt)
         let shift = ActiveShift(
@@ -1076,7 +1136,8 @@ final class FleetStore {
             startBatteryPct: batteryPct,
             photos: [:],
             trips: 0,
-            earningsMxn: 0
+            earningsMxn: 0,
+            origin: operationalOrigin
         )
 
         activeShift = shift
@@ -1099,7 +1160,14 @@ final class FleetStore {
         return shift
     }
 
+    /// Files evidence onto the open shift.
+    ///
+    /// Gated too, even though a production session cannot have a shift to attach to: a
+    /// photograph stored against a shift record *is* the evidence the station is told it
+    /// has, and a legacy simulated shift standing in memory must not be able to collect
+    /// more of it under a proved identity.
     func saveInspectionPhoto(slot: InspectionSlot, data: Data) {
+        guard canRunOperationalCycle, canActOnActiveShift else { return }
         guard var shift = activeShift else { return }
         shift.photos[slot.rawValue] = data
         activeShift = shift
@@ -1292,7 +1360,19 @@ final class FleetStore {
         return deposit
     }
 
-    func reportIncident(kind: IncidentKind, description: String, photos: [Data]) {
+    /// Files an incident report.
+    ///
+    /// Throws under a proved identity in production, before the record exists. The
+    /// notice this raises says "Incidencia enviada a la estación" and the row lands as
+    /// `.open`, which every screen renders as *waiting for supervision*. There is no
+    /// supervision service behind it: after a collision with a third party, a driver who
+    /// believes the station was notified and is waiting is in a materially worse position
+    /// than one who knows they still have to call.
+    ///
+    /// The screen stays open and the photographs stay capturable — as a draft the caller
+    /// holds, never as `incidents`, which is the list that means "reported".
+    func reportIncident(kind: IncidentKind, description: String, photos: [Data]) throws {
+        guard canRunOperationalCycle else { throw OperationalMutationError.backendRequired }
         let vehicle = activeVehicle ?? vehicles.first
         let incident = Incident(
             id: "inci-\(UUID().uuidString.prefix(8))",
@@ -1303,7 +1383,8 @@ final class FleetStore {
             createdAt: now,
             description: description,
             photos: photos,
-            status: .open
+            status: .open,
+            origin: operationalOrigin
         )
         incidents.insert(incident, at: 0)
         pushNotice(
@@ -1314,7 +1395,17 @@ final class FleetStore {
         persist()
     }
 
-    func finishShift(endOdometerKm: Int, endBatteryPct: Int, photo: Data?) -> ShiftSummary {
+    /// Closes the open shift: files the record, releases the unit and returns the summary.
+    ///
+    /// Two refusals, and they are different questions. The first is the boundary: closing
+    /// a shift writes the row a settlement multiplies and four bonuses are judged on, and
+    /// there is no station to certify it. The second is about the shift itself — a
+    /// `.simulated` one left open in the laboratory cannot be closed from production, or
+    /// the exit from a simulation would mint a real closed shift out of it. Neither
+    /// deletes anything: the simulated shift stays in its own container, closeable where
+    /// it was opened.
+    func finishShift(endOdometerKm: Int, endBatteryPct: Int, photo: Data?) throws -> ShiftSummary {
+        guard canRunOperationalCycle else { throw OperationalMutationError.backendRequired }
         guard let shift = activeShift else {
             return ShiftSummary(
                 kmDriven: 0,
@@ -1327,6 +1418,7 @@ final class FleetStore {
                 lateMinutes: 0
             )
         }
+        guard canActOnActiveShift else { throw OperationalMutationError.unauthoritativeShift }
 
         let endedAt = now
         let record = ShiftRecord(
@@ -1346,7 +1438,10 @@ final class FleetStore {
             startBatteryPct: shift.startBatteryPct,
             endBatteryPct: endBatteryPct,
             trips: shift.trips,
-            earningsMxn: shift.earningsMxn
+            earningsMxn: shift.earningsMxn,
+            // Inherited from the shift, never recomputed from the current session: a
+            // block opened inside a simulation stays a simulated block once closed.
+            origin: shift.origin
         )
 
         history.insert(record, at: 0)
@@ -1556,7 +1651,8 @@ final class FleetStore {
     /// looking at a unit nobody ever assigned to them.
     nonisolated private static func ownedState(
         _ stored: PersistedState?,
-        driverId: String
+        driverId: String,
+        capability: OperationalCapability
     ) -> PersistedState {
         var owned = emptyOperationalState()
         guard let stored else { return owned }
@@ -1567,10 +1663,29 @@ final class FleetStore {
         // permanent the moment `persist()` ran. Nothing is deleted: the stored array stays
         // on disk, it is simply not adopted until a server catalogue exists to fill it.
         owned.vehicles = []
-        owned.activeShift = stored.activeShift.flatMap { $0.driverId == driverId ? $0 : nil }
-        owned.history = stored.history.filter { $0.driverId == driverId }
+        // Ownership is no longer enough for the operational cycle. `driverId` says whose
+        // row it is; it cannot say whether the day happened. A simulated block carrying
+        // the exact `profileId` of the proved identity — which is precisely what a
+        // laboratory run by that identity produces — used to restore straight into
+        // production, where it became history, a settlement and a bonus verdict. It is
+        // not deleted: it stays in the blob, and it comes back the moment the laboratory
+        // asks for it.
+        owned.activeShift = OperationalRecordRules.shift(
+            stored.activeShift,
+            driverId: driverId,
+            capability: capability
+        )
+        owned.history = OperationalRecordRules.history(
+            stored.history,
+            driverId: driverId,
+            capability: capability
+        )
         owned.incomes = stored.incomes.filter { $0.driverId == driverId }
-        owned.incidents = stored.incidents.filter { $0.driverId == driverId }
+        owned.incidents = OperationalRecordRules.incidents(
+            stored.incidents,
+            driverId: driverId,
+            capability: capability
+        )
         owned.credit = stored.credit.flatMap { $0.driverId == driverId && $0.origin == .backend ? $0 : nil }
         // No ownership field of their own; they are trusted only because they were written
         // under this identity's key, and never inherited from another session.

@@ -138,6 +138,39 @@ nonisolated struct ActiveShift: Codable, Identifiable, Sendable {
     var photos: [String: Data]
     var trips: Int
     var earningsMxn: Int
+    /// Who certified that this shift was opened. `driverId` already answers whose it is;
+    /// this answers whether it happened anywhere but on this phone.
+    let origin: OperationalRecordOrigin
+
+    /// Whether a station stands behind this shift.
+    var isAuthoritative: Bool { origin == .backend }
+
+    enum CodingKeys: String, CodingKey {
+        case id, driverId, vehicleId, group, slot, scheduledStartAt, startedAt
+        case lateMinutes, startOdometerKm, startBatteryPct, photos, trips, earningsMxn, origin
+    }
+}
+
+extension ActiveShift {
+    /// A shift stored before 15B.13.3 decodes as `.simulated`: every one of them was
+    /// opened by a session that could not have been certified by anything else.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        vehicleId = try container.decode(String.self, forKey: .vehicleId)
+        group = try container.decode(ShiftGroup.self, forKey: .group)
+        slot = try container.decode(ShiftSlot.self, forKey: .slot)
+        scheduledStartAt = try container.decode(Date.self, forKey: .scheduledStartAt)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        lateMinutes = try container.decode(Int.self, forKey: .lateMinutes)
+        startOdometerKm = try container.decode(Int.self, forKey: .startOdometerKm)
+        startBatteryPct = try container.decode(Int.self, forKey: .startBatteryPct)
+        photos = try container.decode([String: Data].self, forKey: .photos)
+        trips = try container.decode(Int.self, forKey: .trips)
+        earningsMxn = try container.decode(Int.self, forKey: .earningsMxn)
+        origin = try container.decodeIfPresent(OperationalRecordOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 nonisolated struct ShiftRecord: Codable, Identifiable, Sendable {
@@ -158,10 +191,47 @@ nonisolated struct ShiftRecord: Codable, Identifiable, Sendable {
     let endBatteryPct: Int
     let trips: Int
     let earningsMxn: Int
+    /// Who certified that this shift was worked and closed.
+    let origin: OperationalRecordOrigin
 
     var kmDriven: Int { max(0, endOdometerKm - startOdometerKm) }
     var durationMinutes: Int { max(0, Int(endedAt.timeIntervalSince(startedAt) / 60)) }
     var pendingLateMinutes: Int { max(0, lateMinutes - paidBackMinutes) }
+    var isAuthoritative: Bool { origin == .backend }
+
+    enum CodingKeys: String, CodingKey {
+        case id, driverId, vehicleId, vehicleInternalNumber, group, slot
+        case scheduledStartAt, startedAt, endedAt, lateMinutes, paidBackMinutes
+        case startOdometerKm, endOdometerKm, startBatteryPct, endBatteryPct
+        case trips, earningsMxn, origin
+    }
+}
+
+extension ShiftRecord {
+    /// Closed shifts stored before 15B.13.3 decode as `.simulated`. This is the row the
+    /// settlement multiplies and the bonus engine judges, so an absent stamp is read the
+    /// only honest way: nobody certified it.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        vehicleId = try container.decode(String.self, forKey: .vehicleId)
+        vehicleInternalNumber = try container.decode(String.self, forKey: .vehicleInternalNumber)
+        group = try container.decode(ShiftGroup.self, forKey: .group)
+        slot = try container.decode(ShiftSlot.self, forKey: .slot)
+        scheduledStartAt = try container.decode(Date.self, forKey: .scheduledStartAt)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        endedAt = try container.decode(Date.self, forKey: .endedAt)
+        lateMinutes = try container.decode(Int.self, forKey: .lateMinutes)
+        paidBackMinutes = try container.decode(Int.self, forKey: .paidBackMinutes)
+        startOdometerKm = try container.decode(Int.self, forKey: .startOdometerKm)
+        endOdometerKm = try container.decode(Int.self, forKey: .endOdometerKm)
+        startBatteryPct = try container.decode(Int.self, forKey: .startBatteryPct)
+        endBatteryPct = try container.decode(Int.self, forKey: .endBatteryPct)
+        trips = try container.decode(Int.self, forKey: .trips)
+        earningsMxn = try container.decode(Int.self, forKey: .earningsMxn)
+        origin = try container.decodeIfPresent(OperationalRecordOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 nonisolated enum IncomePlatform: String, Codable, CaseIterable, Sendable {
@@ -273,6 +343,33 @@ nonisolated struct Incident: Codable, Identifiable, Sendable {
     let description: String
     var photos: [Data]
     var status: IncidentStatus
+    /// Whether a station actually received this report. `.open` means "waiting for
+    /// supervision"; without this stamp, a row nobody received looked exactly the same.
+    let origin: OperationalRecordOrigin
+
+    var isAuthoritative: Bool { origin == .backend }
+
+    enum CodingKeys: String, CodingKey {
+        case id, driverId, vehicleId, vehicleInternalNumber, kind, createdAt
+        case description, photos, status, origin
+    }
+}
+
+extension Incident {
+    /// Incidents stored before 15B.13.3 decode as `.simulated`.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        vehicleId = try container.decode(String.self, forKey: .vehicleId)
+        vehicleInternalNumber = try container.decode(String.self, forKey: .vehicleInternalNumber)
+        kind = try container.decode(IncidentKind.self, forKey: .kind)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        description = try container.decode(String.self, forKey: .description)
+        photos = try container.decode([Data].self, forKey: .photos)
+        status = try container.decode(IncidentStatus.self, forKey: .status)
+        origin = try container.decodeIfPresent(OperationalRecordOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 nonisolated enum NoticeKind: String, Codable, Sendable {

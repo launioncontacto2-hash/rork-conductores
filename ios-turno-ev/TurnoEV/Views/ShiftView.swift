@@ -431,17 +431,32 @@ struct ShiftView: View {
                 BigButton(
                     title: "Iniciar turno",
                     symbol: "bolt.car.fill",
-                    isEnabled: canStart && store.hasAssignedUnit
+                    isEnabled: canStart && store.hasAssignedUnit && store.canRunOperationalCycle
                 ) {
                     route = .start
                 }
                 .padding(.top, 16)
 
+                // Two different blockers, never the same sentence. Missing a unit is
+                // something the supervisor fixes; a missing connection is not, and
+                // telling a driver who *has* a unit that they do not is how someone
+                // spends a morning chasing an assignment that already exists.
                 if !store.hasAssignedUnit {
                     Text("Tu supervisor aún no te asigna unidad.")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Palette.amber)
                         .padding(.top, 8)
+                } else if !store.canRunOperationalCycle {
+                    VStack(spacing: 4) {
+                        Text("Tienes unidad asignada.")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Palette.volt)
+                        Text("El inicio de turno aún requiere conexión con el sistema operativo de tu estación.")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Palette.amber)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 8)
                 }
             }
         }
