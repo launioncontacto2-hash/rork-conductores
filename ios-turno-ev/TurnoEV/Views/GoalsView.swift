@@ -309,7 +309,16 @@ struct GoalsView: View {
                     .foregroundStyle(Palette.textMuted)
             }
 
-            BigButton(title: "Registrar ingreso", symbol: "banknote.fill", tone: .outline) {
+            // The screen behind this button is the same one either way, but it does two
+            // different things depending on who is looking. A demonstration session can
+            // mint an income there; a backend session can only read what the platform
+            // reported. Offering "Registrar" to the second one promises an act the
+            // financial boundary refuses, so the label states the act that is available.
+            BigButton(
+                title: store.canSimulateFinancialState ? "Registrar ingreso" : "Ver ingresos",
+                symbol: "banknote.fill",
+                tone: .outline
+            ) {
                 isIncomePresented = true
             }
         }

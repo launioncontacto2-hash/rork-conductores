@@ -583,8 +583,8 @@ nonisolated enum EditorMessageCatalog {
         ),
         EditorMessage(
             key: "empty_no_cash",
-            text: "Sin efectivo pendiente",
-            defaultText: "Sin efectivo pendiente",
+            text: "Sin cobros de efectivo disponibles",
+            defaultText: "Sin cobros de efectivo disponibles",
             group: "Estados vacíos",
             variables: [],
             usage: "Cuando la plataforma no reporta cobros en efectivo."

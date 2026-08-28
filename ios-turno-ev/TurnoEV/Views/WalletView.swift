@@ -189,6 +189,18 @@ struct WalletView: View {
         .panel()
     }
 
+    /// The stored hints describe a settlement that can move. Where the transfer is not
+    /// available, "listo para solicitarse" would announce a button that refuses the tap,
+    /// so the sentence is replaced by what is actually true: the amount was computed, and
+    /// the transfer waits on a connection that does not exist yet. The model text is left
+    /// alone — it is still correct for the session that can walk the whole pipeline.
+    private func statusHint(_ settlement: WeeklySettlement) -> String {
+        guard canSimulateTransfer else {
+            return "Saldo semanal calculado. La transferencia estará disponible cuando se conecte el sistema financiero."
+        }
+        return settlement.status.hint
+    }
+
     private func transferTitle(_ settlement: WeeklySettlement) -> String {
         guard canSimulateTransfer else { return "Transferencia no disponible" }
         return settlement.status == .available ? "Solicitar transferencia" : settlement.status.label
@@ -211,7 +223,7 @@ struct WalletView: View {
 
     private func statusCard(_ settlement: WeeklySettlement) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            SupSectionHeader(title: "Estado de la liquidación", subtitle: settlement.status.hint)
+            SupSectionHeader(title: "Estado de la liquidación", subtitle: statusHint(settlement))
 
             HStack(spacing: 4) {
                 ForEach(SettlementStatus.allCases) { status in

@@ -188,7 +188,10 @@ struct IncomeView: View {
     private var backendPendingBanner: some View {
         NoticeBanner(
             symbol: "clock.badge.exclamationmark",
-            title: "Registro de ingresos aún no disponible",
+            // Naming the act, not the screen: the entry point in Metas now offers to see
+            // income, so a banner saying the whole screen is unavailable would contradict
+            // the door the driver just walked through. What is unavailable is filing.
+            title: "Registro de cobros en efectivo aún no disponible",
             message: "Tus viajes en efectivo llegarán aquí cuando la plataforma esté conectada. Hasta entonces esta pantalla no registra ingresos ni genera cobros de prueba en tu cuenta.",
             tone: .info
         )
@@ -310,9 +313,12 @@ struct IncomeView: View {
             Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 38, weight: .semibold))
                 .foregroundStyle(Palette.volt)
-            Text("Sin efectivo pendiente")
+            // An empty ledger is not proof that no charge exists: it is the absence of a
+            // report. Claiming the driver has no cash trips asserts knowledge of the
+            // platform's records that this screen does not hold.
+            Text("Sin cobros de efectivo disponibles")
                 .font(.system(.title3, weight: .black))
-            Text("No tienes viajes cobrados en efectivo por depositar. Este registro solo se abre cuando la plataforma reporta un cobro en efectivo de tus viajes.")
+            Text("Los cobros en efectivo aparecerán aquí cuando la plataforma los reporte para esta cuenta.")
                 .font(.footnote)
                 .foregroundStyle(Palette.textMuted)
                 .multilineTextAlignment(.center)
