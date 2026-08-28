@@ -125,6 +125,22 @@ final class CoverageStore {
 
     var canCoordinateLocally: Bool { coordination.allowsLocalWorkflow }
 
+    /// Whose coverage tray this session is reading.
+    ///
+    /// Derived from the same capability that already decides whether the workflow may
+    /// run here, because the tray is part of the workflow rather than a commentary on it:
+    /// the day a coverage service exists, seats and the messages routing them arrive
+    /// together.
+    var noticeAuthority: CoverageNoticeAuthority {
+        canCoordinateLocally ? .localWorkflow : .stationRouted
+    }
+
+    /// Every row this session may read, count or mark — the one collection the tray, the
+    /// badge and the mark-as-read paths all go through.
+    var visibleNotifications: [CoverageNotification] {
+        CoverageNoticeRules.visible(notifications, authority: noticeAuthority)
+    }
+
     var now: Date { fleet?.now ?? Date() }
 
     var isEmpty: Bool {
@@ -252,12 +268,21 @@ final class CoverageStore {
         return entries.filter { $0.stationCode == stationCode }
     }
 
+    /// The tray. Being addressed to this person is necessary and was never sufficient.
+    ///
+    /// `recipientId` is a driver id or a staff account id, and both are fixtures shared
+    /// with the demonstration roster — `DRV-TEST-001`, `sup-izt-01`. A proved identity
+    /// whose id collides with one of those was reading somebody's simulation.
     func notifications(for recipientId: String) -> [CoverageNotification] {
-        notifications.filter { $0.recipientId == recipientId }.sorted { $0.createdAt > $1.createdAt }
+        visibleNotifications
+            .filter { $0.recipientId == recipientId }
+            .sorted { $0.createdAt > $1.createdAt }
     }
 
+    /// The badge counts exactly the collection the screen renders, by deriving from it.
+    /// A badge over an empty tray is its own small lie.
     func unreadCount(for recipientId: String) -> Int {
-        notifications.filter { $0.recipientId == recipientId && !$0.isRead }.count
+        notifications(for: recipientId).count { !$0.isRead }
     }
 
     // MARK: - Guards offered to one person
@@ -1414,19 +1439,37 @@ final class CoverageStore {
 
     // MARK: - Notifications
 
+    /// Marking read is a write, so it answers to provenance like every other write.
+    ///
+    /// Knowing an id is not title to a row. Ids are deterministic fixtures in the
+    /// demonstration board, and the two books share a key: without this guard a proved
+    /// identity could silence a laboratory row it was never allowed to see.
     func markNotificationRead(id: String) {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
+        guard CoverageNoticeRules.adopts(origin: notifications[index].origin, authority: noticeAuthority) else { return }
         notifications[index].isRead = true
         persist()
     }
 
     func markAllNotificationsRead(for recipientId: String) {
-        for index in notifications.indices where notifications[index].recipientId == recipientId {
+        let visible = Set(notifications(for: recipientId).map(\.id))
+        guard !visible.isEmpty else { return }
+        for index in notifications.indices where visible.contains(notifications[index].id) {
             notifications[index].isRead = true
         }
         persist()
     }
 
+    /// The single frontier where a coverage message is minted, for all fourteen producers.
+    ///
+    /// Half of them sit behind `canCoordinateLocally` already — the driver-side calls that
+    /// file an absence, take a guard or propose a swap. The other half do not, because
+    /// they belong to the supervisor consoles: `decideAbsence`, `offerGuard`,
+    /// `markUncovered`, `approveVacancy`, `rejectSubstitute`, `markCompleted`,
+    /// `decideSwap`, plus the absence engine through `notifySupervisors`. Those write a
+    /// row addressed to a *driver*, and the driver reading it is the one whose session is
+    /// open. So the refusal goes here, once, where the row is built.
+    @discardableResult
     private func push(
         to recipientId: String,
         kind: CoverageNoticeKind,
@@ -1434,26 +1477,32 @@ final class CoverageStore {
         body: String,
         vacancyId: String? = nil,
         swapId: String? = nil
-    ) {
-        notifications.insert(
-            CoverageNotification(
-                id: CoverageRules.newId("cnot"),
-                recipientId: recipientId,
-                kind: kind,
-                title: title,
-                body: body,
-                createdAt: now,
-                vacancyId: vacancyId,
-                swapId: swapId,
-                isRead: false
-            ),
-            at: 0
-        )
+    ) -> Bool {
+        guard canCoordinateLocally else { return false }
 
-        // The driver holding the session also gets it in their own notice bell.
+        let notification = CoverageNotification(
+            id: CoverageRules.newId("cnot"),
+            recipientId: recipientId,
+            kind: kind,
+            title: title,
+            body: body,
+            createdAt: now,
+            vacancyId: vacancyId,
+            swapId: swapId,
+            isRead: false,
+            origin: noticeAuthority.origin
+        )
+        notifications.insert(notification, at: 0)
+
+        // The driver holding the session also gets it in their own notice bell — and it
+        // arrives there carrying the provenance it was born with, never the bell's own.
+        // The two boundaries can move apart: a station may start publishing notices
+        // before it can route a seat, and on that day this mirror would otherwise launder
+        // a locally minted "Guardia confirmada" into a station-published one.
         if let fleet, fleet.driver.id == recipientId {
-            fleet.pushNotice(kind: .station, title: title, body: body)
+            fleet.mirrorNotice(kind: .station, title: title, body: body, origin: notification.origin.generalBell)
         }
+        return true
     }
 
     /// Reachable by the absence resolution engine, which reports its results through the

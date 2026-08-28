@@ -831,6 +831,50 @@ nonisolated struct CoverageNotification: Codable, Identifiable, Sendable {
     var vacancyId: String?
     var swapId: String?
     var isRead: Bool
+    /// Who produced this row. `recipientId` says who it is *for*; it never said who it
+    /// came *from*, and being addressed correctly is not the same as being true.
+    let origin: CoverageNotificationOrigin
+
+    init(
+        id: String,
+        recipientId: String,
+        kind: CoverageNoticeKind,
+        title: String,
+        body: String,
+        createdAt: Date,
+        vacancyId: String? = nil,
+        swapId: String? = nil,
+        isRead: Bool,
+        origin: CoverageNotificationOrigin
+    ) {
+        self.id = id
+        self.recipientId = recipientId
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.createdAt = createdAt
+        self.vacancyId = vacancyId
+        self.swapId = swapId
+        self.isRead = isRead
+        self.origin = origin
+    }
+
+    /// Rows stored before provenance existed were all written by the local engine, so
+    /// absence reads as `.simulated`. Absence is never promoted: a missing field cannot
+    /// become an assertion that a station routed this.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        recipientId = try container.decode(String.self, forKey: .recipientId)
+        kind = try container.decode(CoverageNoticeKind.self, forKey: .kind)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        vacancyId = try container.decodeIfPresent(String.self, forKey: .vacancyId)
+        swapId = try container.decodeIfPresent(String.self, forKey: .swapId)
+        isRead = try container.decode(Bool.self, forKey: .isRead)
+        origin = try container.decodeIfPresent(CoverageNotificationOrigin.self, forKey: .origin) ?? .simulated
+    }
 }
 
 // MARK: - Station coverage board

@@ -1625,6 +1625,28 @@ final class FleetStore {
     @discardableResult
     func pushNotice(kind: NoticeKind, title: String, body: String) -> Bool {
         guard canPublishStationNotices else { return false }
+        return mint(kind: kind, title: title, body: body, origin: noticeAuthority.origin)
+    }
+
+    /// Publishes a copy of something that already has a provenance of its own.
+    ///
+    /// The coverage module keeps its own tray and mirrors each row into this bell. Minting
+    /// that copy through `pushNotice` would have sealed it with *this* session's authority
+    /// rather than the row's, and the two boundaries are deliberately independent — the
+    /// station may publish notices before it can route a seat. Then a locally minted
+    /// "Guardia confirmada" would arrive here stamped as station-published.
+    ///
+    /// So the caller declares what it is copying, and this refuses anything the open
+    /// session may not show. Nothing can hand it `.backend` today; the path exists so the
+    /// real one has somewhere to land.
+    @discardableResult
+    func mirrorNotice(kind: NoticeKind, title: String, body: String, origin: NoticeOrigin) -> Bool {
+        guard NoticeRules.adopts(origin: origin, authority: noticeAuthority) else { return false }
+        guard origin == .backend || canPublishStationNotices else { return false }
+        return mint(kind: kind, title: title, body: body, origin: origin)
+    }
+
+    private func mint(kind: NoticeKind, title: String, body: String, origin: NoticeOrigin) -> Bool {
         notices.insert(
             Notice(
                 id: "not-\(UUID().uuidString.prefix(8))",
@@ -1633,7 +1655,7 @@ final class FleetStore {
                 body: body,
                 createdAt: now,
                 read: false,
-                origin: noticeAuthority.origin
+                origin: origin
             ),
             at: 0
         )

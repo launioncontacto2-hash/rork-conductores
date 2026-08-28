@@ -753,6 +753,353 @@ struct CoverageDemonstrationTests {
     }
 }
 
+// MARK: - 15B.15 · the coverage tray
+
+/// 15B.15 · a shared workflow's messages answer to provenance, not to an address.
+///
+/// This tray is a harder case than the general bell and for one structural reason: the
+/// bell is stored per identity **and** environment, so a demonstration and a proved
+/// driver never share a blob. The coverage board is keyed by environment alone — a demo
+/// session and a proved identity in production both read `turnoev.coverage.v1`. Every
+/// `recipientId` in it is a fixture id (`DRV-TEST-001`, `acc-sup-201`), so being
+/// addressed correctly proved nothing at all.
+@MainActor
+struct CoverageNoticeBoundaryTests {
+
+    // MARK: Provenance
+
+    /// A · a row stored before provenance existed is read as simulated.
+    @Test func legacyNotificationDecodesAsSimulated() throws {
+        let json = #"""
+        {
+          "id": "cnot-legacy",
+          "recipientId": "DRV-TEST-001",
+          "kind": "guardAvailable",
+          "title": "Guardia disponible",
+          "body": "Sábado 14, matutino en IZT. Bono $700.",
+          "createdAt": "2026-08-20T09:15:00Z",
+          "vacancyId": "vac-legacy",
+          "isRead": false
+        }
+        """#
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let notification = try decoder.decode(CoverageNotification.self, from: Data(json.utf8))
+
+        #expect(notification.origin == .simulated)
+        #expect(notification.vacancyId == "vac-legacy")
+        #expect(CoverageNoticeRules.adopts(origin: notification.origin, authority: .stationRouted) == false)
+        #expect(CoverageNoticeRules.adopts(origin: notification.origin, authority: .localWorkflow))
+    }
+
+    /// B · a simulated row addressed to this very id is invisible to a proved identity.
+    ///
+    /// Written through one store and read through another over the same suite, because
+    /// the shared key is the whole hazard: this is the restoration path, not an injection.
+    @Test func simulatedRowsAreInvisibleToAProvedIdentity() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let demo = CoverageStore(capability: .localWorkflow, defaults: defaults)
+        demo.notifications = [
+            Self.row(id: "cnot-1", recipient: "DRV-TEST-001", kind: .guardAvailable, title: "Guardia disponible"),
+            Self.row(id: "cnot-2", recipient: "DRV-TEST-001", kind: .absenceApproved, title: "Ausencia aprobada"),
+        ]
+        demo.updatePolicy(.standard)
+
+        let proved = CoverageStore(capability: .stationRequired, defaults: defaults)
+
+        // Restored — nothing was deleted from the board.
+        #expect(proved.notifications.count == 2)
+        // And unreadable, counted as nothing, by the identity that does not own them.
+        #expect(proved.notifications(for: "DRV-TEST-001").isEmpty)
+        #expect(proved.unreadCount(for: "DRV-TEST-001") == 0)
+        #expect(proved.visibleNotifications.isEmpty)
+    }
+
+    /// C · a row the station genuinely routed is shown, and only to that session.
+    ///
+    /// Nothing can mint one today. Asserting it keeps the cut from being a wall: the day
+    /// a coverage service routes a seat, this is the path it arrives on.
+    @Test func backendRowsAreShownOnlyToTheProvedSession() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let routed = Self.row(
+            id: "cnot-backend",
+            recipient: "DRV-9001",
+            kind: .guardConfirmed,
+            title: "Guardia confirmada",
+            origin: .backend
+        )
+
+        let proved = CoverageStore(capability: .stationRequired, defaults: defaults)
+        proved.notifications = [routed]
+        #expect(proved.notifications(for: "DRV-9001").count == 1)
+        #expect(proved.unreadCount(for: "DRV-9001") == 1)
+
+        // Strict in both directions: the laboratory does not read the station's tray
+        // either. A row here points at a seat id, and that seat exists in one book only.
+        let laboratory = CoverageStore(capability: .localWorkflow, defaults: defaults)
+        laboratory.notifications = [routed]
+        #expect(laboratory.notifications(for: "DRV-9001").isEmpty)
+        #expect(laboratory.unreadCount(for: "DRV-9001") == 0)
+    }
+
+    /// D · the badge counts exactly what the tray renders.
+    @Test func unreadCountMatchesTheVisibleTray() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let proved = CoverageStore(capability: .stationRequired, defaults: defaults)
+        proved.notifications = [
+            Self.row(id: "cnot-s1", recipient: "DRV-9001", kind: .guardAvailable, title: "Guardia disponible"),
+            Self.row(id: "cnot-s2", recipient: "DRV-9001", kind: .swapResolved, title: "Intercambio aprobado"),
+            Self.row(id: "cnot-b1", recipient: "DRV-9001", kind: .guardConfirmed, title: "Guardia confirmada", origin: .backend),
+            Self.row(id: "cnot-b2", recipient: "DRV-9001", kind: .guardReminder, title: "Cambio de horario", isRead: true, origin: .backend),
+            Self.row(id: "cnot-b3", recipient: "acc-sup-201", kind: .criticalCoverage, title: "Turno sin candidatos", origin: .backend),
+        ]
+
+        let tray = proved.notifications(for: "DRV-9001")
+        #expect(tray.count == 2)
+        #expect(proved.unreadCount(for: "DRV-9001") == tray.count { !$0.isRead })
+        #expect(proved.unreadCount(for: "DRV-9001") == 1)
+        #expect(tray.allSatisfy { $0.origin == .backend })
+    }
+
+    /// E · marking read touches only what the reader can see.
+    ///
+    /// Knowing an id is not title to a row, and in a board of fixtures every id is
+    /// guessable.
+    @Test func markingReadCannotReachTheOtherBook() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let proved = CoverageStore(capability: .stationRequired, defaults: defaults)
+        proved.notifications = [
+            Self.row(id: "cnot-sim", recipient: "DRV-9001", kind: .absenceApproved, title: "Ausencia aprobada"),
+            Self.row(id: "cnot-real", recipient: "DRV-9001", kind: .guardConfirmed, title: "Guardia confirmada", origin: .backend),
+        ]
+
+        proved.markNotificationRead(id: "cnot-sim")
+        #expect(proved.notifications.first { $0.id == "cnot-sim" }?.isRead == false)
+
+        proved.markAllNotificationsRead(for: "DRV-9001")
+        #expect(proved.notifications.first { $0.id == "cnot-real" }?.isRead == true)
+        #expect(proved.notifications.first { $0.id == "cnot-sim" }?.isRead == false)
+    }
+
+    // MARK: Environment
+
+    /// F · a row written in the laboratory stays there, and comes back.
+    @Test func laboratoryRowsDoNotFollowTheDriverOut() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = CoverageStore(capability: .localWorkflow, defaults: defaults, environment: environment)
+
+        store.notifications = [Self.row(id: "cnot-prod", recipient: "DRV-TEST-001", kind: .guardReminder, title: "Cambio de horario")]
+        store.updatePolicy(.standard)
+
+        environment.set(.test)
+        store.adoptEnvironment()
+        #expect(store.notifications.isEmpty)
+
+        store.notifications = [Self.row(id: "cnot-lab", recipient: "DRV-TEST-001", kind: .guardConfirmed, title: "Guardia confirmada")]
+        store.updatePolicy(.standard)
+
+        environment.set(.production)
+        store.adoptEnvironment()
+
+        #expect(store.notifications.count == 1)
+        #expect(store.notifications.first?.id == "cnot-prod")
+        // Two books, both still on disk. Leaving the laboratory deleted nothing.
+        #expect(defaults.data(forKey: "turnoev.coverage.v1") != nil)
+        #expect(defaults.data(forKey: "turnoev.coverage.v1.lab") != nil)
+
+        environment.set(.test)
+        store.adoptEnvironment()
+        #expect(store.notifications.first?.id == "cnot-lab")
+        #expect(store.notifications(for: "DRV-TEST-001").count == 1)
+    }
+
+    // MARK: The mirror into the general bell
+
+    /// G · a coverage row reaches the bell carrying its own provenance.
+    @Test func theMirrorKeepsProvenance() throws {
+        #expect(CoverageNotificationOrigin.simulated.generalBell == .simulated)
+        #expect(CoverageNotificationOrigin.backend.generalBell == .backend)
+
+        let suiteName = "turnoev.tests.coverage.mirror.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fleet = FleetStore(environment: RuntimeEnvironment(defaults: defaults), defaults: defaults)
+        let coverage = CoverageStore(capability: .localWorkflow, defaults: defaults)
+        coverage.attach(fleet: fleet)
+
+        let actor = try #require(StaffDirectory.accounts.first { $0.role == .supervisor })
+        let before = fleet.notices.count
+        coverage.absences = [Self.absence(id: "abs-mirror", driverId: fleet.driver.id)]
+        coverage.decideAbsence(id: "abs-mirror", approved: true, note: "", by: actor)
+
+        #expect(coverage.notifications.first?.origin == .simulated)
+        #expect(fleet.notices.count == before + 1)
+        #expect(fleet.notices.first?.title == "Ausencia aprobada")
+        #expect(fleet.notices.first?.origin == .simulated)
+    }
+
+    /// G · and the day the two boundaries move apart, nothing is laundered across.
+    ///
+    /// The bell may open before the coverage service does. Pinning the coverage
+    /// capability reproduces that future: a local book still writing, a proved bell that
+    /// refuses the copy rather than stamping it as the station's.
+    @Test func theMirrorRefusesToLaunderASimulatedRow() throws {
+        let suiteName = "turnoev.tests.coverage.mirror.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let profileId = "DRV-MIRROR-\(UUID().uuidString.prefix(8))"
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            AssignmentBook.remove(driverId: profileId)
+        }
+
+        let fleet = FleetStore(environment: RuntimeEnvironment(defaults: defaults), defaults: defaults)
+        try fleet.signIn(
+            principal: SessionPrincipal(
+                authUserId: UUID().uuidString,
+                profileId: profileId,
+                name: "Conductor de prueba",
+                employeeNumber: "EMP-TEST",
+                email: "coverage.driver@joramza.test",
+                role: .driver,
+                stationId: "est-001",
+                stationCode: "IZT",
+                stationName: "Estación Iztapalapa",
+                shiftGroup: .weekday,
+                shiftSlot: .morning
+            ),
+            method: .credentials
+        )
+
+        let coverage = CoverageStore(capability: .localWorkflow, defaults: defaults)
+        coverage.attach(fleet: fleet)
+
+        let actor = try #require(StaffDirectory.accounts.first { $0.role == .supervisor })
+        coverage.absences = [Self.absence(id: "abs-mirror", driverId: fleet.driver.id)]
+        coverage.decideAbsence(id: "abs-mirror", approved: true, note: "", by: actor)
+
+        #expect(coverage.notifications.count == 1)
+        #expect(coverage.notifications.first?.origin == .simulated)
+        #expect(fleet.notices.isEmpty)
+        #expect(fleet.mirrorNotice(kind: .station, title: "Guardia confirmada", body: "—", origin: .simulated) == false)
+    }
+
+    // MARK: Writing and the demonstration
+
+    /// The frontier itself: the consoles cannot address a proved driver either.
+    ///
+    /// Half the producers were already gated on the driver's side; these are the ones that
+    /// were not, because they belong to a supervisor screen.
+    @Test func consoleProducersWriteNothingForAProvedIdentity() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let proved = CoverageStore(capability: .stationRequired, defaults: defaults)
+        let actor = try #require(StaffDirectory.accounts.first { $0.role == .supervisor })
+        proved.absences = [Self.absence(id: "abs-blocked", driverId: "DRV-9001")]
+
+        proved.decideAbsence(id: "abs-blocked", approved: true, note: "", by: actor)
+        proved.notifySupervisors(
+            stationId: actor.stationId ?? "est-001",
+            kind: .criticalCoverage,
+            title: "Turno sin candidatos",
+            body: "—"
+        )
+
+        #expect(proved.notifications.isEmpty)
+        #expect(proved.visibleNotifications.isEmpty)
+    }
+
+    /// H · the demonstration tray behaves exactly as it did.
+    @Test func theDemonstrationTrayIsUnchanged() throws {
+        let suiteName = "turnoev.tests.coverage.notices.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let demo = CoverageStore(capability: .localWorkflow, defaults: defaults)
+        #expect(demo.noticeAuthority == .localWorkflow)
+
+        let actor = try #require(StaffDirectory.accounts.first { $0.role == .supervisor })
+        demo.absences = [Self.absence(id: "abs-demo", driverId: "DRV-TEST-001")]
+        demo.decideAbsence(id: "abs-demo", approved: true, note: "", by: actor)
+
+        let tray = demo.notifications(for: "DRV-TEST-001")
+        #expect(tray.count == 1)
+        #expect(tray.first?.title == "Ausencia aprobada")
+        #expect(tray.first?.origin == .simulated)
+        #expect(demo.unreadCount(for: "DRV-TEST-001") == 1)
+        #expect(demo.visibleNotifications.count == demo.notifications.count)
+
+        demo.markAllNotificationsRead(for: "DRV-TEST-001")
+        #expect(demo.unreadCount(for: "DRV-TEST-001") == 0)
+    }
+
+    // MARK: Fixtures
+
+    private static func row(
+        id: String,
+        recipient: String,
+        kind: CoverageNoticeKind,
+        title: String,
+        isRead: Bool = false,
+        origin: CoverageNotificationOrigin = .simulated
+    ) -> CoverageNotification {
+        CoverageNotification(
+            id: id,
+            recipientId: recipient,
+            kind: kind,
+            title: title,
+            body: "—",
+            createdAt: Date(),
+            vacancyId: nil,
+            swapId: nil,
+            isRead: isRead,
+            origin: origin
+        )
+    }
+
+    private static func absence(id: String, driverId: String) -> AbsenceRequest {
+        AbsenceRequest(
+            id: id,
+            driverId: driverId,
+            driverName: "Conductor de prueba",
+            employeeNumber: "EMP-TEST",
+            stationId: "est-001",
+            stationCode: "IZT",
+            date: ShiftRules.calendar.startOfDay(for: Date()),
+            slot: .morning,
+            kind: .scheduled,
+            reason: "Cita médica",
+            comments: "",
+            evidence: nil,
+            status: .requested,
+            createdAt: Date(),
+            vacancyId: nil,
+            decidedAt: nil,
+            decidedBy: nil,
+            decisionNote: nil
+        )
+    }
+}
+
 // MARK: - 15B.14 · notices and the station's voice
 
 /// 15B.14 · the app may not speak in the station's voice.
