@@ -499,7 +499,7 @@ struct EnvironmentSheet: View {
     /// The one-way valve. A session without laboratory rights cannot start a simulation,
     /// but it is never trapped inside one.
     private var canLeaveTest: Bool {
-        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+        EnvironmentControl.canLeaveTestEnvironment(isSignedIn: store.isAuthenticated, mode: lab.mode)
     }
 
     var body: some View {
@@ -557,6 +557,7 @@ struct EnvironmentSheet: View {
                 let isAdoptable = EnvironmentControl.canAdopt(
                     mode: mode,
                     account: store.currentAccount,
+                    isSignedIn: store.isAuthenticated,
                     current: lab.mode
                 )
                 Button {

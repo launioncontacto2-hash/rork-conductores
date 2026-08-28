@@ -34,7 +34,7 @@ struct TurnoEVApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Palette.volt)
                 .task {
-                    lab.attach(fleet: store)
+                    lab.attach(fleet: store, coverage: coverage)
                     coverage.attach(fleet: store)
                     store.adoptEnvironment()
 
@@ -58,8 +58,14 @@ struct TurnoEVApp: App {
                     }
                 }
                 .onChange(of: lab.mode) { _, _ in
-                    // Test and production never share coverage records.
-                    coverage.clear()
+                    // The stores that hold state swap it in `LabStore.setMode`, which is
+                    // the only door an environment changes through. What is left here is
+                    // presentation: nothing that must happen for the data to be correct.
+                    //
+                    // `coverage.clear()` used to live here, and it wiped the production
+                    // board — requests, vacancies, flags and all — every time anybody
+                    // walked out of the laboratory.
+                    //
                     // Production is never editable from a device.
                     if lab.mode == .production { visualEditor.deactivate() }
                     // Production has no shared clock: time there is real and untouchable.

@@ -83,8 +83,14 @@ nonisolated enum LabRuntime {
 
     static func install(_ world: LabWorld) { cache = world }
 
-    static var isTest: Bool { bridge.isTest }
-    static var mode: LabMode { bridge.mode }
+    /// The environment is **not** read from the world any more.
+    ///
+    /// `bridge.mode` came out of `turnoev.lab.v1`, which decodes all-or-nothing: one
+    /// unreadable fixture and the whole payload fell back to `.empty`, whose mode is
+    /// production. The environment now has a key of its own and cannot be lost by a
+    /// scenario — see `EnvironmentStore`.
+    static var isTest: Bool { mode == .test }
+    static var mode: LabMode { EnvironmentStore.current }
     static var regions: [Region] { bridge.regions }
     static var stations: [Station] { bridge.stations }
     static var accounts: [StaffAccount] { bridge.accounts }

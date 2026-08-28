@@ -53,21 +53,38 @@ final class FleetStore {
     /// ever wrote stays exactly where it was and keeps being read from here.
     private static let demoStorageKey = "turnoev.state.v4"
 
-    /// Storage of one identity proved by the backend.
+    /// Storage of one identity proved by the backend, in one environment.
     ///
     /// Derived from `profileId` — never from the email and never from the password — so
     /// the key is stable across renames and carries no credential. One driver per key is
     /// what makes "driver A never reads the state of driver B" a property of the storage
     /// itself instead of a filter someone has to remember to apply.
-    nonisolated private static func identityStorageKey(profileId: String) -> String {
-        "\(demoStorageKey).\(profileId)"
+    ///
+    /// The environment is part of the key for the same reason the driver is. A laboratory
+    /// experiment run by a proved identity and that identity's real operation are two
+    /// different operations, and separating them at the storage layer is what makes
+    /// "nothing simulated survives the way back to production" and "nothing real is
+    /// deleted on the way into the laboratory" properties of the container instead of
+    /// clean-up code someone has to run. The production key is byte-for-byte the one that
+    /// already exists: nothing stored needs migrating.
+    nonisolated private static func identityStorageKey(profileId: String, environment: LabMode) -> String {
+        switch environment {
+        case .production: "\(demoStorageKey).\(profileId)"
+        case .test: "\(demoStorageKey).lab.\(profileId)"
+        }
     }
 
-    /// Key the open session reads from and writes to.
-    private var storageKey: String {
+    /// Key this session uses in a given environment.
+    ///
+    /// A demonstration session answers the same key in both: it *is* the simulation, and
+    /// giving it a second blob would change behaviour that is deliberately frozen.
+    private func storageKey(for environment: LabMode) -> String {
         guard let profileId = session?.principal?.profileId else { return Self.demoStorageKey }
-        return Self.identityStorageKey(profileId: profileId)
+        return Self.identityStorageKey(profileId: profileId, environment: environment)
     }
+
+    /// Key the open session reads from and writes to right now.
+    private var storageKey: String { storageKey(for: adoptedEnvironment) }
 
     /// Average fleet speed used to estimate distance until real GPS/telemetry lands.
     private static let simulatedKmPerMinute = 0.32
@@ -104,11 +121,30 @@ final class FleetStore {
     /// credential choice instead of unlocking the same role again by itself.
     var awaitsCredentialChoice: Bool = false
 
-    init() {
+    /// The one observable source of the execution environment. Read live by every
+    /// capability below, so a change is visible to the same session immediately.
+    private let environmentSource: RuntimeEnvironment
+
+    /// Where this store persists. Injectable so a test never writes on a real device
+    /// state; the app always passes `.standard`.
+    private let defaults: UserDefaults
+
+    /// Which environment the state **currently in memory** belongs to.
+    ///
+    /// Deliberately not a source of truth and never consulted by a capability: it only
+    /// answers "which key was this loaded from", so the swap can write the outgoing state
+    /// under the right key before reading the incoming one. `environmentSource` is the
+    /// truth; this is a bookmark, refreshed by `adoptEnvironment()`.
+    private var adoptedEnvironment: LabMode
+
+    init(environment: RuntimeEnvironment = .shared, defaults: UserDefaults = .standard) {
+        self.environmentSource = environment
+        self.defaults = defaults
+        self.adoptedEnvironment = environment.mode
         // The app always opens on the demonstration storage: a backend session is never
         // restored (see `apply`), so this is the only state that can be standing when the
         // access screen appears.
-        if let restored = Self.restore(key: Self.demoStorageKey) {
+        if let restored = Self.restore(key: Self.demoStorageKey, defaults: defaults) {
             apply(restored)
         } else {
             seedDemoState()
@@ -270,6 +306,28 @@ final class FleetStore {
     /// The one test that separates a backend session from a demonstration one.
     var isBackendSession: Bool { session?.principal != nil }
 
+    // MARK: - Execution environment
+
+    /// The environment this session is running in, read live from the single source.
+    ///
+    /// Read, never stored. A capability that cached this would answer for whichever
+    /// environment happened to be active when the session opened — which is precisely the
+    /// failure 15B.13.2.1 fixes: entering the laboratory had to be done *before* signing
+    /// in, because after signing in nothing asked again.
+    var environment: LabMode { environmentSource.mode }
+
+    /// Whether this session's records answer to a real station.
+    ///
+    /// Two conditions, and both are necessary. A proved identity is not enough on its own:
+    /// inside the laboratory there is no station to contradict, the amber badge says so on
+    /// every screen, and refusing to simulate there leaves a test account with an app it
+    /// cannot exercise. And the laboratory is not enough on its own either: a demonstration
+    /// credential simulates in both environments, as it always has.
+    ///
+    /// This is the single place the three boundaries below are decided from, so the
+    /// environment cannot be honoured by one of them and ignored by another.
+    var runsAgainstStation: Bool { isBackendSession && environment == .production }
+
     // MARK: - Financial boundary
 
     /// Whether this session may mint financial state locally.
@@ -284,7 +342,7 @@ final class FleetStore {
     /// This is the capability the writers ask. It lives here, not in the views: the
     /// session is the only thing that can answer it, and a screen that decided this for
     /// itself would be one refactor away from getting it wrong.
-    var canSimulateFinancialState: Bool { !isBackendSession }
+    var canSimulateFinancialState: Bool { !runsAgainstStation }
 
     /// Provenance every financial record this session produces is stamped with, and the
     /// one a settlement built from those records will accept.
@@ -304,7 +362,7 @@ final class FleetStore {
     /// Deliberately a second property instead of a reuse of the financial one. They
     /// answer alike today only because both backends are missing; coverage may well
     /// arrive before settlement, and when it does exactly one of them flips.
-    var canSimulateOperationalCoordination: Bool { !isBackendSession }
+    var canSimulateOperationalCoordination: Bool { !runsAgainstStation }
 
     /// The capability the coverage board operates under for the open session.
     ///
@@ -326,7 +384,7 @@ final class FleetStore {
     /// demonstration with no unit has nothing to demonstrate. A proved identity gets what
     /// the server assigned, which today is nothing — and "todavía no tienes unidad" is a
     /// true sentence, while a borrowed TEV-014 is not.
-    var canSimulateUnitAssignment: Bool { !isBackendSession }
+    var canSimulateUnitAssignment: Bool { !runsAgainstStation }
 
     /// The capability every read and write of the assignment book is judged against.
     var unitAssignmentCapability: UnitAssignmentCapability {
@@ -512,6 +570,10 @@ final class FleetStore {
         // session never costs the demonstration state a single record.
         persist()
 
+        // The session opens in whatever environment the device is in, which is not
+        // necessarily the one the last state was loaded from.
+        adoptedEnvironment = environmentSource.mode
+
         // From here the store holds this identity's operational state and nothing else.
         adoptIdentityState(profileId: principal.profileId)
 
@@ -605,7 +667,10 @@ final class FleetStore {
     /// biometric link and the simulation clock belong to the device, not to the driver.
     private func adoptIdentityState(profileId: String) {
         let owned = Self.ownedState(
-            Self.restore(key: Self.identityStorageKey(profileId: profileId)),
+            Self.restore(
+                key: Self.identityStorageKey(profileId: profileId, environment: adoptedEnvironment),
+                defaults: defaults
+            ),
             driverId: profileId
         )
         vehicles = owned.vehicles
@@ -629,7 +694,7 @@ final class FleetStore {
     /// erase the demo data instead of isolating it.
     private func adoptDemoState() {
         driver = MockData.driver
-        if let stored = Self.restore(key: Self.demoStorageKey) {
+        if let stored = Self.restore(key: Self.demoStorageKey, defaults: defaults) {
             enrolledAccountId = stored.enrolledAccountId
             applyOperational(stored)
         } else {
@@ -673,6 +738,25 @@ final class FleetStore {
     /// laboratory changes the world so every interface reflects it immediately.
     func adoptEnvironment() {
         defer { reloadAssignment() }
+
+        // The switch itself, and the only place it happens.
+        //
+        // A proved identity keeps its session, its credentials and its driver profile
+        // across this: the environment changes underneath the same person. What is
+        // exchanged is the operational blob — written under the key of the environment
+        // being left, read from the key of the one being entered. Nothing is deleted on
+        // either side, so the way out of the laboratory costs the real operation nothing,
+        // and the way in costs the experiment nothing.
+        let previous = adoptedEnvironment
+        let current = environmentSource.mode
+        if previous != current {
+            persist(key: storageKey(for: previous))
+            adoptedEnvironment = current
+            if let profileId = session?.principal?.profileId {
+                adoptIdentityState(profileId: profileId)
+            }
+        }
+
         // Same reasoning as in `init`: the session outlives the environment switch, so the
         // profile is resolved from the credential and only falls back to the
         // environment's default driver when the credential has none.
@@ -1498,6 +1582,10 @@ final class FleetStore {
     }
 
     private func persist() {
+        persist(key: storageKey)
+    }
+
+    private func persist(key: String) {
         let state = PersistedState(
             session: session,
             enrolledAccountId: enrolledAccountId,
@@ -1517,14 +1605,14 @@ final class FleetStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(state)
-            UserDefaults.standard.set(data, forKey: storageKey)
+            defaults.set(data, forKey: key)
         } catch {
             print("No se pudo guardar el estado local: \(error.localizedDescription)")
         }
     }
 
-    nonisolated private static func restore(key: String) -> PersistedState? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+    nonisolated private static func restore(key: String, defaults: UserDefaults) -> PersistedState? {
+        guard let data = defaults.data(forKey: key) else { return nil }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601

@@ -9,23 +9,33 @@ final class LabStore {
     private(set) var world: LabWorld
     /// Operational store the laboratory keeps in sync after every change.
     private weak var fleet: FleetStore?
+    /// Coverage board, kept in sync by the same funnel: an environment change has to
+    /// reach every module that stores state, and doing it from a view's `onChange` made
+    /// that a property of whichever screen happened to be mounted.
+    private weak var coverage: CoverageStore?
 
     /// Last thing that happened, surfaced as a toast in the console.
     var lastMessage: LabMessage?
 
     init() {
         world = LabPersistence.load()
+        // The environment outranks whatever the payload says: it has survived updates the
+        // payload has not. The copy inside the world is kept aligned, never consulted.
+        world.mode = RuntimeEnvironment.shared.mode
         LabRuntime.install(world)
     }
 
-    func attach(fleet: FleetStore) {
+    func attach(fleet: FleetStore, coverage: CoverageStore) {
         self.fleet = fleet
+        self.coverage = coverage
     }
 
     // MARK: - Environment
 
-    var mode: LabMode { world.mode }
-    var isTest: Bool { world.mode == .test }
+    /// Read from the single observable source, so every consumer of `lab.mode` — badges,
+    /// menus, `onChange` — follows the same value the capabilities follow.
+    var mode: LabMode { RuntimeEnvironment.shared.mode }
+    var isTest: Bool { mode == .test }
 
     /// The laboratory's reading of logical time, and nothing more.
     ///
@@ -37,11 +47,18 @@ final class LabStore {
     /// action, inert inside a `body`.
     var now: Date { AppClock.now() }
 
+    /// The one door the environment changes through.
+    ///
+    /// Order matters and is deliberate: the source is written first, so anything that
+    /// reads a capability during the notifications below already sees the new
+    /// environment; then each store that keeps state swaps it.
     func setMode(_ mode: LabMode) {
-        guard world.mode != mode else { return }
+        guard self.mode != mode else { return }
+        RuntimeEnvironment.shared.set(mode)
         world.mode = mode
         commit()
         fleet?.adoptEnvironment()
+        coverage?.adoptEnvironment()
         record(
             action: mode == .test ? "Entrar a modo prueba" : "Volver a producción",
             section: .system,
@@ -57,7 +74,7 @@ final class LabStore {
     /// the reset, so leaving test mode on this phone never publishes a reset that would
     /// drag a second device back to the real hour.
     func exitTestEnvironment() {
-        guard world.mode == .test else { return }
+        guard mode == .test else { return }
         setMode(.production)
         SharedClockSync.shared.update(isTest: false)
         // Production always runs on safe real time: any simulated hour is dropped.

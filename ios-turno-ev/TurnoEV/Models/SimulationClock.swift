@@ -380,20 +380,32 @@ nonisolated enum EnvironmentControl {
     /// Without this, a profile handed a test environment had no way back except signing
     /// out, and signing out does not change the environment either: it would come back
     /// into the simulation on the next access.
-    static func canLeaveTestEnvironment(account: StaffAccount?, mode: LabMode) -> Bool {
-        mode == .test && account != nil
+    ///
+    /// Asks whether **somebody is signed in**, not whether the directory knows them. A
+    /// backend session resolves to no `StaffAccount` by design, so the old form answered
+    /// `false` for exactly the identity that most needed the way out — which is why
+    /// leaving the laboratory ended in a sign out.
+    static func canLeaveTestEnvironment(isSignedIn: Bool, mode: LabMode) -> Bool {
+        mode == .test && isSignedIn
     }
 
     /// Whether this session can reach the environment sheet at all, in either direction.
-    static func canReachEnvironment(account: StaffAccount?, mode: LabMode) -> Bool {
-        canSwitchEnvironment(account: account) || canLeaveTestEnvironment(account: account, mode: mode)
+    static func canReachEnvironment(account: StaffAccount?, isSignedIn: Bool, mode: LabMode) -> Bool {
+        canSwitchEnvironment(account: account)
+            || canLeaveTestEnvironment(isSignedIn: isSignedIn, mode: mode)
     }
 
     /// May this session select `mode` in the environment sheet.
-    static func canAdopt(mode: LabMode, account: StaffAccount?, current: LabMode) -> Bool {
+    static func canAdopt(
+        mode: LabMode,
+        account: StaffAccount?,
+        isSignedIn: Bool,
+        current: LabMode
+    ) -> Bool {
         if canSwitchEnvironment(account: account) { return true }
         // The one-way valve: Producción is always reachable, Modo prueba never is.
-        return mode == .production && canLeaveTestEnvironment(account: account, mode: current)
+        return mode == .production
+            && canLeaveTestEnvironment(isSignedIn: isSignedIn, mode: current)
     }
 
     /// May this device move the logical time. This one does depend on the environment:

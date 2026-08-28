@@ -753,6 +753,310 @@ struct CoverageDemonstrationTests {
     }
 }
 
+// MARK: - 15B.13.2.1 · environment transitions under one identity
+
+/// 15B.13.2.1 · the laboratory and the proved identity are one session, not two.
+///
+/// Every case here runs on a single `FleetStore` instance against an isolated defaults
+/// suite: nothing is recreated between the assertions, which is the whole point — the
+/// failure being fixed was a capability that had been decided once, at sign-in, and never
+/// asked again.
+@MainActor
+struct EnvironmentTransitionTests {
+
+    private struct Bench {
+        let suiteName: String
+        let defaults: UserDefaults
+        let environment: RuntimeEnvironment
+        let store: FleetStore
+        let profileId: String
+
+        var productionKey: String { "turnoev.state.v4.\(profileId)" }
+        var laboratoryKey: String { "turnoev.state.v4.lab.\(profileId)" }
+
+        func discard() {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+    }
+
+    /// A signed-in backend identity, standing in production, on storage of its own.
+    private static func bench() throws -> Bench {
+        let suiteName = "turnoev.tests.environment.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+        let profileId = "DRV-TEST-\(UUID().uuidString.prefix(8))"
+
+        try store.signIn(principal: principal(profileId: profileId), method: .credentials)
+
+        return Bench(
+            suiteName: suiteName,
+            defaults: defaults,
+            environment: environment,
+            store: store,
+            profileId: profileId
+        )
+    }
+
+    private static func principal(profileId: String) -> SessionPrincipal {
+        SessionPrincipal(
+            authUserId: UUID().uuidString,
+            profileId: profileId,
+            name: "Conductor de prueba",
+            employeeNumber: "EMP-TEST",
+            email: "test.driver@joramza.test",
+            role: .driver,
+            stationId: "est-001",
+            stationCode: "IZT",
+            stationName: "Estación Iztapalapa",
+            shiftGroup: .weekday,
+            shiftSlot: .morning
+        )
+    }
+
+    /// 1 · turning the laboratory on reaches the session that is already open.
+    ///
+    /// The capability is asserted **before** `adoptEnvironment()` runs: it has to move on
+    /// the environment change itself, not on the clean-up that follows it. Nothing here
+    /// rebuilds the store, signs out, or re-selects a profile.
+    @Test func activatingTheLaboratoryFlipsCapabilitiesOnTheOpenSession() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(bench.store.isBackendSession)
+        #expect(bench.store.canSimulateUnitAssignment == false)
+        #expect(bench.store.canSimulateFinancialState == false)
+        #expect(bench.store.canSimulateOperationalCoordination == false)
+        #expect(bench.store.unitAssignmentCapability == .stationRequired)
+        #expect(bench.store.coordinationCapability == .stationRequired)
+
+        bench.environment.set(.test)
+
+        #expect(bench.store.environment == .test)
+        #expect(bench.store.canSimulateUnitAssignment)
+        #expect(bench.store.canSimulateFinancialState)
+        #expect(bench.store.canSimulateOperationalCoordination)
+        #expect(bench.store.unitAssignmentCapability == .localSimulation)
+        #expect(bench.store.coordinationCapability == .localWorkflow)
+
+        // And the state follows: in the laboratory there is a fleet to work with.
+        bench.store.adoptEnvironment()
+        #expect(!bench.store.vehicles.isEmpty)
+    }
+
+    /// 2 · and turning it off puts the boundary back, just as immediately.
+    @Test func leavingTheLaboratoryRestoresTheStationBoundary() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+        #expect(bench.store.canSimulateUnitAssignment)
+
+        bench.environment.set(.production)
+
+        #expect(bench.store.unitAssignmentCapability == .stationRequired)
+        #expect(bench.store.coordinationCapability == .stationRequired)
+        #expect(bench.store.canSimulateFinancialState == false)
+
+        bench.store.adoptEnvironment()
+        #expect(bench.store.vehicles.isEmpty)
+        #expect(bench.store.unitAssignment == nil)
+        #expect(bench.store.hasAssignedUnit == false)
+    }
+
+    /// 3 · the person does not change while the environment does.
+    ///
+    /// No sign out, no re-selection, no rebuilt identity: the session, the proved
+    /// principal and the driver profile are the same objects on both sides of both
+    /// transitions.
+    @Test func identitySurvivesBothTransitions() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let driverId = bench.store.driver.id
+        let name = bench.store.driver.name
+        let accountId = bench.store.session?.accountId
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.driver.id == driverId)
+        #expect(bench.store.driver.name == name)
+        #expect(bench.store.session?.accountId == accountId)
+        #expect(bench.store.currentPrincipal?.profileId == bench.profileId)
+        #expect(bench.store.isBackendSession)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.driver.id == driverId)
+        #expect(bench.store.driver.name == name)
+        #expect(bench.store.session?.accountId == accountId)
+        #expect(bench.store.currentPrincipal?.profileId == bench.profileId)
+        #expect(bench.store.isBackendSession)
+    }
+
+    /// 4 · what was minted inside the simulation does not come back out with it.
+    @Test func simulatedRecordsDoNotAppearBackInProduction() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.notifySupervisor(reason: "Prueba de laboratorio"))
+        #expect(bench.store.notices.count == 1)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.notices.isEmpty)
+        #expect(bench.store.vehicles.isEmpty)
+        // Refused again, and refused honestly: there is no station service behind it.
+        #expect(bench.store.notifySupervisor(reason: "Prueba de producción") == false)
+        #expect(bench.store.notices.isEmpty)
+    }
+
+    /// 5 · and neither side is deleted to achieve that.
+    ///
+    /// Two blobs that never meet. The exit from the laboratory is a change of key, not a
+    /// wipe: both are still on disk afterwards.
+    @Test func neitherEnvironmentIsErasedByTheTransition() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        #expect(bench.defaults.data(forKey: bench.productionKey) != nil)
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+        bench.store.notifySupervisor(reason: "Prueba de laboratorio")
+
+        // The real operation's storage is untouched while the simulation runs.
+        #expect(bench.defaults.data(forKey: bench.productionKey) != nil)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.defaults.data(forKey: bench.productionKey) != nil)
+        #expect(bench.defaults.data(forKey: bench.laboratoryKey) != nil)
+
+        // Going back in finds the experiment where it was left.
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+        #expect(bench.store.notices.count == 1)
+    }
+
+    /// 6 · flipping repeatedly changes nothing that flipping once did not.
+    @Test func repeatedTransitionsAreIdempotent() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        let driverId = bench.store.driver.id
+
+        for _ in 0..<3 {
+            bench.environment.set(.test)
+            bench.store.adoptEnvironment()
+            #expect(bench.store.canSimulateUnitAssignment)
+            #expect(bench.store.driver.id == driverId)
+
+            bench.environment.set(.production)
+            bench.store.adoptEnvironment()
+            #expect(bench.store.unitAssignmentCapability == .stationRequired)
+            #expect(bench.store.driver.id == driverId)
+            #expect(bench.store.vehicles.isEmpty)
+            #expect(bench.store.unitAssignment == nil)
+        }
+
+        // Asking for the environment already in force is a no-op, not a reload.
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+        #expect(bench.store.isBackendSession)
+        #expect(bench.store.session?.accountId == bench.profileId)
+    }
+
+    /// 7 · the test clock is the fourth concern, and it moves on its own.
+    ///
+    /// Moving logical time is not an identity event: nothing about who is signed in, or
+    /// what they may do, is allowed to depend on it.
+    @Test func movingTheTestClockDoesNotTouchAuthentication() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        let driverId = bench.store.driver.id
+        let accountId = bench.store.session?.accountId
+
+        SimulationClock.set(Date().addingTimeInterval(3 * 3600))
+        bench.store.syncSimulationClock()
+
+        #expect(bench.store.isBackendSession)
+        #expect(bench.store.driver.id == driverId)
+        #expect(bench.store.session?.accountId == accountId)
+        #expect(bench.store.canSimulateUnitAssignment)
+
+        SimulationClock.reset()
+        bench.store.syncSimulationClock()
+
+        #expect(bench.store.isBackendSession)
+        #expect(bench.store.driver.id == driverId)
+        #expect(bench.store.session?.accountId == accountId)
+        #expect(bench.store.environment == .test)
+    }
+
+    /// 8 · a relaunch keeps the environment and only the environment.
+    ///
+    /// This is the update failure, reproduced: the laboratory payload is unreadable — a
+    /// field added by a new release is enough — and the environment used to be inside it,
+    /// so the first session after an update silently stood in production. It now survives
+    /// on a key of its own, and a device that predates that key still recovers its
+    /// environment from the old payload without being able to read the rest of it.
+    @Test func theEnvironmentSurvivesAnUnreadableLaboratoryPayload() throws {
+        let suiteName = "turnoev.tests.environment.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Nothing stored at all: the real operation is the default.
+        #expect(EnvironmentStore.load(defaults: defaults) == .production)
+
+        // A payload the current models cannot decode, carrying a legible environment.
+        let brokenWorld = #"{"mode":"test","stations":[{"unexpected":true}],"clockOffsetMinutes":"noventa"}"#
+        defaults.set(Data(brokenWorld.utf8), forKey: LabPersistence.storageKey)
+        #expect((try? JSONDecoder().decode(LabWorld.self, from: Data(brokenWorld.utf8))) == nil)
+        #expect(EnvironmentStore.load(defaults: defaults) == .test)
+
+        // Once the environment has a key of its own, it is the one that answers.
+        EnvironmentStore.persist(.production, defaults: defaults)
+        #expect(EnvironmentStore.load(defaults: defaults) == .production)
+    }
+
+    /// 8 (continued) · and a relaunch does not need a sign out to reconcile.
+    ///
+    /// The environment persists; the proved identity deliberately does not, because no
+    /// credential is kept to vouch for it. What must not happen — and no longer does — is
+    /// the app coming back up in an environment nobody chose.
+    @Test func relaunchKeepsTheEnvironmentAndAsksForCredentialsAgain() throws {
+        let bench = try Self.bench()
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        // A fresh launch on the same storage.
+        let relaunchedEnvironment = RuntimeEnvironment(defaults: bench.defaults)
+        #expect(relaunchedEnvironment.mode == .test)
+
+        let relaunched = FleetStore(environment: relaunchedEnvironment, defaults: bench.defaults)
+        #expect(relaunched.environment == .test)
+        #expect(relaunched.isBackendSession == false)
+        #expect(relaunched.awaitsCredentialChoice)
+        // The laboratory's own blob is still there for the identity that comes back.
+        #expect(bench.defaults.data(forKey: bench.laboratoryKey) != nil)
+    }
+}
+
 // MARK: - 15B.13.2 · unit assignment boundary
 
 /// 15B.13.2 · a unit is adopted only when the station can be shown to have given it.

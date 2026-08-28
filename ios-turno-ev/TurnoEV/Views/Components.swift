@@ -458,15 +458,54 @@ struct SessionMenuButton: View {
     /// Modo prueba has to live — otherwise a driver handed a test environment can see the
     /// amber badge and do nothing about it.
     private var canLeaveTest: Bool {
-        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+        EnvironmentControl.canLeaveTestEnvironment(isSignedIn: store.isAuthenticated, mode: lab.mode)
+    }
+
+    /// Who is signed in, from whichever kind of session is open.
+    ///
+    /// This menu used to render only for a `StaffAccount`, and a backend session resolves
+    /// to none by design. So the one identity that could not reach the environment
+    /// controls — or its own sign out — was the proved one, which is why walking out of
+    /// the laboratory ended somewhere else entirely.
+    private var identity: SessionIdentity? {
+        if let account = store.currentAccount {
+            return SessionIdentity(
+                name: account.name,
+                detail: "\(account.role.label) · \(account.employeeNumber)",
+                initials: account.initials,
+                accent: account.role.accent
+            )
+        }
+        guard let principal = store.currentPrincipal else { return nil }
+        return SessionIdentity(
+            name: principal.name,
+            detail: "\(principal.role.label) · \(principal.employeeNumber)",
+            initials: Self.initials(of: principal.name),
+            accent: principal.role.accent
+        )
+    }
+
+    private static func initials(of name: String) -> String {
+        name.split(separator: " ").prefix(2)
+            .compactMap(\.first)
+            .map(String.init)
+            .joined()
+            .uppercased()
+    }
+
+    private struct SessionIdentity {
+        let name: String
+        let detail: String
+        let initials: String
+        let accent: Color
     }
 
     var body: some View {
         Group {
-            if let account = store.currentAccount {
+            if let identity {
                 Menu {
-                    Section(account.name) {
-                        Text("\(account.role.label) · \(account.employeeNumber)")
+                    Section(identity.name) {
+                        Text(identity.detail)
                     }
                     Section("Entorno") {
                         Text(lab.mode.label)
@@ -493,12 +532,12 @@ struct SessionMenuButton: View {
                         isUnlinking = true
                     }
                 } label: {
-                    Text(account.initials)
+                    Text(identity.initials)
                         .font(.system(.caption, weight: .black))
-                        .foregroundStyle(account.role.accent)
+                        .foregroundStyle(identity.accent)
                         .frame(width: 32, height: 32)
                         .background(Palette.surfaceRaised, in: .circle)
-                        .overlay { Circle().stroke(account.role.accent.opacity(0.55), lineWidth: 1.5) }
+                        .overlay { Circle().stroke(identity.accent.opacity(0.55), lineWidth: 1.5) }
                         .overlay(alignment: .topTrailing) {
                             // The simulation is never silent: whoever is inside it sees it.
                             if EnvironmentControl.showsTestBadge(mode: lab.mode) {
@@ -578,7 +617,7 @@ struct DemoClockButton: View {
     /// Inside the simulation every session may walk back to production, so the chip stops
     /// being a dead label there even without the laboratory credential.
     private var canLeaveTest: Bool {
-        EnvironmentControl.canLeaveTestEnvironment(account: store.currentAccount, mode: lab.mode)
+        EnvironmentControl.canLeaveTestEnvironment(isSignedIn: store.isAuthenticated, mode: lab.mode)
     }
 
     /// An unauthorised device in production still reads the hour; it opens nothing.

@@ -21,7 +21,21 @@ final class CoverageStore {
         var notifications: [CoverageNotification]
     }
 
-    private static let storageKey = "turnoev.coverage.v1"
+    /// The board of the real operation. Untouched, and never migrated.
+    private static let productionStorageKey = "turnoev.coverage.v1"
+
+    /// Where the board of a given environment lives.
+    ///
+    /// The laboratory used to write into the production key and was wiped by `clear()` on
+    /// every environment switch — which made leaving the laboratory a destructive act on
+    /// records that had nothing to do with it. Two keys, no deletion, and returning to
+    /// production finds the board exactly as it was left.
+    private static func storageKey(for environment: LabMode) -> String {
+        switch environment {
+        case .production: productionStorageKey
+        case .test: "\(productionStorageKey).lab"
+        }
+    }
 
     // MARK: - State
 
@@ -46,9 +60,44 @@ final class CoverageStore {
     /// has always written; an isolated suite keeps a test from touching a real board.
     private let defaults: UserDefaults
 
-    init(capability: CoordinationCapability? = nil, defaults: UserDefaults = .standard) {
+    private let environmentSource: RuntimeEnvironment
+
+    /// Which environment the board in memory was loaded from. A bookmark, like the one in
+    /// `FleetStore`: the truth is `environmentSource`.
+    private var adoptedEnvironment: LabMode
+
+    private var storageKey: String { Self.storageKey(for: adoptedEnvironment) }
+
+    init(
+        capability: CoordinationCapability? = nil,
+        defaults: UserDefaults = .standard,
+        environment: RuntimeEnvironment = .shared
+    ) {
         self.pinnedCapability = capability
         self.defaults = defaults
+        self.environmentSource = environment
+        self.adoptedEnvironment = environment.mode
+        load()
+    }
+
+    /// Swaps the board when the environment changes, under the same session.
+    ///
+    /// Called by `LabStore`, which is the only thing that changes an environment. It
+    /// replaces the old `clear()`: nothing is erased, the outgoing board is written under
+    /// its own key and the incoming one is read from its own.
+    func adoptEnvironment() {
+        let previous = adoptedEnvironment
+        let current = environmentSource.mode
+        guard previous != current else { return }
+        persist(to: Self.storageKey(for: previous))
+        adoptedEnvironment = current
+        policy = .standard
+        flags = [:]
+        absences = []
+        vacancies = []
+        swaps = []
+        audit = []
+        notifications = []
         load()
     }
 
@@ -1506,7 +1555,7 @@ final class CoverageStore {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = defaults.data(forKey: Self.storageKey) else { return }
+        guard let data = defaults.data(forKey: storageKey) else { return }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -1524,6 +1573,10 @@ final class CoverageStore {
     }
 
     private func persist() {
+        persist(to: storageKey)
+    }
+
+    private func persist(to key: String) {
         let state = PersistedState(
             policy: policy,
             flags: flags,
@@ -1537,7 +1590,7 @@ final class CoverageStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(state)
-            defaults.set(data, forKey: Self.storageKey)
+            defaults.set(data, forKey: key)
         } catch {
             print("No se pudo guardar la cobertura de turnos: \(error.localizedDescription)")
         }
