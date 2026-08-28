@@ -118,6 +118,9 @@ final class FleetStore {
         // app relaunches on `MockData.driver`, which is session-blind — in test mode that
         // is the laboratory's first driver, or `drv-none`, never the signed-in one.
         adoptSessionDriver()
+        // A contract stored before 15B.10 carries no owner. Now that the demonstration
+        // profile is resolved, it can be named — see `demoAttributed`.
+        credit = Self.demoAttributed(credit, driverId: driver.id)
         reloadAssignment()
     }
 
@@ -258,6 +261,26 @@ final class FleetStore {
 
     /// The one test that separates a backend session from a demonstration one.
     var isBackendSession: Bool { session?.principal != nil }
+
+    // MARK: - Financial boundary
+
+    /// Whether this session may mint financial state locally.
+    ///
+    /// A demonstration session may: fabricating a contract or an income is the whole
+    /// point of a flow that has no server behind it yet. A backend identity may not.
+    /// Anything shown as money to a proved driver has to have come from the authority
+    /// that owes it, and while there is no financial layer on the server the honest
+    /// answer is that the operation is unavailable — not an invented contract that a
+    /// settlement will happily subtract.
+    ///
+    /// This is the capability the writers ask. It lives here, not in the views: the
+    /// session is the only thing that can answer it, and a screen that decided this for
+    /// itself would be one refactor away from getting it wrong.
+    var canSimulateFinancialState: Bool { !isBackendSession }
+
+    /// Provenance every financial record this session produces is stamped with, and the
+    /// one a settlement built from those records will accept.
+    var ledgerOrigin: RecordOrigin { canSimulateFinancialState ? .simulated : .backend }
 
     var currentRole: StaffRole? { session?.role }
 
@@ -693,7 +716,7 @@ final class FleetStore {
         incomes = MockData.incomeHistory(driver: driver, history: seedHistory)
         incidents = MockData.incidents(driver: driver, now: seedDate)
         notices = MockData.notices(now: seedDate)
-        credit = MockData.credit(now: seedDate)
+        credit = MockData.credit(now: seedDate, driverId: driver.id)
         supervisorReports = MockData.supervisorReports(now: seedDate)
         recoveryBookings = []
         notifiedBonusWeeks = []
@@ -907,10 +930,40 @@ final class FleetStore {
         persist()
     }
 
-    func registerIncome(amountMxn: Int, trips: Int, platform: IncomePlatform, evidence: Data?, note: String? = nil) {
+    /// Files an income the driver declares.
+    ///
+    /// This is the most load-bearing write in the app and the reason 15B.10 exists. An
+    /// income does not merely add pesos: it is what makes the week count as worked, and
+    /// a worked week unlocks the station deduction and satisfies the gate the bonuses
+    /// stand on. One fabricated entry moves four bonuses out of "sin evaluar" and into
+    /// payable. So a session that cannot vouch for the money cannot file it.
+    func registerIncome(
+        amountMxn: Int,
+        trips: Int,
+        platform: IncomePlatform,
+        evidence: Data?,
+        note: String? = nil
+    ) throws {
+        guard canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
+        appendIncome(amountMxn: amountMxn, trips: trips, platform: platform, evidence: evidence, note: note)
+    }
+
+    /// The write itself, with no boundary of its own.
+    ///
+    /// Separated from `registerIncome` so that every caller has to have crossed the
+    /// boundary explicitly before reaching it, rather than swallowing a thrown refusal
+    /// with `try?` and leaving no trace of the decision.
+    private func appendIncome(
+        amountMxn: Int,
+        trips: Int,
+        platform: IncomePlatform,
+        evidence: Data?,
+        note: String?
+    ) {
         let entry = IncomeEntry(
             id: "inc-\(UUID().uuidString.prefix(8))",
             driverId: driver.id,
+            origin: ledgerOrigin,
             shiftId: activeShift?.id,
             date: now,
             amountMxn: amountMxn,
@@ -1008,13 +1061,19 @@ final class FleetStore {
         CashDepositLedger.record(deposit)
         CashChargeLedger.markDeposited(id: charge.id, at: now)
 
-        registerIncome(
-            amountMxn: declaredMxn,
-            trips: 0,
-            platform: .cash,
-            evidence: slip,
-            note: "\(charge.tripReference) · depósito en \(account.bank)"
-        )
+        // 15B.10 boundary. The deposit ledger is out of this cut's scope and is left
+        // exactly as it was, but the income this used to mint is not: under a backend
+        // identity no local entry is created here, for the same reason the income form
+        // refuses one. The deposit and the cash charge are untouched.
+        if canSimulateFinancialState {
+            appendIncome(
+                amountMxn: declaredMxn,
+                trips: 0,
+                platform: .cash,
+                evidence: slip,
+                note: "\(charge.tripReference) · depósito en \(account.bank)"
+            )
+        }
 
         pushNotice(
             kind: .station,
@@ -1137,11 +1196,21 @@ final class FleetStore {
     // MARK: - Credit
 
     /// Signs a new contract: no down payment, immediate approval, first instalment in a week.
-    func requestCredit() {
+    ///
+    /// Signing is a financial act, so it asks the boundary first. A proved identity gets
+    /// a refusal it can show, not a contract nobody underwrote: approving a 390,000 peso
+    /// loan is the server's to do, and until it can, saying so is the honest outcome.
+    func requestCredit() throws {
+        guard canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
         guard credit == nil else { return }
         let reference = now
         let unit = vehicles.first { driver.authorizedVehicleIds.contains($0.id) }?.internalNumber ?? "por asignar"
-        credit = CreditProgram.newAccount(now: reference, vehicleInternalNumber: unit)
+        credit = CreditProgram.newAccount(
+            now: reference,
+            vehicleInternalNumber: unit,
+            driverId: driver.id,
+            origin: ledgerOrigin
+        )
         pushNotice(
             kind: .credit,
             title: "Crédito aprobado",
@@ -1150,8 +1219,9 @@ final class FleetStore {
     }
 
     /// Loads the seeded mid-term contract so every metric of the panel can be reviewed.
-    func loadCreditDemoProgress() {
-        credit = MockData.credit(now: now)
+    func loadCreditDemoProgress() throws {
+        guard canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
+        credit = MockData.credit(now: now, driverId: driver.id)
         persist()
     }
 
@@ -1220,7 +1290,7 @@ final class FleetStore {
         incomes = state.incomes
         incidents = state.incidents
         notices = state.notices
-        credit = state.credit
+        credit = Self.demoAttributed(state.credit, driverId: driver.id)
         supervisorReports = state.supervisorReports
         recoveryBookings = state.recoveryBookings
         notifiedBonusWeeks = state.notifiedBonusWeeks
@@ -1245,14 +1315,32 @@ final class FleetStore {
         )
     }
 
+    /// Names a contract stored before ownership existed.
+    ///
+    /// This only ever runs on the demonstration key — an identity restores through
+    /// `ownedState`, which never adopts an unattributed contract — so a nameless
+    /// contract can only have been written by a demonstration session, and belongs to
+    /// the demonstration driver. It is never promoted out of `.simulated`: naming a
+    /// fixture does not make it authoritative, it only lets the demo wallet keep
+    /// discounting the contract Carlos already had.
+    nonisolated private static func demoAttributed(_ credit: CreditAccount?, driverId: String) -> CreditAccount? {
+        guard let credit else { return nil }
+        guard !credit.isAttributed, credit.origin == .simulated else { return credit }
+        return credit.attributed(to: driverId)
+    }
+
     /// Keeps only what can be **proved** to belong to `driverId`.
     ///
     /// Records that carry a `driverId` are filtered by it. Everything else starts empty
-    /// unless it was written under this identity's own key, and even then the credit is
-    /// dropped: `CreditAccount` has no owner field, so a contract cannot be shown to
-    /// belong to the person reading it. It will be restorable when the contract carries
-    /// its driver — until then, a backend session has no credit rather than someone
-    /// else's.
+    /// unless it was written under this identity's own key.
+    ///
+    /// **Credit restoration rule, adopted in 15B.10.** A stored contract is restored
+    /// only if it names this driver as its owner **and** its provenance is `.backend`.
+    /// Ownership on its own is not enough: a `.simulated` contract carrying the right
+    /// owner string is still a fixture minted on this phone, and a matching string is
+    /// not an authority vouching for a debt. Since nothing can legitimately produce a
+    /// `.backend` contract yet, a backend session still ends up with no credit — but now
+    /// because the rule says so, instead of because the model could not tell.
     ///
     /// The fleet inventory starts empty as well. A real station's units are the backend's
     /// to hand out; borrowing the demonstration catalogue is exactly how a driver ends up
@@ -1269,6 +1357,7 @@ final class FleetStore {
         owned.history = stored.history.filter { $0.driverId == driverId }
         owned.incomes = stored.incomes.filter { $0.driverId == driverId }
         owned.incidents = stored.incidents.filter { $0.driverId == driverId }
+        owned.credit = stored.credit.flatMap { $0.driverId == driverId && $0.origin == .backend ? $0 : nil }
         // No ownership field of their own; they are trusted only because they were written
         // under this identity's key, and never inherited from another session.
         owned.notices = stored.notices

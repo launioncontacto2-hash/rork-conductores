@@ -8,6 +8,12 @@ struct CreditView: View {
 
     @State private var isHowItWorksPresented: Bool = false
     @State private var isApprovalPresented: Bool = false
+    /// Reason the boundary gave for refusing a write, when it refused one.
+    @State private var unavailableReason: String?
+
+    /// Whether the contractual operation can be performed at all from this device.
+    /// The programme is presented to everyone; signing is what needs an authority.
+    private var canOperate: Bool { store.canSimulateFinancialState }
 
     var body: some View {
         NavigationStack {
@@ -18,16 +24,14 @@ struct CreditView: View {
                     VStack(spacing: 16) {
                         if let credit = store.credit, let metrics = store.creditMetrics {
                             ActiveCreditPanel(credit: credit, metrics: metrics)
-                            demoFooter(hasCredit: true)
+                            if canOperate { demoFooter(hasCredit: true) }
                         } else {
                             CreditOfferPanel(
+                                canRequest: canOperate,
                                 onHowItWorks: { isHowItWorksPresented = true },
-                                onRequest: {
-                                    store.requestCredit()
-                                    isApprovalPresented = true
-                                }
+                                onRequest: requestCredit
                             )
-                            demoFooter(hasCredit: false)
+                            if canOperate { demoFooter(hasCredit: false) }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -58,6 +62,39 @@ struct CreditView: View {
             } message: {
                 Text("Firmaste tu contrato del \(CreditProgram.vehicleModel) sin enganche. El descuento semanal empieza en 7 días y la unidad se entrega en el mes \(CreditProgram.deliveryMonth).")
             }
+            .alert(
+                "Solicitud de crédito aún no disponible",
+                isPresented: Binding(
+                    get: { unavailableReason != nil },
+                    set: { if !$0 { unavailableReason = nil } }
+                )
+            ) {
+                Button("Entendido", role: .cancel) {}
+            } message: {
+                Text(unavailableReason ?? "")
+            }
+        }
+    }
+
+    /// Signs the contract, or shows why it could not be signed.
+    ///
+    /// The approval alert is only ever reached after the store actually wrote the
+    /// contract. Announcing an approval the app did not perform is the part of the old
+    /// flow that made a local fixture look like a signed loan.
+    private func requestCredit() {
+        do {
+            try store.requestCredit()
+            isApprovalPresented = true
+        } catch {
+            unavailableReason = error.localizedDescription
+        }
+    }
+
+    private func loadDemoProgress() {
+        do {
+            try store.loadCreditDemoProgress()
+        } catch {
+            unavailableReason = error.localizedDescription
         }
     }
 
@@ -67,11 +104,11 @@ struct CreditView: View {
             CapsLabel(text: "Vista de demostración")
             if hasCredit {
                 HStack(spacing: 10) {
-                    Button("Contrato semana 14") { store.loadCreditDemoProgress() }
+                    Button("Contrato semana 14") { loadDemoProgress() }
                     Button("Ver anuncio") { store.cancelCredit() }
                 }
             } else {
-                Button("Ver crédito en curso (semana 14)") { store.loadCreditDemoProgress() }
+                Button("Ver crédito en curso (semana 14)") { loadDemoProgress() }
             }
         }
         .font(.system(.caption, weight: .semibold))
@@ -85,6 +122,10 @@ struct CreditView: View {
 // MARK: - Offer (driver without credit)
 
 private struct CreditOfferPanel: View {
+    /// Whether the contractual action is available. The programme itself — hero,
+    /// benefits, steps, terms — is shown either way: what the fleet offers is
+    /// information, and information does not need a backend.
+    let canRequest: Bool
     let onHowItWorks: () -> Void
     let onRequest: () -> Void
 
@@ -95,7 +136,20 @@ private struct CreditOfferPanel: View {
             steps
 
             VStack(spacing: 10) {
-                BigButton(title: "Solicitar mi crédito", symbol: "signature", action: onRequest)
+                if !canRequest {
+                    NoticeBanner(
+                        symbol: "clock.badge.exclamationmark",
+                        title: "Solicitud de crédito aún no disponible",
+                        message: "Esta operación requiere conexión con el sistema financiero de la estación.",
+                        tone: .info
+                    )
+                }
+                BigButton(
+                    title: "Solicitar mi crédito",
+                    symbol: "signature",
+                    isEnabled: canRequest,
+                    action: onRequest
+                )
                 BigButton(title: "Cómo funciona", symbol: "play.circle.fill", tone: .outline, action: onHowItWorks)
             }
 

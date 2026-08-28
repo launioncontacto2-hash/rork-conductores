@@ -157,8 +157,19 @@ extension CreditProgram {
     }
 
     /// Fresh contract signed today: no down payment, first instalment in a week.
-    static func newAccount(now: Date, vehicleInternalNumber: String) -> CreditAccount {
+    ///
+    /// `driverId` and `origin` are required, with no defaults on purpose: the caller has
+    /// to state whose contract this is and who produced it. There is no way to mint an
+    /// anonymous one.
+    static func newAccount(
+        now: Date,
+        vehicleInternalNumber: String,
+        driverId: String,
+        origin: RecordOrigin
+    ) -> CreditAccount {
         CreditAccount(
+            driverId: driverId,
+            origin: origin,
             contractId: "CR-\(Int(now.timeIntervalSince1970) % 100_000)",
             vehicleTarget: "\(vehicleModel) · \(vehicleInternalNumber)",
             startedAt: now,

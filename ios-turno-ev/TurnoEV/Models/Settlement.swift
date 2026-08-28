@@ -150,11 +150,18 @@ nonisolated enum SettlementRules {
     }
 
     /// Builds the settlement of a week from the shift log, the credit and the bonuses.
+    ///
+    /// The credit arrives as the contract itself, not as a weekly figure. A bare `Int`
+    /// could not be questioned: by the time it got here it had lost its owner, its
+    /// signature date and its provenance, so the only thing this function could do was
+    /// subtract it. With the contract in hand the rule can refuse it — and it does,
+    /// without ever asking what kind of session is open.
     static func build(
         driverId: String,
         records: [ShiftRecord],
         activeEarningsMxn: Int,
-        creditWeeklyMxn: Int?,
+        credit: CreditAccount?,
+        ledgerOrigin: RecordOrigin,
         bonusMxn: Int,
         cashRecoveries: [CashCharge] = [],
         weekStart: Date,
@@ -192,13 +199,25 @@ nonisolated enum SettlementRules {
             )
         }
 
-        if let creditWeeklyMxn, creditWeeklyMxn > 0 {
+        // An instalment is charged only when the contract answers three questions.
+        //
+        // Whose it is: a contract that does not name the driver being settled has no
+        // business inside their pay. Whether it existed yet: a contract signed this week
+        // cannot be owed for weeks that closed before it was signed — without this test
+        // a signature today rewrote five frozen weeks into a debt. And whether it belongs
+        // to the same ledger being settled: an instalment from a simulated contract
+        // cannot be deducted from records an authority produced, or the other way round.
+        if let credit,
+           credit.driverId == driverId,
+           credit.origin == ledgerOrigin,
+           credit.startedAt <= weekEnd,
+           credit.weeklyMxn > 0 {
             lines.append(
                 SettlementLine(
                     id: "credit",
                     concept: "Crédito de unidad",
                     detail: "Abono semanal vía nómina",
-                    amountMxn: -creditWeeklyMxn,
+                    amountMxn: -credit.weeklyMxn,
                     kind: .credit
                 )
             )

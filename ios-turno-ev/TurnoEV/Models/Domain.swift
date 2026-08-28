@@ -176,6 +176,9 @@ nonisolated enum IncomePlatform: String, Codable, CaseIterable, Sendable {
 nonisolated struct IncomeEntry: Codable, Identifiable, Sendable {
     let id: String
     let driverId: String
+    /// Whether the platform reported this income or a demonstration session minted it.
+    /// Ownership is already answered by `driverId`; this answers whether it happened.
+    let origin: RecordOrigin
     let shiftId: String?
     let date: Date
     let amountMxn: Int
@@ -183,6 +186,37 @@ nonisolated struct IncomeEntry: Codable, Identifiable, Sendable {
     let platform: IncomePlatform
     var evidence: Data?
     var note: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case driverId
+        case origin
+        case shiftId
+        case date
+        case amountMxn
+        case trips
+        case platform
+        case evidence
+        case note
+    }
+}
+
+extension IncomeEntry {
+    /// Entries stored before 15B.10 decode as `.simulated`: every one of them was
+    /// written by a demonstration session, because no other kind could write one.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        origin = try container.decodeIfPresent(RecordOrigin.self, forKey: .origin) ?? .simulated
+        shiftId = try container.decodeIfPresent(String.self, forKey: .shiftId)
+        date = try container.decode(Date.self, forKey: .date)
+        amountMxn = try container.decode(Int.self, forKey: .amountMxn)
+        trips = try container.decode(Int.self, forKey: .trips)
+        platform = try container.decode(IncomePlatform.self, forKey: .platform)
+        evidence = try container.decodeIfPresent(Data.self, forKey: .evidence)
+        note = try container.decodeIfPresent(String.self, forKey: .note)
+    }
 }
 
 nonisolated enum IncidentKind: String, Codable, CaseIterable, Sendable {
@@ -297,7 +331,18 @@ nonisolated struct CreditPayment: Codable, Identifiable, Sendable {
     let status: CreditStatus
 }
 
+/// A signed credit contract.
+///
+/// It carries its owner and its provenance because a weekly instalment is a deduction
+/// from someone's pay: a contract that cannot say whose it is, and whether an authority
+/// produced it, is not something a settlement is allowed to act on. Every other
+/// financial record already named its driver; this one did not, and that is what let a
+/// locally minted contract charge a real identity.
 nonisolated struct CreditAccount: Codable, Sendable {
+    /// Driver this contract belongs to. Checked wherever the contract turns into money.
+    let driverId: String
+    /// Whether an authority produced this contract or a demonstration session minted it.
+    let origin: RecordOrigin
     let contractId: String
     let vehicleTarget: String
     /// Contract signature date; the delivery month and the term are measured from here.
@@ -311,6 +356,81 @@ nonisolated struct CreditAccount: Codable, Sendable {
     /// Odometer of the unit reserved for this contract; it leaves the fleet at 110,000-120,000 km.
     let assignedVehicleOdometerKm: Int
     let payments: [CreditPayment]
+
+    enum CodingKeys: String, CodingKey {
+        case driverId
+        case origin
+        case contractId
+        case vehicleTarget
+        case startedAt
+        case totalMxn
+        case paidMxn
+        case weeklyMxn
+        case weeksPaid
+        case onTimePayments
+        case latePayments
+        case assignedVehicleOdometerKm
+        case payments
+    }
+
+    /// Owner of a contract stored before ownership existed. It matches no driver on
+    /// purpose: an unprovable owner must never coincide with a real one.
+    static let unattributedOwnerId: String = ""
+
+    /// Whether the contract names someone.
+    var isAttributed: Bool { driverId != Self.unattributedOwnerId }
+
+    /// The same contract, named for the driver it belongs to.
+    ///
+    /// Provenance is deliberately carried over untouched: naming a fixture does not
+    /// turn it into an authoritative debt.
+    func attributed(to driverId: String) -> CreditAccount {
+        CreditAccount(
+            driverId: driverId,
+            origin: origin,
+            contractId: contractId,
+            vehicleTarget: vehicleTarget,
+            startedAt: startedAt,
+            totalMxn: totalMxn,
+            paidMxn: paidMxn,
+            weeklyMxn: weeklyMxn,
+            weeksPaid: weeksPaid,
+            onTimePayments: onTimePayments,
+            latePayments: latePayments,
+            assignedVehicleOdometerKm: assignedVehicleOdometerKm,
+            payments: payments
+        )
+    }
+}
+
+extension CreditAccount {
+    /// Reads contracts stored before 15B.10, which carry neither owner nor provenance.
+    ///
+    /// Such a contract is decoded as unattributed and `.simulated`. Both defaults are
+    /// the conservative answer: the blob cannot prove who signed it, and a contract
+    /// nobody can prove is a fixture. Silently handing it to whoever happens to be
+    /// signed in — which is how a backend identity would inherit it — is exactly the
+    /// failure this field exists to prevent.
+    ///
+    /// Declared in an extension so the memberwise initializer survives: there is no
+    /// initializer that can build an anonymous contract, only a decoder that can read
+    /// one and mark it as unprovable.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        driverId = try container.decodeIfPresent(String.self, forKey: .driverId) ?? Self.unattributedOwnerId
+        origin = try container.decodeIfPresent(RecordOrigin.self, forKey: .origin) ?? .simulated
+        contractId = try container.decode(String.self, forKey: .contractId)
+        vehicleTarget = try container.decode(String.self, forKey: .vehicleTarget)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        totalMxn = try container.decode(Int.self, forKey: .totalMxn)
+        paidMxn = try container.decode(Int.self, forKey: .paidMxn)
+        weeklyMxn = try container.decode(Int.self, forKey: .weeklyMxn)
+        weeksPaid = try container.decode(Int.self, forKey: .weeksPaid)
+        onTimePayments = try container.decode(Int.self, forKey: .onTimePayments)
+        latePayments = try container.decode(Int.self, forKey: .latePayments)
+        assignedVehicleOdometerKm = try container.decode(Int.self, forKey: .assignedVehicleOdometerKm)
+        payments = try container.decode([CreditPayment].self, forKey: .payments)
+    }
 }
 
 nonisolated enum AssignmentIssueCode: String, Sendable {

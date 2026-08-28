@@ -26,6 +26,15 @@ struct IncomeView: View {
 
     private let demoAmounts = [140, 185, 220, 260]
 
+    /// Whether this device may still stand in for the platform.
+    ///
+    /// The screen leans on two simulations that only make sense while nothing is
+    /// connected: it mints the cash trip the platform should have reported, and filing
+    /// the deposit books the income locally. Neither can be done on behalf of a proved
+    /// identity — a fabricated income is what turns an empty week into a worked one,
+    /// unlocking the station deduction and the whole bonus evaluation.
+    private var canOperate: Bool { store.canSimulateFinancialState }
+
     private var account: CashDepositAccount { store.cashDepositAccount }
 
     private var charges: [CashCharge] { store.openCashCharges }
@@ -81,6 +90,7 @@ struct IncomeView: View {
             && amountMatch == .matched
             && slipDateCheck.isValid
             && accountMatch == .matched
+            && canOperate
     }
 
     var body: some View {
@@ -91,6 +101,10 @@ struct IncomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         cashRuleBanner
+
+                        if !canOperate {
+                            backendPendingBanner
+                        }
 
                         if !recovered.isEmpty {
                             recoveredBanner
@@ -157,6 +171,17 @@ struct IncomeView: View {
             title: "El cobro en efectivo no está autorizado.",
             message: "Si por una emergencia el usuario cambia su método de pago como efectivo, recíbelo y deposítalo en la cuenta autorizada. El depósito sólo será válido el mismo día, de lo contrario se descontará de tus ingresos al final de la semana.",
             tone: .amber
+        )
+    }
+
+    /// Shown to an identity the server proved, where nothing on this screen can be
+    /// simulated on its behalf.
+    private var backendPendingBanner: some View {
+        NoticeBanner(
+            symbol: "clock.badge.exclamationmark",
+            title: "Registro de ingresos aún no disponible",
+            message: "Tus viajes en efectivo llegarán aquí cuando la plataforma esté conectada. Hasta entonces esta pantalla no registra ingresos ni genera cobros de prueba en tu cuenta.",
+            tone: .info
         )
     }
 
@@ -283,11 +308,13 @@ struct IncomeView: View {
                 .foregroundStyle(Palette.textMuted)
                 .multilineTextAlignment(.center)
 
-            BigButton(title: "Sincronizar con la plataforma", symbol: "arrow.triangle.2.circlepath", tone: .outline) {
-                store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
-                isDemoCharge = true
-                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                resetCapture()
+            if canOperate {
+                BigButton(title: "Sincronizar con la plataforma", symbol: "arrow.triangle.2.circlepath", tone: .outline) {
+                    store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
+                    isDemoCharge = true
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    resetCapture()
+                }
             }
         }
         .padding(24)
@@ -587,7 +614,10 @@ struct IncomeView: View {
 
         // While the app is in development the screen has to be reachable even when the
         // platform has not reported a cash trip yet: a demo charge is seeded so the whole
-        // registration can be walked through.
+        // registration can be walked through. Never for a proved identity — a charge
+        // nobody reported would become a real recovery against their week the moment its
+        // deadline passed.
+        guard canOperate else { return }
         guard store.openCashCharges.isEmpty else { return }
         let charge = store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
         selectedChargeId = charge.id

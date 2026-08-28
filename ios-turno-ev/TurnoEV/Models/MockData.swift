@@ -260,6 +260,7 @@ nonisolated enum MockData {
             IncomeEntry(
                 id: "inc-\(record.id)",
                 driverId: driver.id,
+                origin: .simulated,
                 shiftId: record.id,
                 date: record.endedAt,
                 amountMxn: record.earningsMxn,
@@ -361,11 +362,17 @@ nonisolated enum MockData {
     }
 
     /// Mid-term contract (week 14 of 192) used to show every metric of the credit panel.
-    static func credit(now: Date) -> CreditAccount {
+    ///
+    /// A fixture, and it says so: `.simulated`. It is handed the driver it belongs to so
+    /// the demonstration wallet can still discount it, without the contract ever being
+    /// able to pass for an authoritative one.
+    static func credit(now: Date, driverId: String) -> CreditAccount {
         func dayIn(_ days: Double) -> Date { now.addingTimeInterval(days * 86400) }
         let weekly = CreditProgram.weeklyMxn
         let weeksPaid = 14
         return CreditAccount(
+            driverId: driverId,
+            origin: .simulated,
             contractId: "CR-10428",
             vehicleTarget: "\(CreditProgram.vehicleModel) · TEV-014",
             startedAt: dayIn(-98),
