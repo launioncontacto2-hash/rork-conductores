@@ -6,12 +6,25 @@ import Observation
 /// recalculated — corrections are appended as separate movements.
 @Observable
 final class WalletStore {
+    /// What the wallet keeps between launches, and which ledger produced it.
+    ///
+    /// The transfer pipeline — available → requested → validated → processing →
+    /// transferred → completed — is a demonstration: `advanceSimulated` walks it on a
+    /// timer, no bank is ever contacted. Stored bare, those statuses came back as
+    /// financial truth, which is how a settlement could greet a proved identity with
+    /// "Completada" and "Depósito confirmado en tu cuenta" for a transfer that never
+    /// happened.
+    ///
+    /// `origin` is optional so every blob written before this field existed still
+    /// decodes; a missing key is read as `.simulated`, because everything written before
+    /// this field existed was, without exception, produced by the timer above.
     nonisolated private struct PersistedState: Codable, Sendable {
         var statuses: [String: String]
         var requestedAt: [String: Date]
         var transferredAt: [String: Date]
         var reviews: [String: String]
         var adjustments: [String: [SettlementAdjustment]]
+        var origin: RecordOrigin?
     }
 
     private let fleet: FleetStore
@@ -63,7 +76,11 @@ final class WalletStore {
             settlement.requestedAt = requestedAt[settlement.id]
             settlement.transferredAt = transferredAt[settlement.id]
             settlement.reviewNote = reviews[settlement.id]
-            settlement.adjustments = adjustments[settlement.id] ?? []
+            // Repeated at the point of use, not only at load: an adjustment signs itself
+            // "Supervisión" and moves the net of a closed week, so it is checked wherever
+            // it turns into money.
+            settlement.adjustments = (adjustments[settlement.id] ?? [])
+                .filter { $0.origin == fleet.ledgerOrigin }
             return settlement
         }
     }
@@ -79,8 +96,13 @@ final class WalletStore {
 
     /// Cash charges the driver did not deposit in time. They travel to the settlement of
     /// the week in which the deadline was missed.
+    ///
+    /// Scoped by ledger as well as by driver. `SettlementRules.build` refuses a foreign
+    /// charge on its own, so this filter is not what makes the rule safe — it is what
+    /// keeps the wallet from carrying charges it has no business reading in the first
+    /// place.
     private var cashRecoveries: [CashCharge] {
-        CashChargeLedger.chargedBack(driverId: fleet.driver.id)
+        CashChargeLedger.chargedBack(driverId: fleet.driver.id, origin: fleet.ledgerOrigin)
     }
 
     /// Share of the monthly bonus already earned, spread over the four weeks.
@@ -91,7 +113,14 @@ final class WalletStore {
     // MARK: - Actions
 
     /// Simulated dispersion flow: request → validated → processing → transferred → completed.
-    func requestTransfer(for settlement: WeeklySettlement) {
+    ///
+    /// Throws under a proved identity instead of walking the timer. Every screen this
+    /// pipeline drives speaks in the past tense — "Transferida", "Depósito confirmado en
+    /// tu cuenta" — and there is no dispersion behind it. Told to a driver authenticated
+    /// against the server, those sentences are not a demonstration: they are the app
+    /// telling someone their week was paid.
+    func requestTransfer(for settlement: WeeklySettlement) throws {
+        guard fleet.canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
         guard settlement.status == .available else { return }
         setStatus(.requested, for: settlement.id)
         requestedAt[settlement.id] = now
@@ -118,11 +147,18 @@ final class WalletStore {
     }
 
     /// A correction after the week closed lives as its own movement.
-    func addAdjustment(to settlementId: String, concept: String, amountMxn: Int, reason: String) {
+    ///
+    /// It is stamped `author: "Supervisión"`, which is exactly why it is gated: nothing
+    /// about running on this device makes the phone a supervisor. Under a proved identity
+    /// the movement is refused rather than minted with a borrowed signature.
+    func addAdjustment(to settlementId: String, concept: String, amountMxn: Int, reason: String) throws {
+        guard fleet.canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
+
         var list = adjustments[settlementId] ?? []
         list.append(
             SettlementAdjustment(
                 id: "adj-\(UUID().uuidString.prefix(6))",
+                origin: fleet.ledgerOrigin,
                 createdAt: now,
                 concept: concept,
                 amountMxn: amountMxn,
@@ -140,12 +176,20 @@ final class WalletStore {
 
     // MARK: - Persistence
 
+    /// Restores the wallet, but only from the ledger this session settles in.
+    ///
+    /// A blob of the other provenance is left untouched on disk and simply not adopted.
+    /// That is deliberate: deleting it would destroy a demonstration wallet the moment a
+    /// backend identity happened to share the storage key, and rewriting its origin would
+    /// be exactly the silent promotion this whole cut exists to prevent. The state stays
+    /// where it is, readable by whoever it belongs to.
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let state = try decoder.decode(PersistedState.self, from: data)
+            guard (state.origin ?? .simulated) == fleet.ledgerOrigin else { return }
             statuses = state.statuses
             requestedAt = state.requestedAt
             transferredAt = state.transferredAt
@@ -162,7 +206,8 @@ final class WalletStore {
             requestedAt: requestedAt,
             transferredAt: transferredAt,
             reviews: reviews,
-            adjustments: adjustments
+            adjustments: adjustments,
+            origin: fleet.ledgerOrigin
         )
         do {
             let encoder = JSONEncoder()

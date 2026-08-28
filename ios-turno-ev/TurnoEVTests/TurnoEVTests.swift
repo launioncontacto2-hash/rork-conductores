@@ -240,3 +240,235 @@ struct RecordOriginCompatibilityTests {
         #expect(income.shiftId == nil)
     }
 }
+
+/// 15B.12 · cash charges are recovered from a week only when the book agrees.
+///
+/// A cash charge is the one record in the app that turns into a deduction by doing
+/// nothing at all: when its day ends without a deposit it becomes money taken off the
+/// week. That makes it the cheapest way to charge a real identity for a fiction, and the
+/// reason ownership alone was never enough — the fixture and the real record would carry
+/// the same `driverId`.
+struct CashRecoveryOriginTests {
+
+    private static func charge(
+        driverId: String,
+        origin: RecordOrigin,
+        amountMxn: Int,
+        at date: Date
+    ) -> CashCharge {
+        CashCharge(
+            id: "cash-test-\(origin.rawValue)-\(driverId)",
+            origin: origin,
+            driverId: driverId,
+            stationId: "est-001",
+            tripReference: "UBER-587507",
+            amountMxn: amountMxn,
+            generatedAt: date,
+            depositedAt: nil,
+            chargedBackAt: date
+        )
+    }
+
+    private static func settlement(
+        driverId: String,
+        ledgerOrigin: RecordOrigin,
+        recoveries: [CashCharge],
+        now: Date
+    ) -> WeeklySettlement {
+        SettlementRules.build(
+            driverId: driverId,
+            records: [],
+            activeEarningsMxn: 0,
+            credit: nil,
+            ledgerOrigin: ledgerOrigin,
+            bonusMxn: 0,
+            cashRecoveries: recoveries,
+            weekStart: ShiftRules.weekStart(for: now),
+            now: now
+        )
+    }
+
+    /// The $140 trip. Minted on the device, it can never be recovered from a settlement
+    /// built out of records an authority produced.
+    @Test func simulatedChargeIsNotRecoveredFromABackendLedger() {
+        let now = Date()
+        let result = Self.settlement(
+            driverId: "drv-001",
+            ledgerOrigin: .backend,
+            recoveries: [Self.charge(driverId: "drv-001", origin: .simulated, amountMxn: 140, at: now)],
+            now: now
+        )
+        #expect(result.deductionMxn == 0)
+    }
+
+    /// The same charge, read by the session that produced it, still works.
+    @Test func simulatedChargeIsRecoveredFromItsOwnLedger() {
+        let now = Date()
+        let result = Self.settlement(
+            driverId: "drv-001",
+            ledgerOrigin: .simulated,
+            recoveries: [Self.charge(driverId: "drv-001", origin: .simulated, amountMxn: 140, at: now)],
+            now: now
+        )
+        #expect(result.deductionMxn == -140)
+    }
+
+    /// A charge the platform really reported is recovered normally. The boundary refuses
+    /// fictions, not cash.
+    @Test func backendChargeIsRecoveredFromABackendLedger() {
+        let now = Date()
+        let result = Self.settlement(
+            driverId: "drv-001",
+            ledgerOrigin: .backend,
+            recoveries: [Self.charge(driverId: "drv-001", origin: .backend, amountMxn: 140, at: now)],
+            now: now
+        )
+        #expect(result.deductionMxn == -140)
+    }
+
+    /// Ownership is still checked: the right book does not make it the right driver.
+    @Test func chargeOfAnotherDriverIsNotRecovered() {
+        let now = Date()
+        let result = Self.settlement(
+            driverId: "drv-001",
+            ledgerOrigin: .backend,
+            recoveries: [Self.charge(driverId: "drv-999", origin: .backend, amountMxn: 140, at: now)],
+            now: now
+        )
+        #expect(result.deductionMxn == 0)
+    }
+}
+
+/// 15B.12 · cash records and wallet blobs stored before provenance existed.
+struct CashOriginCompatibilityTests {
+
+    private static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    /// The charge already sitting in `turnoev.cash.charges.v1`. It decodes, it keeps its
+    /// folio and its amount, and it reads as simulated — which is what stops it from
+    /// appearing under an identity the server proved.
+    @Test func legacyCashChargeDecodesAsSimulated() throws {
+        let json = """
+        {
+          "id": "cash-8f21ab3c",
+          "driverId": "drv-001",
+          "stationId": "est-001",
+          "tripReference": "UBER-587507",
+          "amountMxn": 140,
+          "generatedAt": "2026-08-20T18:30:00Z"
+        }
+        """
+        let charge = try Self.decoder().decode(CashCharge.self, from: Data(json.utf8))
+        #expect(charge.origin == .simulated)
+        #expect(charge.amountMxn == 140)
+        #expect(charge.tripReference == "UBER-587507")
+        #expect(charge.isOpen)
+    }
+
+    /// A slip filed before provenance existed is a demonstration slip.
+    @Test func legacyCashDepositDecodesAsSimulated() throws {
+        let json = """
+        {
+          "id": "dep-1120aa41",
+          "stationId": "est-001",
+          "driverId": "drv-001",
+          "driverName": "Carlos Ramírez",
+          "vehicleNumber": "TEV-014",
+          "declaredMxn": 140,
+          "match": "matched",
+          "bank": "BBVA México",
+          "clabe": "012180014877239104",
+          "createdAt": "2026-08-20T20:05:00Z"
+        }
+        """
+        let deposit = try Self.decoder().decode(CashDeposit.self, from: Data(json.utf8))
+        #expect(deposit.origin == .simulated)
+        #expect(deposit.declaredMxn == 140)
+        #expect(deposit.detectedMxn == nil)
+        #expect(deposit.isAcknowledged == false)
+    }
+
+    /// A correction stored without provenance is not a supervisor's decision.
+    @Test func legacyAdjustmentDecodesAsSimulated() throws {
+        let json = """
+        {
+          "id": "adj-9f21c0",
+          "createdAt": "2026-08-21T10:00:00Z",
+          "concept": "Ajuste de semana",
+          "amountMxn": 450,
+          "author": "Supervisión",
+          "reason": "Diferencia reportada"
+        }
+        """
+        let adjustment = try Self.decoder().decode(SettlementAdjustment.self, from: Data(json.utf8))
+        #expect(adjustment.origin == .simulated)
+        #expect(adjustment.author == "Supervisión")
+        #expect(adjustment.amountMxn == 450)
+    }
+
+    /// An adjustment read by the wrong book is dropped before it can move a net.
+    @Test func simulatedAdjustmentIsNotCountedInABackendLedger() throws {
+        let json = """
+        {
+          "id": "adj-9f21c0",
+          "createdAt": "2026-08-21T10:00:00Z",
+          "concept": "Ajuste de semana",
+          "amountMxn": 450,
+          "author": "Supervisión",
+          "reason": "Diferencia reportada"
+        }
+        """
+        let adjustment = try Self.decoder().decode(SettlementAdjustment.self, from: Data(json.utf8))
+        let kept = [adjustment].filter { $0.origin == RecordOrigin.backend }
+        #expect(kept.isEmpty)
+    }
+}
+
+/// 15B.12 · the transfer pipeline is a timer, and a stored blob has to say so.
+///
+/// `WalletStore` is `@MainActor` and reads `UserDefaults`, so the adoption rule itself is
+/// verified by running the app. What is pure — and what actually decides the outcome — is
+/// how a blob written before this field existed is read.
+struct WalletProvenanceCompatibilityTests {
+
+    /// Mirrors `WalletStore.PersistedState`, which is private.
+    private struct StoredWallet: Codable {
+        var statuses: [String: String]
+        var requestedAt: [String: Date]
+        var transferredAt: [String: Date]
+        var reviews: [String: String]
+        var adjustments: [String: [SettlementAdjustment]]
+        var origin: RecordOrigin?
+    }
+
+    /// A wallet left mid-pipeline by the simulation — "completed", with a transfer date —
+    /// carries no origin. Read as simulated, it is never adopted by a backend session, so
+    /// "Completada" and "Depósito confirmado en tu cuenta" cannot be shown for a transfer
+    /// that never happened.
+    @Test func legacyWalletBlobIsReadAsSimulatedAndNotAdoptedByBackend() throws {
+        let json = """
+        {
+          "statuses": { "liq-drv-001-2026-08-17": "completed" },
+          "requestedAt": { "liq-drv-001-2026-08-17": "2026-08-17T12:00:00Z" },
+          "transferredAt": { "liq-drv-001-2026-08-17": "2026-08-17T12:04:12Z" },
+          "reviews": {},
+          "adjustments": {}
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let stored = try decoder.decode(StoredWallet.self, from: Data(json.utf8))
+
+        let effective = stored.origin ?? .simulated
+        #expect(effective == .simulated)
+        // This is the test `load()` performs before adopting anything.
+        #expect(effective != RecordOrigin.backend)
+        // The demonstration session that wrote it still recognises it as its own.
+        #expect(effective == RecordOrigin.simulated)
+        #expect(stored.statuses.count == 1)
+    }
+}

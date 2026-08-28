@@ -12,6 +12,13 @@ struct WalletView: View {
     @State private var showsCredit: Bool = false
     @State private var reviewNote: String = ""
     @State private var isReviewing: Bool = false
+    @State private var transferError: String?
+
+    /// Whether the dispersion flow on this device still stands for anything.
+    ///
+    /// The pipeline is a timer, not a bank. For a proved identity it is not shown as a
+    /// slower version of the truth — it is not shown at all.
+    private var canSimulateTransfer: Bool { store.canSimulateFinancialState }
 
     /// The week the wallet is standing in.
     ///
@@ -65,6 +72,17 @@ struct WalletView: View {
             if let office {
                 BankChangeRequestView(office: office, driver: store.driver)
             }
+        }
+        .alert(
+            "Transferencia no disponible",
+            isPresented: Binding(
+                get: { transferError != nil },
+                set: { if !$0 { transferError = nil } }
+            )
+        ) {
+            Button("Entendido", role: .cancel) { transferError = nil }
+        } message: {
+            Text(transferError ?? "")
         }
         .alert("Solicitar revisión", isPresented: $isReviewing) {
             TextField("¿Qué no coincide?", text: $reviewNote)
@@ -142,20 +160,38 @@ struct WalletView: View {
                     showsBreakdown = true
                 }
                 BigButton(
-                    title: settlement.status == .available ? "Solicitar transferencia" : settlement.status.label,
+                    title: transferTitle(settlement),
                     symbol: "arrow.up.right.circle.fill",
-                    isEnabled: settlement.status == .available
+                    isEnabled: canSimulateTransfer && settlement.status == .available
                 ) {
-                    wallet.requestTransfer(for: settlement)
+                    do {
+                        try wallet.requestTransfer(for: settlement)
+                    } catch {
+                        transferError = error.localizedDescription
+                    }
                 }
             }
 
-            Text("El pago es semanal. En esta versión la transferencia se simula: no se mueve dinero real.")
-                .font(.caption2)
-                .foregroundStyle(Palette.textMuted)
+            // Two different sentences because they answer to two different truths. The
+            // demonstration one warns that the money is not real; saying that to someone
+            // authenticated against the server would be describing their pay as a mockup.
+            // The other one does not promise a date — it says the connection is missing,
+            // which is the only thing actually known.
+            Text(
+                canSimulateTransfer
+                    ? "El pago es semanal. En esta versión la transferencia se simula: no se mueve dinero real."
+                    : "El pago es semanal. Las transferencias estarán disponibles cuando la liquidación esté conectada al sistema financiero."
+            )
+            .font(.caption2)
+            .foregroundStyle(Palette.textMuted)
         }
         .padding(16)
         .panel()
+    }
+
+    private func transferTitle(_ settlement: WeeklySettlement) -> String {
+        guard canSimulateTransfer else { return "Transferencia no disponible" }
+        return settlement.status == .available ? "Solicitar transferencia" : settlement.status.label
     }
 
     private func amountRow(_ concept: String, _ amount: Int, tone: Color) -> some View {
@@ -253,23 +289,38 @@ struct WalletView: View {
 
     // MARK: - Bank
 
+    /// Bank details, and the action that only exists when there are any.
+    ///
+    /// There is no account to modify when there is no account. The screen used to say so
+    /// and then offer "Solicitar modificación" anyway, which sent the driver into a form
+    /// that asks for the reason for a change to a record that does not exist — and files
+    /// the request against an empty file. Absence is a state, not a disabled button: with
+    /// no account the action is not dimmed, it is not there.
+    @ViewBuilder
     private var bankCard: some View {
-        let file = office?.file(id: store.driver.id)
-        return VStack(alignment: .leading, spacing: 12) {
-            SupSectionHeader(title: "Datos bancarios", subtitle: "Consulta; la modificación pasa por autorización")
+        let bank = office?.file(id: store.driver.id)?.bank
+        let requests = office?.bankRequests(driverId: store.driver.id) ?? []
 
-            if let bank = file?.bank {
+        VStack(alignment: .leading, spacing: 12) {
+            SupSectionHeader(
+                title: "Datos bancarios",
+                subtitle: bank == nil
+                    ? "Sin cuenta registrada"
+                    : "Consulta; la modificación pasa por autorización"
+            )
+
+            if let bank {
                 DetailRow(label: "Banco", value: bank.bank)
                 DetailRow(label: "CLABE", value: bank.maskedClabe)
                 DetailRow(label: "Titular", value: bank.holder)
                 DetailRow(label: "Estado", value: bank.status.label, tone: bank.status.tone)
             } else {
-                Text("Tu supervisor aún no registra tu cuenta.")
+                Text("Aún no hay una cuenta bancaria registrada para este perfil.")
                     .font(.caption2)
                     .foregroundStyle(Palette.textMuted)
             }
 
-            if let requests = office?.bankRequests(driverId: store.driver.id), !requests.isEmpty {
+            if !requests.isEmpty {
                 ForEach(requests) { request in
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.triangle.branch")
@@ -288,13 +339,15 @@ struct WalletView: View {
                 }
             }
 
-            BigButton(title: "Solicitar modificación", symbol: "building.columns.fill", tone: .outline) {
-                showsBankRequest = true
-            }
+            if bank != nil {
+                BigButton(title: "Solicitar modificación", symbol: "building.columns.fill", tone: .outline) {
+                    showsBankRequest = true
+                }
 
-            Text("Nunca podrás editar tu CLABE directamente: la solicitud la valida tu supervisor y la autoriza la gerencia de tu estación.")
-                .font(.caption2)
-                .foregroundStyle(Palette.textMuted)
+                Text("Nunca podrás editar tu CLABE directamente: la solicitud la valida tu supervisor y la autoriza la gerencia de tu estación.")
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textMuted)
+            }
         }
         .padding(16)
         .panel()

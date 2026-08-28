@@ -983,16 +983,35 @@ final class FleetStore {
     }
 
     /// The account direction publishes for cash that could not be charged by card.
-    var cashDepositAccount: CashDepositAccount { NationalCashBoard.current }
+    ///
+    /// Optional, because `NationalCashBoard` is a demonstration channel: its default is a
+    /// fictitious BBVA account written into the source, and the only desk that can
+    /// overwrite it is the national screen of this same app. Nothing in it was published
+    /// by an authority a backend session can appeal to, so for a proved identity the
+    /// honest answer is that there is no account yet — not a plausible one.
+    var cashDepositAccount: CashDepositAccount? {
+        guard canSimulateFinancialState else { return nil }
+        return NationalCashBoard.current
+    }
 
     /// Cash trips the platform reported and that are still in the driver's hands.
+    ///
+    /// Read through the ledger of this session. A backend identity reads the `.backend`
+    /// book, which nothing writes to yet, so it sees none of the charges this device
+    /// minted — without a single one of them being deleted.
     var openCashCharges: [CashCharge] {
-        CashChargeLedger.open(driverId: driver.id)
+        CashChargeLedger.open(driverId: driver.id, origin: ledgerOrigin)
     }
 
     /// Simulates the platform reporting a trip settled in cash during the shift.
+    ///
+    /// Throws under a proved identity. This mints a debt: the charge becomes a deduction
+    /// on the week the moment its day ends, so standing in for the platform here would
+    /// take real money from someone on the strength of a random trip folio.
     @discardableResult
-    func syncCashChargeFromPlatform(amountMxn: Int) -> CashCharge {
+    func syncCashChargeFromPlatform(amountMxn: Int) throws -> CashCharge {
+        guard canSimulateFinancialState else { throw FinancialMutationError.backendRequired }
+
         let charge = CashChargeLedger.make(
             driverId: driver.id,
             stationId: driver.stationId,
@@ -1011,9 +1030,17 @@ final class FleetStore {
     /// Closes every cash charge whose day already ended without a deposit. From here the
     /// amount stops being a pending deposit and becomes a discount on the week, visible
     /// in the wallet as "Cobro de viaje en efectivo".
+    ///
+    /// The list it works from is already scoped to this session's ledger, and the test is
+    /// repeated below anyway: this is the exact step where a charge stops being a pending
+    /// deposit and becomes money taken off a week, and a fixture must never be able to
+    /// make that crossing inside a real identity's book.
     @discardableResult
     func chargeBackExpiredCashCharges() -> [CashCharge] {
-        let expired = openCashCharges.filter { now > CashChargeRules.deadline(for: $0) }
+        let ledger = ledgerOrigin
+        let expired = openCashCharges.filter {
+            $0.origin == ledger && now > CashChargeRules.deadline(for: $0)
+        }
         guard !expired.isEmpty else { return [] }
 
         for charge in expired {
@@ -1030,6 +1057,10 @@ final class FleetStore {
     /// Files a cash deposit: the income enters the day, the slip stays attached and the
     /// manager of the station is notified in the same movement. Cash is not an authorized
     /// way to charge, so every peso received in hand has to leave a trace.
+    ///
+    /// Throws under a proved identity, before anything is written. Filing a deposit is
+    /// the app asserting that money reached the network's account; done locally that is a
+    /// receipt for a transfer nobody made, against a bank account no authority published.
     @discardableResult
     func registerCashDeposit(
         charge: CashCharge,
@@ -1039,10 +1070,14 @@ final class FleetStore {
         accountMatch: DepositMatch,
         detectedAccount: String?,
         slip: Data?
-    ) -> CashDeposit {
-        let account = cashDepositAccount
+    ) throws -> CashDeposit {
+        guard canSimulateFinancialState, let account = cashDepositAccount else {
+            throw FinancialMutationError.backendRequired
+        }
+
         let deposit = CashDeposit(
             id: "dep-\(UUID().uuidString.prefix(8))",
+            origin: ledgerOrigin,
             stationId: driver.stationId,
             driverId: driver.id,
             driverName: driver.name,
@@ -1061,19 +1096,17 @@ final class FleetStore {
         CashDepositLedger.record(deposit)
         CashChargeLedger.markDeposited(id: charge.id, at: now)
 
-        // 15B.10 boundary. The deposit ledger is out of this cut's scope and is left
-        // exactly as it was, but the income this used to mint is not: under a backend
-        // identity no local entry is created here, for the same reason the income form
-        // refuses one. The deposit and the cash charge are untouched.
-        if canSimulateFinancialState {
-            appendIncome(
-                amountMxn: declaredMxn,
-                trips: 0,
-                platform: .cash,
-                evidence: slip,
-                note: "\(charge.tripReference) · depósito en \(account.bank)"
-            )
-        }
+        // The guard above is the boundary now, so this is reached only inside a session
+        // that may simulate. The call stays unconditional to keep the deposit and the
+        // income it books inseparable: a slip filed without its matching entry would be
+        // money that left the driver's hands and never appeared in the week.
+        appendIncome(
+            amountMxn: declaredMxn,
+            trips: 0,
+            platform: .cash,
+            evidence: slip,
+            note: "\(charge.tripReference) · depósito en \(account.bank)"
+        )
 
         pushNotice(
             kind: .station,

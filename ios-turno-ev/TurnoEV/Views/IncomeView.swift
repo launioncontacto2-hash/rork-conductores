@@ -35,7 +35,13 @@ struct IncomeView: View {
     /// unlocking the station deduction and the whole bonus evaluation.
     private var canOperate: Bool { store.canSimulateFinancialState }
 
-    private var account: CashDepositAccount { store.cashDepositAccount }
+    /// The account the deposit has to land in, when one exists.
+    ///
+    /// Optional now: the network account is published by the national desk of this same
+    /// app and defaults to a fictitious BBVA. Under a proved identity there is nothing
+    /// authoritative to print at the counter, and a plausible CLABE is worse than none —
+    /// the driver would deposit real cash into it.
+    private var account: CashDepositAccount? { store.cashDepositAccount }
 
     private var charges: [CashCharge] { store.openCashCharges }
 
@@ -57,8 +63,11 @@ struct IncomeView: View {
     }
 
     /// Lock 3 · the destination printed on the slip has to be the account of the network.
+    ///
+    /// With no published account there is nothing to compare against, so the lock stays
+    /// shut rather than opening by default.
     private var accountMatch: DepositMatch {
-        guard evidence != nil, let reading, !isReadingSlip else { return .notChecked }
+        guard evidence != nil, let reading, !isReadingSlip, let account else { return .notChecked }
         return DepositSlipReader.accountMatch(expected: account, reading: reading)
     }
 
@@ -310,11 +319,22 @@ struct IncomeView: View {
 
             if canOperate {
                 BigButton(title: "Sincronizar con la plataforma", symbol: "arrow.triangle.2.circlepath", tone: .outline) {
-                    store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
-                    isDemoCharge = true
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                    resetCapture()
+                    do {
+                        _ = try store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
+                        isDemoCharge = true
+                        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                        resetCapture()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.danger)
+                    .multilineTextAlignment(.center)
             }
         }
         .padding(24)
@@ -349,38 +369,52 @@ struct IncomeView: View {
 
     /// Published by national direction. The driver reads it at the counter, so every
     /// field can be copied with one tap.
+    ///
+    /// When nothing has been published, the card is replaced by a refusal rather than by
+    /// a placeholder: this screen is read standing at a counter with cash in hand, and a
+    /// fictitious CLABE printed here is money sent to an account that does not exist.
+    @ViewBuilder
     private var accountCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "building.columns.fill")
-                    .font(.system(.footnote, weight: .bold))
-                    .foregroundStyle(Palette.info)
-                    .frame(width: 34, height: 34)
-                    .background(Palette.info.opacity(0.12), in: .rect(cornerRadius: 12))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Cuenta para depósitos en efectivo")
-                        .font(.system(.subheadline, weight: .black))
-                    Text("Publicada por la administración nacional")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.textMuted)
+        if let account {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: "building.columns.fill")
+                        .font(.system(.footnote, weight: .bold))
+                        .foregroundStyle(Palette.info)
+                        .frame(width: 34, height: 34)
+                        .background(Palette.info.opacity(0.12), in: .rect(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cuenta para depósitos en efectivo")
+                            .font(.system(.subheadline, weight: .black))
+                        Text("Publicada por la administración nacional")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+
+                copyRow(label: "Banco", value: account.bank, copies: false)
+                copyRow(label: "Titular", value: account.holder, copies: false)
+                copyRow(label: "CLABE", value: account.readableClabe, copyValue: account.clabe)
+                copyRow(label: "Cuenta", value: account.accountNumber, copyValue: account.accountNumber.filter(\.isNumber))
+                copyRow(label: "Referencia", value: account.reference, copyValue: account.reference)
+
+                Text(account.instructions)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            copyRow(label: "Banco", value: account.bank, copies: false)
-            copyRow(label: "Titular", value: account.holder, copies: false)
-            copyRow(label: "CLABE", value: account.readableClabe, copyValue: account.clabe)
-            copyRow(label: "Cuenta", value: account.accountNumber, copyValue: account.accountNumber.filter(\.isNumber))
-            copyRow(label: "Referencia", value: account.reference, copyValue: account.reference)
-
-            Text(account.instructions)
-                .font(.system(size: 10))
-                .foregroundStyle(Palette.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .panel()
+        } else {
+            NoticeBanner(
+                symbol: "building.columns",
+                title: "Cuenta de depósitos no disponible",
+                message: "La cuenta autorizada de la red aún no llega desde el sistema financiero. No deposites efectivo hasta que aparezca aquí.",
+                tone: .info
+            )
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .panel()
     }
 
     private func copyRow(label: String, value: String, copyValue: String? = nil, copies: Bool = true) -> some View {
@@ -456,7 +490,13 @@ struct IncomeView: View {
                 VStack(spacing: 10) {
                     amountVerification(reading: reading)
                     dateVerification(charge: charge)
-                    accountVerification(reading: reading)
+                    // The third lock compares the slip against a published account. With
+                    // none published there is nothing to compare, so the check is not
+                    // drawn as passed or failed — it is not drawn at all, and `canSave`
+                    // stays false because `accountMatch` never reaches `.matched`.
+                    if let account {
+                        accountVerification(reading: reading, account: account)
+                    }
                 }
             } else {
                 Text("Se revisan cuatro cosas del ticket: que el importe impreso sea el que capturaste, que la fecha sea la del viaje, que la cuenta destino sea la de la red y que aún estés dentro del plazo del mismo día.")
@@ -522,7 +562,10 @@ struct IncomeView: View {
 
     /// Third lock: the money has to land in the account of the network. A slip with a
     /// different destination proves a deposit, but not this one.
-    private func accountVerification(reading: DepositSlipReader.Reading) -> some View {
+    private func accountVerification(
+        reading: DepositSlipReader.Reading,
+        account: CashDepositAccount
+    ) -> some View {
         let state = accountMatch
         let tint: Color = switch state {
         case .matched: Palette.volt
@@ -619,7 +662,9 @@ struct IncomeView: View {
         // deadline passed.
         guard canOperate else { return }
         guard store.openCashCharges.isEmpty else { return }
-        let charge = store.syncCashChargeFromPlatform(amountMxn: demoAmounts.randomElement() ?? 180)
+        guard let charge = try? store.syncCashChargeFromPlatform(
+            amountMxn: demoAmounts.randomElement() ?? 180
+        ) else { return }
         selectedChargeId = charge.id
         isDemoCharge = true
     }
@@ -672,15 +717,20 @@ struct IncomeView: View {
             return
         }
 
-        store.registerCashDeposit(
-            charge: charge,
-            declaredMxn: declared,
-            detectedMxn: reading?.detectedMxn,
-            match: amountMatch,
-            accountMatch: accountMatch,
-            detectedAccount: reading?.detectedAccounts.first,
-            slip: evidence
-        )
+        do {
+            _ = try store.registerCashDeposit(
+                charge: charge,
+                declaredMxn: declared,
+                detectedMxn: reading?.detectedMxn,
+                match: amountMatch,
+                accountMatch: accountMatch,
+                detectedAccount: reading?.detectedAccounts.first,
+                slip: evidence
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
     }

@@ -105,8 +105,15 @@ nonisolated enum DepositMatch: String, Codable, Sendable {
 }
 
 /// One cash deposit reported by a driver. The manager sees it the moment it is saved.
+///
+/// It carries its provenance for the same reason the credit contract does: a deposit is
+/// the proof that money left the driver's hands, and a slip minted on the phone to walk
+/// through the flow is not that proof. Ownership alone cannot separate them — both the
+/// fixture and the real record would name the same driver.
 nonisolated struct CashDeposit: Codable, Identifiable, Sendable {
     let id: String
+    /// Whether an authority produced this deposit or a demonstration session minted it.
+    let origin: RecordOrigin
     let stationId: String
     let driverId: String
     let driverName: String
@@ -131,6 +138,56 @@ nonisolated struct CashDeposit: Codable, Identifiable, Sendable {
     var differenceMxn: Int {
         guard let detectedMxn else { return 0 }
         return declaredMxn - detectedMxn
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case origin
+        case stationId
+        case driverId
+        case driverName
+        case vehicleNumber
+        case declaredMxn
+        case detectedMxn
+        case match
+        case accountMatch
+        case detectedAccount
+        case bank
+        case clabe
+        case createdAt
+        case slip
+        case acknowledgedAt
+    }
+}
+
+extension CashDeposit {
+    /// Decoded by hand so slips filed before provenance existed still restore.
+    ///
+    /// A record whose JSON has no `origin` key is read as `.simulated`, never as
+    /// `.backend`. The absent key means nobody ever asserted where it came from, and the
+    /// only safe reading of that silence is the one that cannot turn a fixture into
+    /// money. Declaring this in an extension keeps the memberwise initializer.
+    ///
+    /// `nonisolated` because the ledger is decoded off the main actor; without it the
+    /// `Decodable` conformance of a `nonisolated` type would cross back into it.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        origin = try container.decodeIfPresent(RecordOrigin.self, forKey: .origin) ?? .simulated
+        stationId = try container.decode(String.self, forKey: .stationId)
+        driverId = try container.decode(String.self, forKey: .driverId)
+        driverName = try container.decode(String.self, forKey: .driverName)
+        vehicleNumber = try container.decode(String.self, forKey: .vehicleNumber)
+        declaredMxn = try container.decode(Int.self, forKey: .declaredMxn)
+        detectedMxn = try container.decodeIfPresent(Int.self, forKey: .detectedMxn)
+        match = try container.decode(DepositMatch.self, forKey: .match)
+        accountMatch = try container.decodeIfPresent(DepositMatch.self, forKey: .accountMatch)
+        detectedAccount = try container.decodeIfPresent(String.self, forKey: .detectedAccount)
+        bank = try container.decode(String.self, forKey: .bank)
+        clabe = try container.decode(String.self, forKey: .clabe)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        slip = try container.decodeIfPresent(Data.self, forKey: .slip)
+        acknowledgedAt = try container.decodeIfPresent(Date.self, forKey: .acknowledgedAt)
     }
 }
 
@@ -164,16 +221,21 @@ nonisolated enum CashDepositLedger {
         UserDefaults.standard.set(data, forKey: storageKey)
     }
 
-    static func all() -> [CashDeposit] {
+    private static func all() -> [CashDeposit] {
         load().sorted { $0.createdAt > $1.createdAt }
     }
 
-    static func deposits(stationId: String) -> [CashDeposit] {
-        all().filter { $0.stationId == stationId }
+    /// Deposits of one station, in one ledger.
+    ///
+    /// `origin` has no default on purpose. A caller that does not say which ledger it is
+    /// reading is a caller that has not decided whether fixtures count as money, and that
+    /// is precisely the decision this parameter exists to force.
+    static func deposits(stationId: String, origin: RecordOrigin) -> [CashDeposit] {
+        all().filter { $0.stationId == stationId && $0.origin == origin }
     }
 
-    static func pending(stationId: String) -> [CashDeposit] {
-        deposits(stationId: stationId).filter { !$0.isAcknowledged }
+    static func pending(stationId: String, origin: RecordOrigin) -> [CashDeposit] {
+        deposits(stationId: stationId, origin: origin).filter { !$0.isAcknowledged }
     }
 
     static func record(_ deposit: CashDeposit) {
@@ -203,6 +265,10 @@ nonisolated enum CashDepositLedger {
 /// amount stops being a deposit and becomes a discount on the week.
 nonisolated struct CashCharge: Codable, Identifiable, Sendable {
     let id: String
+    /// Whether the platform really reported this trip or a demonstration session minted
+    /// it. A charge becomes a deduction on the week the moment its day ends, so this is
+    /// the field that decides whether an unpaid fixture can take money from someone.
+    let origin: RecordOrigin
     let driverId: String
     let stationId: String
     /// Trip folio as the platform reports it.
@@ -216,6 +282,39 @@ nonisolated struct CashCharge: Codable, Identifiable, Sendable {
     var isDeposited: Bool { depositedAt != nil }
     var isChargedBack: Bool { chargedBackAt != nil }
     var isOpen: Bool { depositedAt == nil && chargedBackAt == nil }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case origin
+        case driverId
+        case stationId
+        case tripReference
+        case amountMxn
+        case generatedAt
+        case depositedAt
+        case chargedBackAt
+    }
+}
+
+extension CashCharge {
+    /// Decoded by hand so charges stored before provenance existed still restore.
+    ///
+    /// Same silence, same reading as `CashDeposit`: no `origin` key means `.simulated`.
+    /// The trips already sitting in this ledger were all minted by the sync button on the
+    /// income screen, and reading them as `.backend` would hand a real identity a debt
+    /// that a tap on a phone invented.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        origin = try container.decodeIfPresent(RecordOrigin.self, forKey: .origin) ?? .simulated
+        driverId = try container.decode(String.self, forKey: .driverId)
+        stationId = try container.decode(String.self, forKey: .stationId)
+        tripReference = try container.decode(String.self, forKey: .tripReference)
+        amountMxn = try container.decode(Int.self, forKey: .amountMxn)
+        generatedAt = try container.decode(Date.self, forKey: .generatedAt)
+        depositedAt = try container.decodeIfPresent(Date.self, forKey: .depositedAt)
+        chargedBackAt = try container.decodeIfPresent(Date.self, forKey: .chargedBackAt)
+    }
 }
 
 nonisolated enum CashChargeState: Sendable {
@@ -289,16 +388,25 @@ nonisolated enum CashChargeLedger {
         UserDefaults.standard.set(data, forKey: storageKey)
     }
 
-    static func charges(driverId: String) -> [CashCharge] {
-        load().filter { $0.driverId == driverId }.sorted { $0.generatedAt > $1.generatedAt }
+    /// Charges of one driver, in one ledger.
+    ///
+    /// Both tests are required and neither has a default. Ownership alone was never a
+    /// boundary here: a demonstration session and a proved identity can hold the same
+    /// `driverId` — the laboratory seeds one, and a backend profile can be given the same
+    /// id by hand — and every charge in this store was minted on the device. Filtering by
+    /// name only would hand those fixtures straight to the identity that matched.
+    static func charges(driverId: String, origin: RecordOrigin) -> [CashCharge] {
+        load()
+            .filter { $0.driverId == driverId && $0.origin == origin }
+            .sorted { $0.generatedAt > $1.generatedAt }
     }
 
-    static func open(driverId: String) -> [CashCharge] {
-        charges(driverId: driverId).filter(\.isOpen)
+    static func open(driverId: String, origin: RecordOrigin) -> [CashCharge] {
+        charges(driverId: driverId, origin: origin).filter(\.isOpen)
     }
 
-    static func chargedBack(driverId: String) -> [CashCharge] {
-        charges(driverId: driverId).filter(\.isChargedBack)
+    static func chargedBack(driverId: String, origin: RecordOrigin) -> [CashCharge] {
+        charges(driverId: driverId, origin: origin).filter(\.isChargedBack)
     }
 
     static func add(_ charge: CashCharge) {
@@ -327,9 +435,15 @@ nonisolated enum CashChargeLedger {
     }
 
     /// Simulates the platform reporting a trip settled in cash.
+    ///
+    /// Sealed `.simulated` with no parameter to say otherwise. This function *is* the
+    /// simulation: there is no argument a caller could pass that would make what it
+    /// returns any more real, so the provenance is written here rather than trusted to
+    /// whoever calls it.
     static func make(driverId: String, stationId: String, amountMxn: Int, now: Date) -> CashCharge {
         CashCharge(
             id: "cash-\(UUID().uuidString.prefix(8))",
+            origin: .simulated,
             driverId: driverId,
             stationId: stationId,
             tripReference: "UBER-\(Int.random(in: 100_000...999_999))",

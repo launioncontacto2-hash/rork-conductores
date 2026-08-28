@@ -105,13 +105,46 @@ nonisolated struct SettlementLine: Codable, Identifiable, Sendable {
 }
 
 /// A correction after the week closed. It never rewrites the original calculation.
+/// A correction appended after a week closed.
+///
+/// It signs itself with an author — "Supervisión" — and it moves the net of a frozen
+/// week, which makes it the one movement in the wallet that looks most like an authority
+/// speaking. It is therefore the one that most needs to say where it came from: without
+/// provenance, a driver holding the phone could mint a movement that presents itself as
+/// a supervisor's decision.
 nonisolated struct SettlementAdjustment: Codable, Identifiable, Sendable {
     let id: String
+    /// Whether an authority produced this correction or a demonstration session minted it.
+    let origin: RecordOrigin
     let createdAt: Date
     let concept: String
     let amountMxn: Int
     let author: String
     let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case origin
+        case createdAt
+        case concept
+        case amountMxn
+        case author
+        case reason
+    }
+}
+
+extension SettlementAdjustment {
+    /// Corrections stored before provenance existed decode as `.simulated`.
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        origin = try container.decodeIfPresent(RecordOrigin.self, forKey: .origin) ?? .simulated
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        concept = try container.decode(String.self, forKey: .concept)
+        amountMxn = try container.decode(Int.self, forKey: .amountMxn)
+        author = try container.decode(String.self, forKey: .author)
+        reason = try container.decode(String.self, forKey: .reason)
+    }
 }
 
 nonisolated struct WeeklySettlement: Codable, Identifiable, Sendable {
@@ -225,8 +258,16 @@ nonisolated enum SettlementRules {
 
         // Cash collected on a trip and never deposited the same day. It is not a fine:
         // it is the network recovering money that never reached its account.
+        //
+        // Which makes provenance decisive: a trip nobody reported cannot be money that
+        // never arrived. The same three questions the credit answers are asked here —
+        // whose the charge is, and whether it belongs to the ledger being settled — so a
+        // charge minted on the phone can never be recovered from records an authority
+        // produced, and the caller cannot forget to filter beforehand.
         let recovered = cashRecoveries.filter {
-            ShiftRules.isInSameWeek($0.chargedBackAt ?? $0.generatedAt, as: weekStart)
+            $0.driverId == driverId
+                && $0.origin == ledgerOrigin
+                && ShiftRules.isInSameWeek($0.chargedBackAt ?? $0.generatedAt, as: weekStart)
         }
         for charge in recovered {
             lines.append(

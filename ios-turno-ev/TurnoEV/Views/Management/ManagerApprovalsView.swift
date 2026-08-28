@@ -103,7 +103,12 @@ struct ManagerApprovalsView: View {
     /// see the same day — not a request to sign, a fact to acknowledge.
     @ViewBuilder
     private var cashDeposits: some View {
-        let deposits = CashDepositLedger.deposits(stationId: regional.station.id)
+        // The manager desk is still a demonstration surface: every slip in this ledger
+        // was filed by the cash screen of this same app, and no backend writes to it yet.
+        // It reads the simulated book explicitly rather than reading "all of them", so
+        // the day real deposits arrive this line has to be revisited instead of silently
+        // mixing the two.
+        let deposits = CashDepositLedger.deposits(stationId: regional.station.id, origin: .simulated)
         let pending = deposits.filter { !$0.isAcknowledged }
 
         if !deposits.isEmpty {
