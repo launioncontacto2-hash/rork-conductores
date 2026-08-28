@@ -282,6 +282,31 @@ final class FleetStore {
     /// one a settlement built from those records will accept.
     var ledgerOrigin: RecordOrigin { canSimulateFinancialState ? .simulated : .backend }
 
+    // MARK: - Operational coordination boundary
+
+    /// Whether this session may run the coverage workflow locally.
+    ///
+    /// Money was the first boundary; coordination is the second. An absence request, a
+    /// claimed guard and a shift swap are decisions shared with a supervisor and a
+    /// station, and this app writes them into one blob on one device. A demonstration
+    /// session may do that: walking the chain end to end is the point. A proved identity
+    /// may not, because no coverage service exists on the server yet, and a request that
+    /// reaches nobody must never be shown as sent.
+    ///
+    /// Deliberately a second property instead of a reuse of the financial one. They
+    /// answer alike today only because both backends are missing; coverage may well
+    /// arrive before settlement, and when it does exactly one of them flips.
+    var canSimulateOperationalCoordination: Bool { !isBackendSession }
+
+    /// The capability the coverage board operates under for the open session.
+    ///
+    /// Asked here rather than decided in a view: the session is the only thing that can
+    /// answer it, and a screen that judged this for itself would be one refactor away
+    /// from getting it wrong.
+    var coordinationCapability: CoordinationCapability {
+        canSimulateOperationalCoordination ? .localWorkflow : .stationRequired
+    }
+
     var currentRole: StaffRole? { session?.role }
 
     var currentStation: Station? { StaffDirectory.station(id: session?.stationId) }

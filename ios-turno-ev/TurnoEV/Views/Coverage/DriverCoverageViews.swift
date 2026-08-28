@@ -44,6 +44,7 @@ struct DriverShiftsView: View {
                 ScrollView {
                     VStack(spacing: 14) {
                         todayCard
+                        if !coverage.canCoordinateLocally { stationBanner }
                         if availableGuards > 0 { guardBanner }
                         pendingSwapBanner
                         options
@@ -110,6 +111,17 @@ struct DriverShiftsView: View {
             .padding(16)
             .panel()
         }
+    }
+
+    /// Shown to a session the station cannot reach. Every screen below stays open — the
+    /// driver can read what each one is for — but nothing here can be filed yet.
+    private var stationBanner: some View {
+        NoticeBanner(
+            symbol: "antenna.radiowaves.left.and.right.slash",
+            title: "Coordinación con la estación aún no disponible",
+            message: "Puedes revisar tus turnos y cómo funciona cada trámite. Enviar una ausencia, tomar una guardia o proponer un intercambio requiere conexión con el sistema operativo de la estación.",
+            tone: .info
+        )
     }
 
     private var guardBanner: some View {
@@ -439,13 +451,21 @@ struct DriverCoverageCalendarView: View {
     }
 
     private var legendKinds: [CoverageDayKind] {
-        [.regular, .rest, .guardConfirmed, .guardReserved, .absenceRequested, .absenceApproved, .swap, .extraordinary]
+        guard coverage.canCoordinateLocally, profile.scheduleKnowledge == .declaredBlock else {
+            // A month made entirely of unknown days needs one line, not a key to eight
+            // colours it will never paint.
+            return [.unpublished]
+        }
+        return [.regular, .rest, .guardConfirmed, .guardReserved, .absenceRequested, .absenceApproved, .swap, .extraordinary]
     }
 
     @ViewBuilder
     private var upcoming: some View {
         let next = days.filter {
-            $0.date >= ShiftRules.calendar.startOfDay(for: today) && $0.kind != .rest && $0.kind != .regular
+            $0.date >= ShiftRules.calendar.startOfDay(for: today)
+                && $0.kind != .rest
+                && $0.kind != .regular
+                && $0.kind != .unpublished
         }
         if !next.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
@@ -491,18 +511,20 @@ private struct CoverageDaySquare: View {
     let day: CoverageCalendarDay
     let isToday: Bool
 
-    private var isMarked: Bool { day.kind != .regular && day.kind != .rest }
+    private var isMarked: Bool {
+        day.kind != .regular && day.kind != .rest && day.kind != .unpublished
+    }
 
     var body: some View {
         VStack(spacing: 3) {
             Text(Fmt.dayNumber(day.date))
                 .font(.system(size: 13, weight: isToday ? .black : .semibold))
                 .monospacedDigit()
-                .foregroundStyle(day.kind == .rest ? Palette.textMuted : .primary)
+                .foregroundStyle(day.kind == .rest || day.kind == .unpublished ? Palette.textMuted : .primary)
             Circle()
                 .fill(day.kind.tone)
                 .frame(width: isMarked ? 7 : 4, height: isMarked ? 7 : 4)
-                .opacity(day.kind == .rest ? 0.35 : 1)
+                .opacity(day.kind == .rest || day.kind == .unpublished ? 0.35 : 1)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 46)
@@ -602,12 +624,14 @@ struct AbsenceRequestFormView: View {
     @State private var comments: String = ""
     @State private var hasEvidence: Bool = false
     @State private var sent: AbsenceRequest?
+    @State private var errorMessage: String?
 
     private var requiresEvidence: Bool { kind == .leave }
 
     private var canSend: Bool {
         !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (!requiresEvidence || hasEvidence)
+            && coverage.canCoordinateLocally
     }
 
     var body: some View {
@@ -619,7 +643,11 @@ struct AbsenceRequestFormView: View {
                         if let sent {
                             confirmation(for: sent)
                         } else {
-                            warning
+                            if coverage.canCoordinateLocally {
+                                warning
+                            } else {
+                                unavailableNotice
+                            }
                             form
                         }
                     }
@@ -656,6 +684,18 @@ struct AbsenceRequestFormView: View {
                 ? "El supervisor recibe aviso prioritario y el sistema empieza a buscar sustituto de inmediato. Tu ausencia sigue necesitando autorización."
                 : "El sistema buscará quién cubra tu unidad. Cubrir el turno y autorizar tu falta son dos decisiones distintas.",
             tone: isEmergency ? .danger : .info
+        )
+    }
+
+    /// Replaces the "a request is not an authorization" warning where there is nothing to
+    /// request yet. Saying that a request does not authorize an absence would still imply
+    /// that a request arrives somewhere.
+    private var unavailableNotice: some View {
+        NoticeBanner(
+            symbol: "antenna.radiowaves.left.and.right.slash",
+            title: "Todavía no se pueden enviar solicitudes",
+            message: "Aquí verás cómo se pide una ausencia: fecha, turno, tipo, motivo y evidencia. El envío se habilita cuando la coordinación con la estación esté conectada al sistema operativo.",
+            tone: .info
         )
     }
 
@@ -758,8 +798,17 @@ struct AbsenceRequestFormView: View {
                 .buttonStyle(.plain)
             }
 
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(CovTone.blocking)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             BigButton(
-                title: isEmergency ? "Reportar emergencia" : "Enviar solicitud",
+                title: coverage.canCoordinateLocally
+                    ? (isEmergency ? "Reportar emergencia" : "Enviar solicitud")
+                    : "Envío no disponible",
                 symbol: isEmergency ? "exclamationmark.triangle.fill" : "paperplane.fill",
                 tone: isEmergency ? .danger : .volt,
                 isEnabled: canSend
@@ -770,17 +819,23 @@ struct AbsenceRequestFormView: View {
     }
 
     private func send() {
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        let request = coverage.requestAbsence(
-            driver: profile,
-            date: date,
-            slot: slot,
-            kind: kind,
-            reason: reason,
-            comments: comments,
-            evidence: hasEvidence ? Data("evidencia".utf8) : nil
-        )
-        withAnimation(.smooth) { sent = request }
+        do {
+            let request = try coverage.requestAbsence(
+                driver: profile,
+                date: date,
+                slot: slot,
+                kind: kind,
+                reason: reason,
+                comments: comments,
+                evidence: hasEvidence ? Data("evidencia".utf8) : nil
+            )
+            // The success signal fires only once the request actually exists.
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation(.smooth) { sent = request }
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func confirmation(for request: AbsenceRequest) -> some View {
@@ -1018,6 +1073,11 @@ struct GuardDetailView: View {
         case .notEligible(let checks):
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             withAnimation(.smooth) { blockers = checks }
+        case .stationRequired:
+            // Not a rule this person failed: the seat cannot be committed to from here.
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            onResult(CoordinationMutationError.stationRequired.localizedDescription)
+            dismiss()
         case .unavailable(let reason):
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             onResult(reason)
@@ -1112,9 +1172,9 @@ struct MyCoverageRequestsView: View {
                     .foregroundStyle(request.status.tone)
             }
 
-            if request.status.isOpen {
+            if request.status.isOpen && coverage.canCoordinateLocally {
                 Button {
-                    coverage.cancelAbsence(id: request.id, by: "\(profile.name) · \(profile.employeeNumber)")
+                    try? coverage.cancelAbsence(id: request.id, by: "\(profile.name) · \(profile.employeeNumber)")
                 } label: {
                     Text("Cancelar solicitud")
                         .font(.system(.caption, weight: .bold))
@@ -1172,10 +1232,10 @@ struct MyCoverageRequestsView: View {
                     .foregroundStyle(CovTone.pending)
             }
 
-            if isPartner && swap.status == .proposed {
+            if isPartner && swap.status == .proposed && coverage.canCoordinateLocally {
                 HStack(spacing: 8) {
                     Button {
-                        coverage.respondToSwap(id: swap.id, accepted: true, by: profile)
+                        try? coverage.respondToSwap(id: swap.id, accepted: true, by: profile)
                     } label: {
                         Text("Aceptar")
                             .font(.system(.caption, weight: .bold))
@@ -1186,7 +1246,7 @@ struct MyCoverageRequestsView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        coverage.respondToSwap(id: swap.id, accepted: false, by: profile)
+                        try? coverage.respondToSwap(id: swap.id, accepted: false, by: profile)
                     } label: {
                         Text("Rechazar")
                             .font(.system(.caption, weight: .bold))
@@ -1346,6 +1406,7 @@ struct GuardCancellationView: View {
     @Environment(CoverageStore.self) private var coverage
 
     @State private var reason: String = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
@@ -1393,10 +1454,23 @@ struct GuardCancellationView: View {
                             symbol: "xmark.circle.fill",
                             tone: .danger,
                             isEnabled: !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                && coverage.canCoordinateLocally
                         ) {
-                            coverage.cancelClaim(vacancyId: vacancy.id, driverId: profile.id, reason: reason)
-                            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-                            dismiss()
+                            do {
+                                try coverage.cancelClaim(vacancyId: vacancy.id, driverId: profile.id, reason: reason)
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                dismiss()
+                            } catch {
+                                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(CovTone.blocking)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1431,6 +1505,7 @@ struct SwapProposalView: View {
     @State private var partnerId: String?
     @State private var note: String = ""
     @State private var sent: Bool = false
+    @State private var errorMessage: String?
 
     private var partners: [CoverageDriverProfile] {
         coverage.roster(stationId: profile.stationId).filter { $0.id != profile.id }
@@ -1446,12 +1521,21 @@ struct SwapProposalView: View {
                 StationBackground()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        NoticeBanner(
-                            symbol: "arrow.left.arrow.right",
-                            title: "El cambio no se hace solo porque se acuerde",
-                            message: "Tu compañero acepta, el sistema revisa la elegibilidad de los dos y el supervisor aprueba. Hasta entonces los calendarios no se mueven.",
-                            tone: .info
-                        )
+                        if coverage.canCoordinateLocally {
+                            NoticeBanner(
+                                symbol: "arrow.left.arrow.right",
+                                title: "El cambio no se hace solo porque se acuerde",
+                                message: "Tu compañero acepta, el sistema revisa la elegibilidad de los dos y el supervisor aprueba. Hasta entonces los calendarios no se mueven.",
+                                tone: .info
+                            )
+                        } else {
+                            NoticeBanner(
+                                symbol: "antenna.radiowaves.left.and.right.slash",
+                                title: "Todavía no se pueden proponer intercambios",
+                                message: "Un intercambio pasa por tu compañero, por el motor de elegibilidad y por la firma del supervisor. Ese circuito se habilita cuando la coordinación con la estación esté conectada al sistema operativo.",
+                                tone: .info
+                            )
+                        }
 
                         if sent {
                             NoticeBanner(
@@ -1556,23 +1640,35 @@ struct SwapProposalView: View {
                     .panelFlat()
             }
 
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.footnote)
+                    .foregroundStyle(CovTone.blocking)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             BigButton(
-                title: "Enviar propuesta",
+                title: coverage.canCoordinateLocally ? "Enviar propuesta" : "Propuesta no disponible",
                 symbol: "paperplane.fill",
-                isEnabled: partner != nil
+                isEnabled: partner != nil && coverage.canCoordinateLocally
             ) {
                 guard let partner else { return }
-                coverage.proposeSwap(
-                    from: profile,
-                    fromDate: myDate,
-                    fromSlot: profile.slot,
-                    to: partner,
-                    toDate: theirDate,
-                    toSlot: theirSlot,
-                    note: note
-                )
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                withAnimation(.smooth) { sent = true }
+                do {
+                    _ = try coverage.proposeSwap(
+                        from: profile,
+                        fromDate: myDate,
+                        fromSlot: profile.slot,
+                        to: partner,
+                        toDate: theirDate,
+                        toSlot: theirSlot,
+                        note: note
+                    )
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    withAnimation(.smooth) { sent = true }
+                } catch {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

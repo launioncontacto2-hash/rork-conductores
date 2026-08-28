@@ -115,6 +115,12 @@ nonisolated struct CoverageDriverProfile: Identifiable, Sendable {
     let stationCode: String
     let slot: ShiftSlot
     let group: ShiftGroup
+    /// Whether this person's daily assignment can be derived from their block.
+    ///
+    /// No default on purpose. Every construction site has to state whether the schedule
+    /// it is describing is declared by the environment or simply unknown, because the
+    /// difference decides whether a square on a calendar may say "Programado".
+    let scheduleKnowledge: ScheduleKnowledge
     var flags: CoverageDriverFlags
 
     var initials: String {
@@ -699,11 +705,18 @@ nonisolated enum CoverageDayKind: String, Codable, Sendable {
     case swap
     case extraordinary
     case noShow
+    /// The block is known, the assignment for this particular day is not.
+    ///
+    /// Distinct from `.rest`: a free day is a statement about the schedule, and claiming
+    /// one for a driver whose calendar was never published is the same invention as
+    /// claiming a shift.
+    case unpublished
 
     var label: String {
         switch self {
         case .regular: "Turno normal"
         case .rest: "Día libre"
+        case .unpublished: "Sin asignación publicada"
         case .guardConfirmed: "Guardia confirmada"
         case .guardReserved: "Guardia reservada"
         case .absenceRequested: "Ausencia solicitada"
@@ -718,6 +731,7 @@ nonisolated enum CoverageDayKind: String, Codable, Sendable {
         switch self {
         case .regular: "steeringwheel"
         case .rest: "moon.zzz.fill"
+        case .unpublished: "questionmark.circle"
         case .guardConfirmed: "checkmark.seal.fill"
         case .guardReserved: "hourglass"
         case .absenceRequested: "paperplane.fill"

@@ -472,3 +472,283 @@ struct WalletProvenanceCompatibilityTests {
         #expect(stored.statuses.count == 1)
     }
 }
+
+// MARK: - 15B.13.1 · operational coordination boundary
+
+/// A coverage board wired to an isolated `UserDefaults` suite.
+///
+/// The module persists the whole board under one key. A test must never read or write
+/// the board a real session owns, so each one gets its own suite and throws it away.
+@MainActor
+private struct TestBoard {
+    let store: CoverageStore
+    let suiteName: String
+
+    init(_ capability: CoordinationCapability) {
+        suiteName = "turnoev.tests.coverage.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
+        store = CoverageStore(capability: capability, defaults: defaults)
+    }
+
+    func discard() {
+        UserDefaults().removePersistentDomain(forName: suiteName)
+    }
+}
+
+@MainActor
+private func makeProfile(
+    id: String,
+    schedule: ScheduleKnowledge,
+    slot: ShiftSlot = .morning,
+    group: ShiftGroup = .weekday
+) -> CoverageDriverProfile {
+    CoverageDriverProfile(
+        id: id,
+        name: "Conductor de prueba",
+        employeeNumber: "EMP-TEST",
+        stationId: "est-001",
+        stationCode: "IZT",
+        slot: slot,
+        group: group,
+        scheduleKnowledge: schedule,
+        flags: .clear
+    )
+}
+
+/// First date on or after `from` that belongs to the given rotation.
+private func firstDay(of group: ShiftGroup, from: Date) -> Date {
+    let calendar = ShiftRules.calendar
+    for offset in 0...8 {
+        guard let day = calendar.date(byAdding: .day, value: offset, to: from) else { continue }
+        if ShiftRules.group(for: day) == group { return calendar.startOfDay(for: day) }
+    }
+    return from
+}
+
+/// 15B.13.1 · a session the station cannot reach never writes a shared coverage fact.
+///
+/// Cases A, B and C of the cut. Each one asserts the refusal *and* the absence of every
+/// side effect the refused call would otherwise have produced — a request that stops
+/// halfway leaves a vacancy searching for a substitute nobody will ever send.
+@MainActor
+struct CoordinationBoundaryTests {
+
+    /// A · a proved identity cannot file an absence request.
+    @Test func backendSessionCannotInsertAnAbsenceRequest() {
+        let board = TestBoard(.stationRequired)
+        defer { board.discard() }
+        let profile = makeProfile(id: "DRV-TEST-001", schedule: .unpublished)
+
+        #expect(throws: CoordinationMutationError.self) {
+            try board.store.requestAbsence(
+                driver: profile,
+                date: Date(),
+                slot: .morning,
+                kind: .scheduled,
+                reason: "Cita médica",
+                comments: "",
+                evidence: nil
+            )
+        }
+        #expect(board.store.absences.isEmpty)
+    }
+
+    /// B · and produces no vacancy, no audit line and no notification on the way out.
+    @Test func refusedAbsenceLeavesNoVacancyAuditOrNotification() {
+        let board = TestBoard(.stationRequired)
+        defer { board.discard() }
+        let profile = makeProfile(id: "DRV-TEST-001", schedule: .unpublished)
+
+        try? board.store.requestAbsence(
+            driver: profile,
+            date: Date(),
+            slot: .morning,
+            kind: .emergency,
+            reason: "No puedo presentarme",
+            comments: "",
+            evidence: nil
+        )
+
+        #expect(board.store.vacancies.isEmpty)
+        #expect(board.store.audit.isEmpty)
+        #expect(board.store.notifications.isEmpty)
+    }
+
+    /// C · no seat is reserved and no swap is proposed.
+    @Test func backendSessionCannotReserveAGuardOrProposeASwap() {
+        let board = TestBoard(.stationRequired)
+        defer { board.discard() }
+        let profile = makeProfile(id: "DRV-TEST-001", schedule: .unpublished)
+        let partner = makeProfile(id: "DRV-TEST-002", schedule: .unpublished, slot: .evening)
+
+        let seat = CoverageVacancy(
+            id: "vac-test",
+            stationId: "est-001",
+            stationCode: "IZT",
+            date: ShiftRules.calendar.startOfDay(for: Date()),
+            slot: .evening,
+            origin: .extraordinary,
+            titularDriverId: nil,
+            titularName: nil,
+            vehicleId: nil,
+            vehicleNumber: nil,
+            bonusMode: .fixed,
+            bonusMxn: 700,
+            reason: "Semilla de prueba",
+            status: .searching,
+            absenceRequestId: nil,
+            claims: [],
+            approvedBy: nil,
+            approvedAt: nil,
+            rejectionNote: nil,
+            isCritical: false,
+            createdAt: Date(),
+            createdBy: "Prueba"
+        )
+        board.store.vacancies = [seat]
+
+        let outcome = board.store.claimGuard(vacancyId: seat.id, by: profile)
+        guard case .stationRequired = outcome else {
+            Issue.record("Tomar la guardia debió terminar en .stationRequired.")
+            return
+        }
+        // Refused for the right reason: nobody failed a rule.
+        #expect(!outcome.isSuccess)
+        #expect(board.store.vacancies[0].claims.isEmpty)
+        #expect(board.store.vacancies[0].status == .searching)
+
+        #expect(throws: CoordinationMutationError.self) {
+            try board.store.proposeSwap(
+                from: profile,
+                fromDate: Date(),
+                fromSlot: .morning,
+                to: partner,
+                toDate: Date(),
+                toSlot: .evening,
+                note: ""
+            )
+        }
+        #expect(board.store.swaps.isEmpty)
+        #expect(board.store.audit.isEmpty)
+    }
+
+    /// The seat seeded above belongs to the board, not to the driver: it is never offered
+    /// as available work either, so the refusal is not the first thing the driver meets.
+    @Test func backendSessionIsOfferedNoGuards() {
+        let board = TestBoard(.stationRequired)
+        defer { board.discard() }
+        let profile = makeProfile(id: "DRV-TEST-001", schedule: .unpublished)
+
+        #expect(board.store.availableGuards(for: profile).isEmpty)
+        #expect(board.store.absences(driverId: profile.id).isEmpty)
+        #expect(board.store.earnedGuardBonusMxn(driverId: profile.id) == 0)
+    }
+}
+
+/// 15B.13.1 · the calendar states what is known, and a rotation is not an assignment.
+@MainActor
+struct CoverageCalendarHonestyTests {
+
+    /// D · belonging to the weekday block does not schedule five days.
+    ///
+    /// This is the assumption removed from `BonusRules`, reaching the calendar by another
+    /// road: `worksRegularly` reads group plus slot and answers "Programado" for every
+    /// matching date, for a driver whose station never published a calendar.
+    @Test func backendWeekdayDriverGetsNoScheduledDays() {
+        let board = TestBoard(.stationRequired)
+        defer { board.discard() }
+        let profile = makeProfile(id: "DRV-TEST-001", schedule: .unpublished)
+        let calendar = ShiftRules.calendar
+        let monday = firstDay(of: .weekday, from: Date())
+
+        for offset in 0..<5 {
+            guard let day = calendar.date(byAdding: .day, value: offset, to: monday) else { continue }
+            let reading = board.store.day(for: profile, on: day)
+            #expect(reading.kind != .regular)
+            #expect(reading.statusLabel != "Programado")
+            // Nor the opposite invention: a rest day is a claim about the schedule too.
+            #expect(reading.kind != .rest)
+            #expect(reading.slot == nil)
+        }
+
+        let sample = board.store.day(for: profile, on: monday)
+        #expect(sample.kind == .unpublished)
+        #expect(sample.statusLabel == "Sin asignación publicada")
+    }
+
+    /// The supposed days do not reach the workload, overlap or rest calculations either:
+    /// the single rule every one of them reads answers `false` for an unpublished block.
+    @Test func unpublishedScheduleProducesNoRegularDayForTheEngine() {
+        let weekday = firstDay(of: .weekday, from: Date())
+        let unpublished = makeProfileNonIsolated(schedule: .unpublished)
+        let declared = makeProfileNonIsolated(schedule: .declaredBlock)
+
+        #expect(CoverageRules.worksRegularly(unpublished, on: weekday) == false)
+        #expect(CoverageRules.regularSlot(unpublished, on: weekday) == nil)
+        // The demonstration roster keeps the inference it has always had.
+        #expect(CoverageRules.worksRegularly(declared, on: weekday))
+        #expect(CoverageRules.regularSlot(declared, on: weekday) == .morning)
+    }
+
+    private func makeProfileNonIsolated(schedule: ScheduleKnowledge) -> CoverageDriverProfile {
+        CoverageDriverProfile(
+            id: "drv-001",
+            name: "Conductor de prueba",
+            employeeNumber: "EMP-TEST",
+            stationId: "est-001",
+            stationCode: "IZT",
+            slot: .morning,
+            group: .weekday,
+            scheduleKnowledge: schedule,
+            flags: .clear
+        )
+    }
+}
+
+/// 15B.13.1 · E · the demonstration workflow is untouched.
+@MainActor
+struct CoverageDemonstrationTests {
+
+    /// A demonstration session still files the request, opens the seat and writes the
+    /// trace — the whole point of a module with no server behind it.
+    @Test func demonstrationSessionStillRunsTheWholeWorkflow() throws {
+        let board = TestBoard(.localWorkflow)
+        defer { board.discard() }
+        let profile = makeProfile(id: "drv-001", schedule: .declaredBlock)
+        let date = ShiftRules.calendar.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+
+        let request = try board.store.requestAbsence(
+            driver: profile,
+            date: date,
+            slot: .morning,
+            kind: .scheduled,
+            reason: "Asunto familiar",
+            comments: "",
+            evidence: nil
+        )
+
+        #expect(board.store.absences.count == 1)
+        #expect(board.store.vacancies.count == 1)
+        #expect(request.vacancyId != nil)
+        #expect(board.store.vacancy(id: request.vacancyId) != nil)
+        // The trace is written by the same call, as it always was.
+        #expect(!board.store.audit.isEmpty)
+    }
+
+    /// And the demonstration calendar keeps saying "Programado" on the block's own days.
+    @Test func demonstrationCalendarKeepsItsRegularDays() {
+        let board = TestBoard(.localWorkflow)
+        defer { board.discard() }
+        let profile = makeProfile(id: "drv-001", schedule: .declaredBlock)
+        let weekday = firstDay(of: .weekday, from: Date())
+        let weekend = firstDay(of: .weekend, from: Date())
+
+        let working = board.store.day(for: profile, on: weekday)
+        #expect(working.kind == .regular)
+        #expect(working.statusLabel == "Programado")
+        #expect(working.slot == .morning)
+
+        let free = board.store.day(for: profile, on: weekend)
+        #expect(free.kind == .rest)
+    }
+}

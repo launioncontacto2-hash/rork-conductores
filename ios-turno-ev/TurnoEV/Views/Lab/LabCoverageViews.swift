@@ -348,6 +348,14 @@ struct LabCoverageRunner {
         StaffDirectory.accounts.first { $0.role == .supervisor }
     }
 
+    /// The laboratory only ever runs inside a demonstration session, so this is a
+    /// structural impossibility rather than a case to handle — but it is stated instead
+    /// of forced, because the coverage board refuses these writes for a reason.
+    private static let unavailable = Outcome(
+        message: "La coordinación local no está disponible en esta sesión.",
+        tone: .failure
+    )
+
     func run(_ scenario: LabCoverageScenario) -> Outcome {
         let roster = coverage.roster
         guard let titular = roster.first else {
@@ -359,7 +367,7 @@ struct LabCoverageRunner {
         switch scenario {
         case .noticeSevenDays:
             let date = calendar.date(byAdding: .day, value: 7, to: now) ?? now
-            let request = coverage.requestAbsence(
+            guard let request = try? coverage.requestAbsence(
                 driver: titular,
                 date: date,
                 slot: titular.slot,
@@ -367,7 +375,7 @@ struct LabCoverageRunner {
                 reason: "Escenario A: aviso con una semana de anticipación",
                 comments: "Generado por el laboratorio.",
                 evidence: nil
-            )
+            ) else { return Self.unavailable }
             let offered = coverage.vacancy(id: request.vacancyId).map { coverage.eligibleCandidates(for: $0).count } ?? 0
             return Outcome(
                 message: "Escenario A listo: vacante abierta y ofrecida a \(offered) conductor(es) elegible(s).",
@@ -378,7 +386,7 @@ struct LabCoverageRunner {
             // 30 minutes before the start: the request lands inside the emergency window.
             let start = ShiftRules.scheduledStart(slot: titular.slot, on: now)
             let day = start.timeIntervalSince(now) > 1800 ? now : (calendar.date(byAdding: .day, value: 1, to: now) ?? now)
-            let request = coverage.requestAbsence(
+            guard let request = try? coverage.requestAbsence(
                 driver: titular,
                 date: day,
                 slot: titular.slot,
@@ -386,7 +394,7 @@ struct LabCoverageRunner {
                 reason: "Escenario B: emergencia a 30 minutos del inicio",
                 comments: "Generado por el laboratorio.",
                 evidence: nil
-            )
+            ) else { return Self.unavailable }
             _ = request
             return Outcome(message: "Escenario B listo: alerta crítica enviada a supervisión.", tone: .success)
 
@@ -398,7 +406,7 @@ struct LabCoverageRunner {
                 coverage.setFlags(flags, for: profile.id)
             }
             let date = calendar.date(byAdding: .day, value: 3, to: now) ?? now
-            let request = coverage.requestAbsence(
+            guard let request = try? coverage.requestAbsence(
                 driver: titular,
                 date: date,
                 slot: titular.slot,
@@ -406,7 +414,7 @@ struct LabCoverageRunner {
                 reason: "Escenario C: nadie elegible",
                 comments: "Toda la plantilla quedó con documentación vencida.",
                 evidence: nil
-            )
+            ) else { return Self.unavailable }
             let status = coverage.absence(id: request.id)?.status ?? .searching
             return Outcome(
                 message: status == .uncovered
@@ -445,7 +453,7 @@ struct LabCoverageRunner {
                 return Outcome(message: "El escenario E necesita un conductor elegible.", tone: .warning)
             }
             _ = coverage.claimGuard(vacancyId: vacancy.id, by: profile)
-            coverage.cancelClaim(vacancyId: vacancy.id, driverId: profile.id, reason: "Escenario E: cancelación posterior")
+            try? coverage.cancelClaim(vacancyId: vacancy.id, driverId: profile.id, reason: "Escenario E: cancelación posterior")
             let reopened = coverage.vacancy(id: vacancy.id)?.status
             return Outcome(
                 message: "Escenario E listo: la vacante quedó en \(reopened?.label.lowercased() ?? "—").",
@@ -555,7 +563,7 @@ struct LabCoverageRunner {
         slot: ShiftSlot? = nil
     ) -> CoverageVacancy? {
         let day = date ?? ShiftRules.calendar.date(byAdding: .day, value: 5, to: coverage.now) ?? coverage.now
-        let request = coverage.requestAbsence(
+        guard let request = try? coverage.requestAbsence(
             driver: titular,
             date: day,
             slot: slot ?? titular.slot,
@@ -563,7 +571,7 @@ struct LabCoverageRunner {
             reason: reason,
             comments: "Generado por el laboratorio.",
             evidence: nil
-        )
+        ) else { return nil }
         return coverage.vacancy(id: request.vacancyId)
     }
 
@@ -644,7 +652,7 @@ struct LabAbsenceSheet: View {
 
     private func create() {
         guard let driver else { return }
-        let request = coverage.requestAbsence(
+        guard let request = try? coverage.requestAbsence(
             driver: driver,
             date: date,
             slot: slot,
@@ -652,7 +660,10 @@ struct LabAbsenceSheet: View {
             reason: reason.isEmpty ? kind.label : reason,
             comments: "Creada desde el laboratorio de pruebas.",
             evidence: nil
-        )
+        ) else {
+            lab.notify("La coordinación local no está disponible en esta sesión.", tone: .failure)
+            return
+        }
         let status = coverage.absence(id: request.id)?.status ?? .searching
         lab.notify("Ausencia creada. Estado: \(status.label).", tone: status == .uncovered ? .warning : .success)
         dismiss()
@@ -806,7 +817,7 @@ struct LabSwapSheet: View {
     private func create() {
         guard let from = drivers.first(where: { $0.id == fromId }),
               let to = drivers.first(where: { $0.id == toId }) else { return }
-        let request = coverage.proposeSwap(
+        guard let request = try? coverage.proposeSwap(
             from: from,
             fromDate: fromDate,
             fromSlot: from.slot,
@@ -814,9 +825,12 @@ struct LabSwapSheet: View {
             toDate: toDate,
             toSlot: to.slot,
             note: "Intercambio creado desde el laboratorio."
-        )
+        ) else {
+            lab.notify("La coordinación local no está disponible en esta sesión.", tone: .failure)
+            return
+        }
         if autoAccept {
-            coverage.respondToSwap(id: request.id, accepted: true, by: to)
+            try? coverage.respondToSwap(id: request.id, accepted: true, by: to)
         }
         lab.notify("Intercambio generado entre \(from.shortName) y \(to.shortName).", tone: .success)
         dismiss()

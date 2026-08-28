@@ -54,7 +54,7 @@ extension CoverageDayKind {
     var tone: Color {
         switch self {
         case .regular: CovTone.quiet
-        case .rest: Palette.textMuted
+        case .rest, .unpublished: Palette.textMuted
         case .guardConfirmed, .absenceApproved: CovTone.good
         case .guardReserved, .absenceRequested: CovTone.pending
         case .swap: CovTone.closed

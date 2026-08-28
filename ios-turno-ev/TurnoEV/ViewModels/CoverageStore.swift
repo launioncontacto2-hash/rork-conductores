@@ -37,7 +37,18 @@ final class CoverageStore {
 
     private var fleet: FleetStore?
 
-    init() {
+    /// Capability fixed at construction, used by tests to exercise a session state
+    /// without standing up a whole `FleetStore`. `nil` means "ask the attached session",
+    /// which is what the app always does.
+    private let pinnedCapability: CoordinationCapability?
+
+    /// Where the board is stored. The app passes `.standard` and writes the one key it
+    /// has always written; an isolated suite keeps a test from touching a real board.
+    private let defaults: UserDefaults
+
+    init(capability: CoordinationCapability? = nil, defaults: UserDefaults = .standard) {
+        self.pinnedCapability = capability
+        self.defaults = defaults
         load()
     }
 
@@ -45,6 +56,25 @@ final class CoverageStore {
     func attach(fleet: FleetStore) {
         self.fleet = fleet
     }
+
+    // MARK: - Coordination boundary
+
+    /// What this session may do with the shared board.
+    ///
+    /// Resolved through the session on every read rather than cached at `attach`: the
+    /// session changes when somebody signs in or out, and a snapshot taken at launch
+    /// would answer for whoever happened to be there first.
+    ///
+    /// An unattached store answers `.localWorkflow`. That is the laboratory and the
+    /// previews, where there is no proved identity to protect — the app itself always
+    /// attaches, in `TurnoEVApp`.
+    var coordination: CoordinationCapability {
+        if let pinnedCapability { return pinnedCapability }
+        guard let fleet else { return .localWorkflow }
+        return fleet.coordinationCapability
+    }
+
+    var canCoordinateLocally: Bool { coordination.allowsLocalWorkflow }
 
     var now: Date { fleet?.now ?? Date() }
 
@@ -68,8 +98,14 @@ final class CoverageStore {
 
     /// Reads the profile of the driver holding the current session, even when the
     /// environment has not registered them in the roster yet.
+    ///
+    /// A session the station cannot reach never adopts a directory entry, even when the
+    /// identifiers line up. The roster is the demonstration directory; matching an id
+    /// against it would hand a proved identity somebody else's declared block — the same
+    /// mistake as trusting a driver id alone to decide whose money a ledger holds.
     func profile(for driver: Driver) -> CoverageDriverProfile {
-        profile(id: driver.id) ?? CoverageDriverProfile(
+        if canCoordinateLocally, let known = profile(id: driver.id) { return known }
+        return CoverageDriverProfile(
             id: driver.id,
             name: driver.name,
             employeeNumber: driver.employeeNumber,
@@ -77,14 +113,21 @@ final class CoverageStore {
             stationCode: StaffDirectory.station(id: driver.stationId)?.code ?? driver.station,
             slot: driver.slot,
             group: driver.group,
+            scheduleKnowledge: canCoordinateLocally ? .declaredBlock : .unpublished,
             flags: flags[driver.id] ?? .clear
         )
     }
 
     // MARK: - Reads
 
+    /// Requests this session may read as its own.
+    ///
+    /// Everything on this board was written by this device. For a session the station
+    /// cannot reach, none of it belongs to the person holding it, however the ids line
+    /// up — so the answer is empty rather than somebody else's paperwork relabelled.
     func absences(driverId: String) -> [AbsenceRequest] {
-        absences.filter { $0.driverId == driverId }.sorted { $0.createdAt > $1.createdAt }
+        guard canCoordinateLocally else { return [] }
+        return absences.filter { $0.driverId == driverId }.sorted { $0.createdAt > $1.createdAt }
     }
 
     func absences(stationId: String) -> [AbsenceRequest] {
@@ -129,21 +172,24 @@ final class CoverageStore {
 
     /// Guards this person holds, whatever their state.
     func guards(driverId: String) -> [CoverageVacancy] {
-        vacancies
+        guard canCoordinateLocally else { return [] }
+        return vacancies
             .filter { vacancy in vacancy.claims.contains { $0.driverId == driverId } }
             .sorted { $0.scheduledStartAt > $1.scheduledStartAt }
     }
 
     /// Guards this person is currently committed to.
     func activeGuards(driverId: String) -> [CoverageVacancy] {
-        vacancies.filter { vacancy in
+        guard canCoordinateLocally else { return [] }
+        return vacancies.filter { vacancy in
             (vacancy.status == .reserved || vacancy.status == .confirmed)
                 && vacancy.holder?.driverId == driverId
         }
     }
 
     func swaps(driverId: String) -> [ShiftSwapRequest] {
-        swaps.filter { $0.fromDriverId == driverId || $0.toDriverId == driverId }
+        guard canCoordinateLocally else { return [] }
+        return swaps.filter { $0.fromDriverId == driverId || $0.toDriverId == driverId }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
@@ -170,7 +216,11 @@ final class CoverageStore {
     /// Seats this person may actually take. Nothing that fails a rule is ever shown, so
     /// nobody is offered work they cannot legally accept.
     func availableGuards(for profile: CoverageDriverProfile) -> [(vacancy: CoverageVacancy, verdict: EligibilityVerdict)] {
-        vacancies
+        // Every seat here was opened on this phone. Offering one as work a proved driver
+        // may take — with a bonus figure attached — would be inventing an assignment the
+        // station never published, and the take would refuse anyway.
+        guard canCoordinateLocally else { return [] }
+        return vacancies
             .filter { $0.status == .searching }
             .filter { !$0.isClaimed(by: profile.id) }
             .map { (vacancy: $0, verdict: evaluate(profile: profile, vacancy: $0)) }
@@ -266,6 +316,10 @@ final class CoverageStore {
 
     /// The driver asks. Nothing is authorized by this call: it opens the request and, if
     /// the seat needs somebody, the vacancy that will look for a substitute.
+    ///
+    /// The refusal comes first, before the request, the vacancy, the audit line, the
+    /// supervisor alert and the driver's own notice bell. A request that stops halfway
+    /// through that sequence is worse than one that never started.
     @discardableResult
     func requestAbsence(
         driver: CoverageDriverProfile,
@@ -276,7 +330,9 @@ final class CoverageStore {
         comments: String,
         evidence: Data?,
         vehicleNumber: String? = nil
-    ) -> AbsenceRequest {
+    ) throws -> AbsenceRequest {
+        guard canCoordinateLocally else { throw CoordinationMutationError.stationRequired }
+
         let day = ShiftRules.calendar.startOfDay(for: date)
         let start = ShiftRules.scheduledStart(slot: slot, on: day)
         let isUrgent = kind.isUrgent || CoverageRules.isEmergency(startAt: start, now: now, policy: policy)
@@ -361,7 +417,8 @@ final class CoverageStore {
     }
 
     /// The driver withdraws their own request while it is still open.
-    func cancelAbsence(id: String, by actor: String) {
+    func cancelAbsence(id: String, by actor: String) throws {
+        guard canCoordinateLocally else { throw CoordinationMutationError.stationRequired }
         guard let index = absences.firstIndex(where: { $0.id == id }), absences[index].status.isOpen else { return }
         let previous = absences[index].status
         absences[index].status = .cancelled
@@ -559,11 +616,15 @@ final class CoverageStore {
         case waitlisted(position: Int)
         case notEligible([EligibilityCheck])
         case unavailable(String)
+        /// The seat cannot be held from here at all: taking it is an agreement with a
+        /// station, and this session has no way to reach one. Kept apart from
+        /// `notEligible`, which says the person fails a rule — nobody fails anything here.
+        case stationRequired
 
         var isSuccess: Bool {
             switch self {
             case .reserved, .waitlisted: true
-            case .notEligible, .unavailable: false
+            case .notEligible, .unavailable, .stationRequired: false
             }
         }
     }
@@ -572,6 +633,7 @@ final class CoverageStore {
     /// since the offer went out. Two people can never end up holding the same seat.
     @discardableResult
     func claimGuard(vacancyId: String, by profile: CoverageDriverProfile) -> ClaimOutcome {
+        guard canCoordinateLocally else { return .stationRequired }
         guard let index = vacancies.firstIndex(where: { $0.id == vacancyId }) else {
             return .unavailable("Esta guardia ya no existe.")
         }
@@ -650,7 +712,8 @@ final class CoverageStore {
 
     /// The person who took the guard gives it back. A confirmed seat reopens immediately
     /// and, if somebody is waiting, it goes straight to them.
-    func cancelClaim(vacancyId: String, driverId: String, reason: String) {
+    func cancelClaim(vacancyId: String, driverId: String, reason: String) throws {
+        guard canCoordinateLocally else { throw CoordinationMutationError.stationRequired }
         guard let index = vacancies.firstIndex(where: { $0.id == vacancyId }) else { return }
         guard let claimIndex = vacancies[index].claims.firstIndex(where: {
             $0.driverId == driverId && ($0.status == .reserved || $0.status == .approved || $0.status == .waitlisted)
@@ -883,7 +946,9 @@ final class CoverageStore {
         toDate: Date,
         toSlot: ShiftSlot,
         note: String
-    ) -> ShiftSwapRequest {
+    ) throws -> ShiftSwapRequest {
+        guard canCoordinateLocally else { throw CoordinationMutationError.stationRequired }
+
         let request = ShiftSwapRequest(
             id: CoverageRules.newId("swp"),
             stationId: profile.stationId,
@@ -929,7 +994,8 @@ final class CoverageStore {
     }
 
     /// The partner answers. Accepting only sends it to the supervisor.
-    func respondToSwap(id: String, accepted: Bool, by profile: CoverageDriverProfile) {
+    func respondToSwap(id: String, accepted: Bool, by profile: CoverageDriverProfile) throws {
+        guard canCoordinateLocally else { throw CoordinationMutationError.stationRequired }
         guard let index = swaps.firstIndex(where: { $0.id == id }), swaps[index].status == .proposed else { return }
         swaps[index].respondedAt = now
 
@@ -1059,6 +1125,11 @@ final class CoverageStore {
     func day(for profile: CoverageDriverProfile, on date: Date) -> CoverageCalendarDay {
         let day = ShiftRules.calendar.startOfDay(for: date)
 
+        // Nothing on this board was written for a session the station cannot reach, so
+        // none of the readings below — a guard, an absence, an approved swap — can be
+        // this person's. The month says what is actually known: the block, and no day.
+        guard canCoordinateLocally else { return unpublishedDay(for: profile, on: day) }
+
         if let guardVacancy = vacancies.first(where: {
             ShiftRules.isSameDay($0.date, day)
                 && $0.holder?.driverId == profile.id
@@ -1121,6 +1192,13 @@ final class CoverageStore {
             )
         }
 
+        // A published block is what makes the next two readings possible. Without one,
+        // "Programado" and "Día libre" are both inventions: group plus slot says which
+        // rotation somebody belongs to, never that they were assigned this Tuesday.
+        guard profile.scheduleKnowledge == .declaredBlock else {
+            return unpublishedDay(for: profile, on: day)
+        }
+
         if let slot = CoverageRules.regularSlot(profile, on: day) {
             return CoverageCalendarDay(
                 date: day,
@@ -1144,6 +1222,22 @@ final class CoverageStore {
             vehicleNumber: nil,
             statusLabel: "Día libre",
             detail: "Fuera de tu bloque",
+            bonusMxn: nil,
+            vacancyId: nil,
+            absenceId: nil
+        )
+    }
+
+    /// A day the app knows nothing about, said plainly instead of guessed.
+    private func unpublishedDay(for profile: CoverageDriverProfile, on day: Date) -> CoverageCalendarDay {
+        CoverageCalendarDay(
+            date: day,
+            kind: .unpublished,
+            slot: nil,
+            stationCode: profile.stationCode,
+            vehicleNumber: nil,
+            statusLabel: "Sin asignación publicada",
+            detail: "Tu bloque es \(profile.slot.label) · \(profile.group.label). La estación aún no publica el calendario diario.",
             bonusMxn: nil,
             vacancyId: nil,
             absenceId: nil
@@ -1253,14 +1347,19 @@ final class CoverageStore {
     }
 
     /// Guard bonuses already earned by a driver: only turns actually completed count.
+    ///
+    /// This is a peso figure on the driver's own screen, so it obeys the same rule as the
+    /// rest of the board: a locally minted guard never becomes somebody's earnings.
     func earnedGuardBonusMxn(driverId: String) -> Int {
-        vacancies
+        guard canCoordinateLocally else { return 0 }
+        return vacancies
             .filter { $0.status == .completed && $0.substituteId == driverId }
             .reduce(0) { $0 + $1.payableBonusMxn }
     }
 
     func completedGuards(driverId: String) -> [CoverageVacancy] {
-        vacancies.filter { $0.status == .completed && $0.substituteId == driverId }
+        guard canCoordinateLocally else { return [] }
+        return vacancies.filter { $0.status == .completed && $0.substituteId == driverId }
             .sorted { $0.scheduledStartAt > $1.scheduledStartAt }
     }
 
@@ -1407,7 +1506,7 @@ final class CoverageStore {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: Self.storageKey) else { return }
+        guard let data = defaults.data(forKey: Self.storageKey) else { return }
         do {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
@@ -1438,7 +1537,7 @@ final class CoverageStore {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(state)
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            defaults.set(data, forKey: Self.storageKey)
         } catch {
             print("No se pudo guardar la cobertura de turnos: \(error.localizedDescription)")
         }

@@ -28,6 +28,10 @@ nonisolated enum CoverageRules {
                     stationCode: station.code,
                     slot: slot,
                     group: LabRuntime.driver(id: account.driverId)?.group ?? .weekday,
+                    // The roster is the demonstration directory. Its blocks are declared
+                    // by the environment that seeded it, so deriving regular days from
+                    // them reads back a fixture instead of guessing at one.
+                    scheduleKnowledge: .declaredBlock,
                     flags: flags[driverId] ?? .clear
                 )
             }
@@ -37,8 +41,15 @@ nonisolated enum CoverageRules {
 
     /// A driver holds their own block on the days of their group: weekday people run
     /// Monday to Friday, weekend people Saturday and Sunday.
+    ///
+    /// That inference is only available where the block is declared. Where the daily
+    /// calendar was never published this returns `false` for every date — not because the
+    /// person rests, but because the app does not know, and every consumer downstream
+    /// (the calendar square, the weekly load, the overlap test, the rest gap) would
+    /// otherwise treat the guess as an assignment.
     static func worksRegularly(_ profile: CoverageDriverProfile, on day: Date) -> Bool {
-        ShiftRules.group(for: day) == profile.group
+        guard profile.scheduleKnowledge == .declaredBlock else { return false }
+        return ShiftRules.group(for: day) == profile.group
     }
 
     /// The block the person holds on a given day, if any.
