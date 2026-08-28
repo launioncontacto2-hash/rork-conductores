@@ -11,6 +11,7 @@ struct ShiftView: View {
 
     @State private var route: ShiftRoute?
     @State private var areNoticesPresented: Bool = false
+    @State private var isSigningOutPresented: Bool = false
 
     /// Structural state of the screen. Written only from the resolvers below, never from
     /// `body`. `nil` until the first resolution lands.
@@ -41,10 +42,13 @@ struct ShiftView: View {
                 StationBackground()
 
                 ScrollView {
-                    EditorStack(screen: .driverShift, blocks: blocks(phase: phase), sample: sample)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 28)
+                    VStack(spacing: 26) {
+                        EditorStack(screen: .driverShift, blocks: blocks(phase: phase), sample: sample)
+                        accountSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 28)
                 }
             }
             .background(phaseTicker)
@@ -70,6 +74,23 @@ struct ShiftView: View {
             }
             .sheet(isPresented: $areNoticesPresented) {
                 NoticesView()
+            }
+            // Deliberately one question with two answers. Signing out destroys nothing:
+            // the operational state stays written under the key of whoever is leaving, so
+            // there is nothing to warn about here beyond leaving.
+            .confirmationDialog(
+                "Cerrar sesión",
+                isPresented: $isSigningOutPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Cerrar sesión", role: .destructive) {
+                    // The single implementation, the same one `SessionMenuButton` calls. A
+                    // second one would be a second set of rules about what a sign-out clears.
+                    store.signOut()
+                }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("¿Quieres salir de esta cuenta?")
             }
             .onAppear {
                 store.reloadAssignment()
@@ -232,6 +253,47 @@ struct ShiftView: View {
             return EditorMetricSample(value: Fmt.mxn(store.bonusPayableMxn(reference: now)), caption: "por cobrar")
         default:
             return EditorMetricSample(value: "—", caption: "sin dato en esta interfaz")
+        }
+    }
+
+    // MARK: - Account
+
+    /// The way out of the session, at the foot of the screen that already says whose
+    /// session it is.
+    ///
+    /// It sits **outside** `EditorStack` on purpose. Everything inside that stack can be
+    /// reordered, restyled or hidden from the visual editor, and a sign-out that a layout
+    /// can hide is a sign-out that does not exist — which is the exact situation this
+    /// change fixes. The identity is not repeated either: `driverHeader` already carries
+    /// the photo, the name, the station and the employee number a few centimetres above.
+    ///
+    /// One control, one route. `SessionMenuButton` in the toolbar keeps calling the same
+    /// `store.signOut()`; nothing here is a second door.
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CapsLabel(text: "Cuenta")
+
+            Button {
+                isSigningOutPresented = true
+            } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                        .font(.system(.footnote, weight: .bold))
+                        .foregroundStyle(Palette.danger)
+                        .frame(width: 34, height: 34)
+                        .background(Palette.danger.opacity(0.12), in: .rect(cornerRadius: 12))
+                    Text("Cerrar sesión")
+                        .font(.system(.subheadline, weight: .bold))
+                        .foregroundStyle(Palette.danger)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .panel()
+            .accessibilityLabel("Cerrar sesión")
         }
     }
 

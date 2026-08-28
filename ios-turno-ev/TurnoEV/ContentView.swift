@@ -149,16 +149,11 @@ struct RootTabView: View {
                     Tab("Bonos", systemImage: "rosette", value: 3) {
                         BonusesView()
                     }
-                    // Cartera (4) and Historial (5) used to be declared here as tabs six
-                    // and seven of a bar that only draws five. iOS answered that with its
-                    // own "Más" tab — a system list nothing can be added to, which is why
-                    // the app had no visible way to close a session. `MoreView` is that
-                    // same overflow, written by us: both screens are still one tap away
-                    // from this tab, and the account now has somewhere to live. Their
-                    // values are retired rather than reused, so no stored selection ever
-                    // lands on a different screen than it did before.
-                    Tab("Más", systemImage: "ellipsis.circle", value: 6) {
-                        MoreView()
+                    Tab("Cartera", systemImage: "banknote.fill", value: 4) {
+                        WalletView()
+                    }
+                    Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
+                        HistoryView()
                     }
                 }
                 .tint(Palette.volt)

@@ -22,11 +22,8 @@ struct HistoryView: View {
     @State private var section: Section = .shifts
     @State private var paybackMessage: String?
 
-    /// Pushed from the "Más" tab, so the surrounding `NavigationStack` is the one that
-    /// draws the bar. Owning a second one here would stack two navigation bars on top of
-    /// each other and swallow the back button.
     var body: some View {
-        Group {
+        NavigationStack {
             ZStack {
                 StationBackground()
 
@@ -311,9 +308,7 @@ struct HistoryView: View {
 }
 
 #Preview {
-    NavigationStack {
-        HistoryView()
-    }
-    .environment(FleetStore())
-    .preferredColorScheme(.dark)
+    HistoryView()
+        .environment(FleetStore())
+        .preferredColorScheme(.dark)
 }
