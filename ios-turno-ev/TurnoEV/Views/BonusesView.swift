@@ -13,9 +13,9 @@ struct BonusesView: View {
     /// composition has.
     ///
     /// Every threshold `BonusRules` evaluates is aligned to midnight — `weeks(reference:)`
-    /// builds Monday-to-Monday ranges from the start of the month, `week.start > now` and
-    /// `week.contains(now)` compare against those midnights, and `expectedWorkDays` counts
-    /// a day only once `dayEnd <= now`. Handing it the start of the day is therefore
+    /// builds Monday-to-Monday ranges from the start of the month, and `week.start > now`
+    /// and `week.contains(now)` compare against those midnights.
+    /// Handing it the start of the day is therefore
     /// arithmetically identical to handing it the exact instant, and it makes the input
     /// change **four times a month at most** instead of continuously.
     @State private var today: Date = ShiftRules.calendar.startOfDay(for: AppClock.now())

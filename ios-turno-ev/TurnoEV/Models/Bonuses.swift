@@ -337,19 +337,6 @@ nonisolated enum BonusRules {
         return result
     }
 
-    /// Days of the week the driver was scheduled to work and that already finished.
-    static func expectedWorkDays(driver: Driver, week: BonusWeekRange, now: Date) -> Int {
-        let calendar = ShiftRules.calendar
-        var count = 0
-        for offset in 0..<7 {
-            guard let day = calendar.date(byAdding: .day, value: offset, to: week.start) else { continue }
-            guard ShiftRules.group(for: day) == driver.group else { continue }
-            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: day), dayEnd <= now else { continue }
-            count += 1
-        }
-        return count
-    }
-
     struct EvaluationInput: Sendable {
         let driver: Driver
         let goals: ShiftRules.Goals
@@ -419,23 +406,28 @@ nonisolated enum BonusRules {
 
         switch kind {
         case .punctuality:
+            // An absence is an obligation the driver failed to meet, so it needs the
+            // obligation first. This rule used to derive it by subtraction —
+            // `expectedWorkDays - records.count` — which is not a measurement of anything:
+            // the minuend is a calendar count of the days their group *would* rotate,
+            // owed by nobody, assigned by nobody. A driver who joined on Thursday and
+            // worked their one shift came out with four faults for the Monday, Tuesday
+            // and Wednesday when they were not yet employed here.
+            //
+            // There is no roster in the model today that can prove which days a given
+            // driver was scheduled to work in a past week, so this bonus judges only what
+            // the operation actually recorded: the shifts they ran and the lateness those
+            // shifts carry. A day with no `ShiftRecord` is a day with no evidence, not a
+            // fault. When a real assignment calendar exists, an absence becomes
+            // "scheduled shift that was not run" and belongs right here.
             let records = input.history.filter { $0.driverId == driverId && week.contains($0.startedAt) }
             let pending = records.reduce(0) { $0 + $1.pendingLateMinutes }
-            let expected = expectedWorkDays(driver: input.driver, week: week, now: input.now)
-            // Only days the driver was expected to work **and** actually operated in the
-            // week can produce an absence. `expected` is a calendar count; on its own it
-            // manufactures faults out of days nobody ever staffed.
-            let absences = max(0, expected - records.count)
 
-            if absences > 0 {
-                let text = absences == 1 ? "1 falta registrada" : "\(absences) faltas registradas"
-                return BonusWeekResult(week: week, status: .lost, detail: text)
-            }
             if pending > 0 {
                 return BonusWeekResult(week: week, status: .lost, detail: "Adeudo \(Fmt.lateText(pending)) sin pagar")
             }
             let lateTotal = records.reduce(0) { $0 + $1.lateMinutes }
-            let detail = lateTotal > 0 ? "Atraso pagado \(Fmt.lateText(lateTotal))" : "Sin atrasos"
+            let detail = lateTotal > 0 ? "Atraso pagado \(Fmt.lateText(lateTotal))" : "Sin atrasos registrados"
             return BonusWeekResult(week: week, status: isRunning ? .inProgress : .achieved, detail: detail)
 
         case .billing:
