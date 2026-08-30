@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$allowedBranches = @('15C-backend-test')
+$allowedBranches = @('main', '15C-backend-test')
 
 function Write-Step {
     param([string]$Message)
@@ -39,7 +39,7 @@ try {
         throw 'No se pudo consultar la rama actual.'
     }
     if ($branch -notin $allowedBranches) {
-        throw "Rama no permitida: '$branch'. Permitida: $($allowedBranches -join ', ')."
+        throw "Rama no permitida: '$branch'. Permitidas: $($allowedBranches -join ', ')."
     }
     Write-Host "Rama: $branch" -ForegroundColor Green
 
