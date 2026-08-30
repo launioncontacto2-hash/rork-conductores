@@ -657,5 +657,3 @@ ALTER TABLE "public"."staff_memberships"
 
 ALTER TABLE "public"."staff_memberships"
   ADD CONSTRAINT "staff_memberships_valid_interval" CHECK (((ends_at IS NULL) OR (ends_at > starts_at)));
-
-
