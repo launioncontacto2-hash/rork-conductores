@@ -248,7 +248,7 @@ final class FleetStore {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
         guard let remote = try await SupabaseAssignmentService.loadDriverAssignment(
-            driverProfileId: principal.profileId
+            profileId: principal.profileId
         ) else {
             unitAssignment = nil
             vehicles = []
