@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$allowedBranches = @('main', '15C-backend-test')
+$allowedBranches = @('main', '15C-backend-test', '15D-backend-shifts')
 
 function Write-Step {
     param([string]$Message)
@@ -77,6 +77,12 @@ try {
 
     Write-Step 'Ejecutando lint de la base local'
     Invoke-Checked supabase @('db', 'lint', '--local')
+
+    Write-Step 'Ejecutando asesores de seguridad de Supabase'
+    Invoke-Checked supabase @(
+        'db', 'advisors', '--local', '--type', 'security',
+        '--level', 'warn', '--fail-on', 'error'
+    )
 
     Write-Step 'Verificando formato del diff de Git'
     Invoke-Checked git @('diff', '--check')
