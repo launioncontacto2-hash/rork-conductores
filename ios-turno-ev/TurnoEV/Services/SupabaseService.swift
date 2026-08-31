@@ -796,29 +796,31 @@ enum SupabaseAuthProbe {
             throw ProbeError.noMembership
         }
 
-        guard membership.role == "driver" else {
+        guard membership.role == "driver" || membership.role == "supervisor" else {
             throw ProbeError.wrongRole(membership.role)
         }
 
-        // For a driver these are required operational assignments.
-        guard let shiftGroup = membership.shift_group,
-              !shiftGroup.isEmpty else {
-            throw ProbeError.missingShiftGroup
-        }
+        // Only a driver needs an assigned operational block. A supervisor's
+        // station scope comes from the membership itself and may legitimately
+        // carry no shift group or slot.
+        if membership.role == "driver" {
+            guard let shiftGroup = membership.shift_group,
+                  !shiftGroup.isEmpty else {
+                throw ProbeError.missingShiftGroup
+            }
 
-        guard let shiftSlot = membership.shift_slot,
-              !shiftSlot.isEmpty else {
-            throw ProbeError.missingShiftSlot
-        }
+            guard let shiftSlot = membership.shift_slot,
+                  !shiftSlot.isEmpty else {
+                throw ProbeError.missingShiftSlot
+            }
 
-        // Validate against the Swift domain now, before these strings are
-        // allowed to reach FleetStore.
-        guard ShiftGroup(rawValue: shiftGroup) != nil else {
-            throw ProbeError.invalidShiftGroup(shiftGroup)
-        }
+            guard ShiftGroup(rawValue: shiftGroup) != nil else {
+                throw ProbeError.invalidShiftGroup(shiftGroup)
+            }
 
-        guard ShiftSlot(rawValue: shiftSlot) != nil else {
-            throw ProbeError.invalidShiftSlot(shiftSlot)
+            guard ShiftSlot(rawValue: shiftSlot) != nil else {
+                throw ProbeError.invalidShiftSlot(shiftSlot)
+            }
         }
 
         // 4. Station visible under RLS.
@@ -860,5 +862,183 @@ enum SupabaseAuthProbe {
             membership: membership,
             station: station
         )
+    }
+}
+
+// MARK: - 15C vehicle assignment
+
+/// The iOS contract for the already deployed 15C tables and RPC. All reads run with the
+/// signed-in user's JWT, so RLS remains the authority for station scope. The only write is
+/// `assign_vehicle`; the client never inserts or updates an assignment or vehicle directly.
+@MainActor
+enum SupabaseAssignmentService {
+    nonisolated struct DriverRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let profile_id: UUID
+        let employee_number: String
+        let status: String
+    }
+
+    nonisolated struct VehicleRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let internal_number: String
+        let plate: String?
+        let qr_code: String
+        let model: String
+        let odometer_km: Int
+        let battery_pct: Int?
+        let status: String
+    }
+
+    nonisolated struct AssignmentRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let driver_profile_id: UUID
+        let vehicle_id: UUID
+        let kind: String
+        let titular_vehicle_id: UUID?
+        let note: String?
+        let assigned_by: UUID
+        let assigned_at: Date
+        let ended_at: Date?
+    }
+
+    nonisolated struct Snapshot: Sendable {
+        let drivers: [DriverRow]
+        let vehicles: [VehicleRow]
+        let assignments: [AssignmentRow]
+    }
+
+    nonisolated struct DriverAssignment: Sendable {
+        let assignment: AssignmentRow
+        let vehicle: VehicleRow
+    }
+
+    nonisolated struct AssignParameters: Encodable, Sendable {
+        let p_driver_profile_id: UUID
+        let p_vehicle_id: UUID
+        let p_idempotency_key: String
+        let p_kind: String
+        let p_titular_vehicle_id: UUID?
+        let p_note: String?
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidStation
+        case invalidIdentifier
+        case missingTitular
+        case assignmentVehicleNotVisible
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidStation: "La sesión no contiene una estación válida."
+            case .invalidIdentifier: "El conductor o el vehículo no tienen un identificador válido."
+            case .missingTitular: "Para asignar una sustituta, el conductor debe tener una unidad titular vigente."
+            case .assignmentVehicleNotVisible: "La asignación existe, pero RLS no permitió leer su vehículo."
+            }
+        }
+    }
+
+    static func loadSupervisorSnapshot(stationId: String) async throws -> Snapshot {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidStation }
+
+        async let driversRequest: [DriverRow] = client
+            .from("driver_profiles")
+            .select("id,station_id,profile_id,employee_number,status")
+            .eq("station_id", value: stationId)
+            .execute()
+            .value
+
+        async let vehiclesRequest: [VehicleRow] = client
+            .from("vehicles")
+            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .eq("station_id", value: stationId)
+            .execute()
+            .value
+
+        async let assignmentsRequest: [AssignmentRow] = client
+            .from("assignments")
+            .select("id,station_id,driver_profile_id,vehicle_id,kind,titular_vehicle_id,note,assigned_by,assigned_at,ended_at")
+            .eq("station_id", value: stationId)
+            .execute()
+            .value
+
+        let (drivers, vehicles, assignments) = try await (
+            driversRequest,
+            vehiclesRequest,
+            assignmentsRequest
+        )
+
+        return Snapshot(
+            drivers: drivers.filter { $0.status == "active" }.sorted { $0.employee_number < $1.employee_number },
+            vehicles: vehicles.sorted { $0.internal_number < $1.internal_number },
+            assignments: assignments.filter { $0.ended_at == nil }
+        )
+    }
+
+    @discardableResult
+    static func assign(
+        driverId: String,
+        vehicleId: String,
+        kind: AssignedUnitKind,
+        titularVehicleId: String?,
+        note: String
+    ) async throws -> AssignmentRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard let driverUUID = UUID(uuidString: driverId),
+              let vehicleUUID = UUID(uuidString: vehicleId) else {
+            throw ServiceError.invalidIdentifier
+        }
+
+        let titularUUID = titularVehicleId.flatMap(UUID.init(uuidString:))
+        if kind == .substitute, titularUUID == nil { throw ServiceError.missingTitular }
+
+        let cleanedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parameters = AssignParameters(
+            p_driver_profile_id: driverUUID,
+            p_vehicle_id: vehicleUUID,
+            p_idempotency_key: "ios-\(UUID().uuidString.lowercased())",
+            p_kind: kind.rawValue,
+            p_titular_vehicle_id: kind == .substitute ? titularUUID : nil,
+            p_note: cleanedNote.isEmpty ? nil : cleanedNote
+        )
+
+        return try await client
+            .rpc("assign_vehicle", params: parameters)
+            .execute()
+            .value
+    }
+
+    static func loadDriverAssignment(driverProfileId: String) async throws -> DriverAssignment? {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: driverProfileId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let assignments: [AssignmentRow] = try await client
+            .from("assignments")
+            .select("id,station_id,driver_profile_id,vehicle_id,kind,titular_vehicle_id,note,assigned_by,assigned_at,ended_at")
+            .eq("driver_profile_id", value: driverProfileId)
+            .execute()
+            .value
+
+        guard let assignment = assignments
+            .filter({ $0.ended_at == nil })
+            .max(by: { $0.assigned_at < $1.assigned_at }) else {
+            return nil
+        }
+
+        let vehicles: [VehicleRow] = try await client
+            .from("vehicles")
+            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .eq("id", value: assignment.vehicle_id.uuidString)
+            .execute()
+            .value
+
+        guard let vehicle = vehicles.first else { throw ServiceError.assignmentVehicleNotVisible }
+        return DriverAssignment(assignment: assignment, vehicle: vehicle)
     }
 }

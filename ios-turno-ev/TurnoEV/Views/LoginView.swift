@@ -657,14 +657,18 @@ struct LoginView: View {
         // 15B.5
         // Primera prueba REAL de Supabase Auth.
         //
-        // Sólo esta cuenta TEST usa Supabase por ahora.
+        // Sólo las cuentas operativas TEST usan Supabase por ahora.
         // Las cuentas de demostración continúan usando
         // StaffDirectory y no se rompen durante la transición.
         // ====================================================
 
+        let backendTestEmails: Set<String> = [
+            "test.driver@joramza.test",
+            "test.supervisor@joramza.test"
+        ]
+
         if credentialMode == .email,
-           cleanedIdentifier.lowercased()
-                == "test.driver@joramza.test" {
+           backendTestEmails.contains(cleanedIdentifier.lowercased()) {
 
             guard !isSupabaseProbeRunning else {
                 return
@@ -761,7 +765,20 @@ struct LoginView: View {
                             principal: principal,
                             method: .credentials
                         )
+
+                        // A driver enters with the assignment that is currently active in
+                        // Supabase. The same refresh also runs whenever the app returns to
+                        // the foreground, which is the two-iPhone handoff path.
+                        if role == .driver {
+                            try await store.refreshBackendAssignment()
+                        }
                     } catch {
+                        // Opening a backend session and adopting its operational data is
+                        // one handoff. If the second half fails, do not leave a partially
+                        // opened driver session behind the access screen.
+                        if store.currentPrincipal?.profileId == principal.profileId {
+                            store.signOut()
+                        }
                         supabaseProbeMessage = nil
                         errorMessage = error.localizedDescription
 
