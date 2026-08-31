@@ -7,6 +7,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(FleetStore.self) private var store
     @Environment(VisualEditorStore.self) private var editor
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -17,6 +18,8 @@ struct ContentView: View {
             if let principal = store.currentPrincipal {
                 if principal.role == .driver, store.hasAccess(to: .driver) {
                     RootTabView()
+                } else if principal.role == .supervisor, store.hasAccess(to: .supervisor) {
+                    BackendSupervisorAssignmentView(principal: principal)
                 } else {
                     AccessDeniedView()
                 }
@@ -32,6 +35,23 @@ struct ContentView: View {
         .task(id: store.session?.accountId) {
             editor.observe(account: store.currentAccount)
             EnvironmentControl.observe(account: store.currentAccount)
+            if store.currentPrincipal?.role == .driver {
+                do {
+                    try await store.refreshBackendAssignment()
+                } catch {
+                    print("[15C] No se pudo restaurar la asignación: \(error.localizedDescription)")
+                }
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, store.currentPrincipal?.role == .driver else { return }
+            Task {
+                do {
+                    try await store.refreshBackendAssignment()
+                } catch {
+                    print("[15C] No se pudo actualizar la asignación: \(error.localizedDescription)")
+                }
+            }
         }
     }
 

@@ -239,6 +239,59 @@ final class FleetStore {
         unitAssignment = assignment
     }
 
+    /// Pulls the authoritative assignment for a real driver session.
+    ///
+    /// This deliberately bypasses `AssignmentBook`: that registry is a same-device bridge
+    /// for demonstrations, while this row must cross devices through Supabase. An empty
+    /// response clears the visible assignment because the backend is the source of truth.
+    func refreshBackendAssignment() async throws {
+        guard let principal = currentPrincipal, principal.role == .driver else { return }
+
+        guard let remote = try await SupabaseAssignmentService.loadDriverAssignment(
+            driverProfileId: principal.profileId
+        ) else {
+            unitAssignment = nil
+            vehicles = []
+            return
+        }
+
+        let row = remote.assignment
+        let vehicleRow = remote.vehicle
+        let kind = AssignedUnitKind(rawValue: row.kind) ?? .titular
+        let vehicleStatus = VehicleStatus(rawValue: vehicleRow.status) ?? .occupied
+        let vehicle = Vehicle(
+            id: vehicleRow.id.uuidString,
+            qrCode: vehicleRow.qr_code,
+            internalNumber: vehicleRow.internal_number,
+            model: vehicleRow.model,
+            plates: vehicleRow.plate ?? "Sin placa",
+            odometerKm: vehicleRow.odometer_km,
+            batteryPct: vehicleRow.battery_pct ?? 0,
+            stationId: vehicleRow.station_id.uuidString,
+            station: principal.stationName ?? principal.stationCode ?? "Estación",
+            status: vehicleStatus,
+            occupiedBy: principal.profileId,
+            photoAsset: "electric_sedan_charging"
+        )
+
+        vehicles = [vehicle]
+        unitAssignment = VehicleAssignment(
+            id: row.id.uuidString,
+            stationId: row.station_id.uuidString,
+            driverId: principal.profileId,
+            driverName: principal.name,
+            vehicleId: vehicle.id,
+            vehicleNumber: vehicle.internalNumber,
+            kind: kind,
+            titularVehicleId: row.titular_vehicle_id?.uuidString,
+            titularVehicleNumber: nil,
+            note: row.note ?? "",
+            assignedBy: "Supervisión · \(principal.stationCode ?? "estación")",
+            assignedAt: row.assigned_at,
+            origin: .backend
+        )
+    }
+
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
     ///
     /// One hardcoded pair, so the demonstration profile is navigable end to end without a
