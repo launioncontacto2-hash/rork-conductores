@@ -929,6 +929,7 @@ enum SupabaseAssignmentService {
         case notConfigured
         case invalidStation
         case invalidIdentifier
+        case driverProfileNotVisible
         case missingTitular
         case assignmentVehicleNotVisible
 
@@ -937,6 +938,7 @@ enum SupabaseAssignmentService {
             case .notConfigured: "Supabase no está configurado."
             case .invalidStation: "La sesión no contiene una estación válida."
             case .invalidIdentifier: "El conductor o el vehículo no tienen un identificador válido."
+            case .driverProfileNotVisible: "RLS no devolvió el perfil operativo del conductor."
             case .missingTitular: "Para asignar una sustituta, el conductor debe tener una unidad titular vigente."
             case .assignmentVehicleNotVisible: "La asignación existe, pero RLS no permitió leer su vehículo."
             }
@@ -1014,14 +1016,30 @@ enum SupabaseAssignmentService {
             .value
     }
 
-    static func loadDriverAssignment(driverProfileId: String) async throws -> DriverAssignment? {
+    static func loadDriverAssignment(profileId: String) async throws -> DriverAssignment? {
         guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
-        guard UUID(uuidString: driverProfileId) != nil else { throw ServiceError.invalidIdentifier }
+        guard UUID(uuidString: profileId) != nil else { throw ServiceError.invalidIdentifier }
+
+        // `SessionPrincipal.profileId` identifies public.profiles. Assignments do not point
+        // at that identity row directly: their foreign key is public.driver_profiles.id.
+        // Resolve the authenticated driver's operational profile under RLS before reading
+        // the assignment. Using profiles.id in the assignment filter returns an honest but
+        // misleading empty result, which is why the UI previously said "sin unidad".
+        let driverProfiles: [DriverRow] = try await client
+            .from("driver_profiles")
+            .select("id,station_id,profile_id,employee_number,status")
+            .eq("profile_id", value: profileId)
+            .execute()
+            .value
+
+        guard let driverProfile = driverProfiles.first(where: { $0.status == "active" }) else {
+            throw ServiceError.driverProfileNotVisible
+        }
 
         let assignments: [AssignmentRow] = try await client
             .from("assignments")
             .select("id,station_id,driver_profile_id,vehicle_id,kind,titular_vehicle_id,note,assigned_by,assigned_at,ended_at")
-            .eq("driver_profile_id", value: driverProfileId)
+            .eq("driver_profile_id", value: driverProfile.id.uuidString)
             .execute()
             .value
 
