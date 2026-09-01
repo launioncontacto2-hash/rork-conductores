@@ -37,9 +37,9 @@ struct ContentView: View {
             EnvironmentControl.observe(account: store.currentAccount)
             if store.currentPrincipal?.role == .driver {
                 do {
-                    try await store.refreshBackendAssignment()
+                    try await store.refreshBackendOperationalState()
                 } catch {
-                    print("[15C] No se pudo restaurar la asignación: \(error.localizedDescription)")
+                    print("[15D] No se pudo restaurar la operación: \(error.localizedDescription)")
                 }
             }
         }
@@ -47,9 +47,9 @@ struct ContentView: View {
             guard phase == .active, store.currentPrincipal?.role == .driver else { return }
             Task {
                 do {
-                    try await store.refreshBackendAssignment()
+                    try await store.refreshBackendOperationalState()
                 } catch {
-                    print("[15C] No se pudo actualizar la asignación: \(error.localizedDescription)")
+                    print("[15D] No se pudo actualizar la operación: \(error.localizedDescription)")
                 }
             }
         }

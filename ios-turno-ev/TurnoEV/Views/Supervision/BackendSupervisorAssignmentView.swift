@@ -1,11 +1,11 @@
 import Observation
 import SwiftUI
 
-/// Narrow 15C workspace for a supervisor authenticated by Supabase.
+/// Narrow 15D workspace for a supervisor authenticated by Supabase.
 ///
 /// It intentionally does not reuse `SupervisionStore`: that store is the rich local
 /// simulation used by demo accounts. This screen has one authority and one purpose — read
-/// the station catalogue through RLS and call the transactional assignment RPC.
+/// the station catalogue and open shifts through RLS, and call the assignment RPC.
 @MainActor
 @Observable
 private final class BackendAssignmentStore {
@@ -14,6 +14,7 @@ private final class BackendAssignmentStore {
     var drivers: [SupabaseAssignmentService.DriverRow] = []
     var vehicles: [SupabaseAssignmentService.VehicleRow] = []
     var assignments: [SupabaseAssignmentService.AssignmentRow] = []
+    var activeShifts: [SupabaseShiftService.ShiftRow] = []
     var selectedDriverId: UUID?
     var selectedVehicleId: UUID?
     var kind: AssignedUnitKind = .titular
@@ -54,6 +55,16 @@ private final class BackendAssignmentStore {
         return kind == .titular || currentAssignment != nil
     }
 
+    func driverLabel(for shift: SupabaseShiftService.ShiftRow) -> String {
+        drivers.first { $0.id == shift.driver_profile_id }?.employee_number
+            ?? shift.driver_profile_id.uuidString
+    }
+
+    func vehicleLabel(for shift: SupabaseShiftService.ShiftRow) -> String {
+        vehicles.first { $0.id == shift.vehicle_id }?.internal_number
+            ?? shift.vehicle_id.uuidString
+    }
+
     func load() async {
         guard let stationId = principal.stationId else {
             errorMessage = "La sesión del supervisor no contiene estación."
@@ -65,12 +76,17 @@ private final class BackendAssignmentStore {
         defer { isLoading = false }
 
         do {
-            let snapshot = try await SupabaseAssignmentService.loadSupervisorSnapshot(
+            async let snapshotRequest = SupabaseAssignmentService.loadSupervisorSnapshot(
                 stationId: stationId
             )
+            async let shiftsRequest = SupabaseShiftService.loadSupervisorOpenShifts(
+                stationId: stationId
+            )
+            let (snapshot, shifts) = try await (snapshotRequest, shiftsRequest)
             drivers = snapshot.drivers
             vehicles = snapshot.vehicles
             assignments = snapshot.assignments
+            activeShifts = shifts
 
             if selectedDriverId == nil || !drivers.contains(where: { $0.id == selectedDriverId }) {
                 selectedDriverId = drivers.first?.id
@@ -134,6 +150,7 @@ struct BackendSupervisorAssignmentView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     identityCard
                     statusCard
+                    activeShiftsCard
                     driverPicker
                     currentCard
                     kindPicker
@@ -166,6 +183,53 @@ struct BackendSupervisorAssignmentView: View {
                 model.selectedVehicleId = model.availableVehicles.first?.id
             }
         }
+    }
+
+    private var activeShiftsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("TURNOS ACTIVOS")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("\(model.activeShifts.count)")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(model.activeShifts.isEmpty ? Palette.textMuted : Palette.volt)
+            }
+
+            if model.activeShifts.isEmpty {
+                Text("Ningún conductor tiene un turno abierto.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.activeShifts) { shift in
+                    HStack(spacing: 12) {
+                        Image(systemName: "car.side.fill")
+                            .foregroundStyle(Palette.volt)
+                            .frame(width: 34, height: 34)
+                            .background(Palette.volt.opacity(0.12), in: .circle)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(model.driverLabel(for: shift))
+                                .font(.subheadline.weight(.bold))
+                            Text("\(model.vehicleLabel(for: shift)) · inició \(Fmt.clock(shift.started_at))")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer(minLength: 6)
+                        Text("ABIERTO")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(Palette.volt)
+                    }
+
+                    if shift.id != model.activeShifts.last?.id {
+                        Divider().overlay(Palette.hairline)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
     }
 
     private var identityCard: some View {

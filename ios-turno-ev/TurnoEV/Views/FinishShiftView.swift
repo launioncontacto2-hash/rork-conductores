@@ -11,6 +11,8 @@ struct FinishShiftView: View {
     @State private var confirmDelivery: Bool = false
     @State private var summary: ShiftSummary?
     @State private var errorMessage: String?
+    @State private var isFinishing: Bool = false
+    @State private var idempotencyKey = "ios-finish-\(UUID().uuidString.lowercased())"
 
     var body: some View {
         NavigationStack {
@@ -76,7 +78,11 @@ struct FinishShiftView: View {
                                     .foregroundStyle(Palette.danger)
                             }
 
-                            BigButton(title: "Cerrar turno", symbol: "checkmark.seal.fill") {
+                            BigButton(
+                                title: isFinishing ? "Cerrando…" : "Cerrar turno",
+                                symbol: isFinishing ? "hourglass" : "checkmark.seal.fill",
+                                isEnabled: !isFinishing
+                            ) {
                                 close(shift: shift)
                             }
                         }
@@ -145,27 +151,34 @@ struct FinishShiftView: View {
             errorMessage = "Falta la fotografía final del odómetro."
             return
         }
+        guard let batteryValue = Int(battery), batteryValue >= 0, batteryValue <= 100 else {
+            errorMessage = "Captura un nivel de batería entre 0 y 100%."
+            return
+        }
         guard confirmDelivery else {
             errorMessage = "Confirma la entrega de la unidad."
             return
         }
         errorMessage = nil
-        do {
-            summary = try store.finishShift(
-                endOdometerKm: odometerValue,
-                endBatteryPct: Int(battery) ?? 20,
-                photo: photo
-            )
-        } catch {
-            // Nothing was written, so nothing is claimed. The sentence names the missing
-            // system instead of the driver: closing is not a right they lack.
-            let failure = error as? OperationalMutationError
-            errorMessage = [failure?.errorDescription, failure?.failureReason]
-                .compactMap { $0 }
-                .joined(separator: " ")
-                .isEmpty == false
-                ? "\(failure?.errorDescription ?? "") \(failure?.failureReason ?? "")"
-                : "No se pudo cerrar el turno."
+        isFinishing = true
+        Task {
+            defer { isFinishing = false }
+            do {
+                summary = try await store.finishAvailableShift(
+                    endOdometerKm: odometerValue,
+                    endBatteryPct: batteryValue,
+                    photo: photo,
+                    idempotencyKey: idempotencyKey
+                )
+            } catch {
+                // Nothing was written, so nothing is claimed. Prefer the concrete server
+                // response; the legacy explanation remains for a blocked local workflow.
+                let failure = error as? OperationalMutationError
+                let legacyMessage = [failure?.errorDescription, failure?.failureReason]
+                    .compactMap { $0 }
+                    .joined(separator: " ")
+                errorMessage = legacyMessage.isEmpty ? error.localizedDescription : legacyMessage
+            }
         }
     }
 }

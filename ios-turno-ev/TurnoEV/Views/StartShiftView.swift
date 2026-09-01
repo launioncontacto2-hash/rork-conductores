@@ -52,6 +52,8 @@ struct StartShiftView: View {
     @State private var isManualEntry: Bool = false
     @State private var scanMessage: String?
     @State private var supervisorNotified: Bool = false
+    @State private var isStarting: Bool = false
+    @State private var idempotencyKey = "ios-start-\(UUID().uuidString.lowercased())"
 
     private var assignment: VehicleAssignment? { store.unitAssignment }
     private var assignedVehicle: Vehicle? { store.assignedVehicle }
@@ -61,7 +63,7 @@ struct StartShiftView: View {
             ZStack {
                 StationBackground()
 
-                if assignment != nil, let assignedVehicle, store.canRunOperationalCycle {
+                if assignment != nil, let assignedVehicle, store.canRunShiftCycle {
                     ScrollView {
                         VStack(spacing: 18) {
                             stepper
@@ -89,7 +91,7 @@ struct StartShiftView: View {
                         .padding(.bottom, 34)
                     }
                     .scrollIndicators(.hidden)
-                } else if assignment != nil, !store.canRunOperationalCycle {
+                } else if assignment != nil, !store.canRunShiftCycle {
                     // Having a unit and being able to open a shift are two different
                     // facts, and only one of them is missing here. Reusing "sin unidad
                     // asignada" would send the driver to their supervisor to ask for a
@@ -347,9 +349,9 @@ struct StartShiftView: View {
             )
 
             BigButton(
-                title: "Iniciar turno",
-                symbol: "bolt.car.fill",
-                isEnabled: batteryPhoto != nil && !batteryText.isEmpty
+                title: isStarting ? "Iniciando…" : "Iniciar turno",
+                symbol: isStarting ? "hourglass" : "bolt.car.fill",
+                isEnabled: batteryPhoto != nil && !batteryText.isEmpty && !isStarting
             ) {
                 start(vehicle: vehicle)
             }
@@ -489,32 +491,37 @@ struct StartShiftView: View {
             return
         }
 
-        do {
-            try store.startShift(
-                vehicle: vehicle,
-                odometerKm: odometer,
-                batteryPct: battery,
-                odometerPhoto: odometerPhoto,
-                batteryPhoto: batteryPhoto
-            )
-        } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.error)
-            // Two refusals reach here and they are not the same sentence: one is about
-            // this unit, the other about the system that registers the start.
-            let message: String
-            if let operational = error as? OperationalMutationError {
-                message = [operational.errorDescription, operational.failureReason]
-                    .compactMap { $0 }
-                    .joined(separator: "\n\n")
-            } else {
-                message = (error as? UnitAssignmentError)?.failureReason
-                    ?? "No se pudo iniciar el turno con esta unidad."
+        isStarting = true
+        Task {
+            defer { isStarting = false }
+            do {
+                try await store.startAvailableShift(
+                    vehicle: vehicle,
+                    odometerKm: odometer,
+                    batteryPct: battery,
+                    odometerPhoto: odometerPhoto,
+                    batteryPhoto: batteryPhoto,
+                    idempotencyKey: idempotencyKey
+                )
+            } catch {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                // Two refusals reach here and they are not the same sentence: one is
+                // about this unit, the other is the authoritative server response.
+                let message: String
+                if let operational = error as? OperationalMutationError {
+                    message = [operational.errorDescription, operational.failureReason]
+                        .compactMap { $0 }
+                        .joined(separator: "\n\n")
+                } else {
+                    message = (error as? UnitAssignmentError)?.failureReason
+                        ?? error.localizedDescription
+                }
+                issues = [AssignmentIssue(code: .notAssigned, message: message)]
+                return
             }
-            issues = [AssignmentIssue(code: .notAssigned, message: message)]
-            return
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
         }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        dismiss()
     }
 }
 
