@@ -41,7 +41,10 @@ struct TurnoEVApp: App {
                     // A clock change arriving from another device has to re-evaluate the
                     // rules here too, without anybody refreshing a screen.
                     SharedClockSync.shared.onRemoteChange = { store.syncSimulationClock() }
-                    SharedClockSync.shared.update(isTest: lab.isTest)
+                    EnvironmentControl.observe(principal: store.currentPrincipal)
+                    SharedClockSync.shared.update(
+                        isTest: lab.isTest || store.isBackendTestSession
+                    )
 
                     // The single producer of logical time. Started here and only here:
                     // one app, one beat, however many screens are mounted.
@@ -69,7 +72,9 @@ struct TurnoEVApp: App {
                     // Production is never editable from a device.
                     if lab.mode == .production { visualEditor.deactivate() }
                     // Production has no shared clock: time there is real and untouchable.
-                    SharedClockSync.shared.update(isTest: lab.isTest)
+                    SharedClockSync.shared.update(
+                        isTest: lab.isTest || store.isBackendTestSession
+                    )
                 }
         }
     }

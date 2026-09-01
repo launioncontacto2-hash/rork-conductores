@@ -14,7 +14,7 @@ import Foundation
 nonisolated enum AppClock {
     /// Time the app must obey right now.
     static func now() -> Date {
-        LabRuntime.isTest ? SimulationClock.current() : Date()
+        EnvironmentControl.usesSharedTestClock ? SimulationClock.current() : Date()
     }
 
     /// Real time, for the few places that legitimately need to contrast it — the clock
@@ -24,7 +24,7 @@ nonisolated enum AppClock {
     /// Difference between the logical hour and the real one, in minutes. Kept so the
     /// screens that already observe an offset keep working untouched.
     static func offsetMinutes() -> Int {
-        guard LabRuntime.isTest else { return 0 }
+        guard EnvironmentControl.usesSharedTestClock else { return 0 }
         return Int(SimulationClock.current().timeIntervalSince(Date()) / 60)
     }
 }
@@ -341,6 +341,7 @@ nonisolated enum SharedSimulationClock {
 
 nonisolated enum EnvironmentControl {
     private static let unlockKey = "turnoev.simulation.unlocked"
+    private static let backendTestKey = "turnoev.backend-test.active"
 
     /// A laboratory credential signed in on this device. Remembered separately from the
     /// active session, because "Ver como…" replaces the session with the driver's or the
@@ -354,6 +355,25 @@ nonisolated enum EnvironmentControl {
     static func observe(account: StaffAccount?) {
         guard account?.role == .lab else { return }
         UserDefaults.standard.set(true, forKey: unlockKey)
+    }
+
+    /// Records whether the authenticated station belongs to the shared TEST backend.
+    /// The value is derived only from the station row returned under RLS; it is not a
+    /// role or permission claim supplied by the user.
+    static func observe(principal: SessionPrincipal?) {
+        let isSharedTest = principal?.environmentId?.lowercased()
+            == LabEnvironment.sharedTestId.lowercased()
+        UserDefaults.standard.set(isSharedTest, forKey: backendTestKey)
+    }
+
+    static var isBackendTestActive: Bool {
+        UserDefaults.standard.bool(forKey: backendTestKey)
+    }
+
+    /// A local simulation and an authenticated TEST station share the logical clock,
+    /// while only the former swaps in demo catalogues and permits simulated writes.
+    static var usesSharedTestClock: Bool {
+        LabRuntime.isTest || isBackendTestActive
     }
 
     static func lock() {
@@ -410,8 +430,14 @@ nonisolated enum EnvironmentControl {
 
     /// May this device move the logical time. This one does depend on the environment:
     /// there is no clock to move in production, where time is real and untouchable.
-    static func canControlClock(account: StaffAccount?, mode: LabMode) -> Bool {
-        mode == .test && canSwitchEnvironment(account: account)
+    static func canControlClock(
+        account: StaffAccount?,
+        mode: LabMode,
+        principal: SessionPrincipal? = nil
+    ) -> Bool {
+        if mode == .test && canSwitchEnvironment(account: account) { return true }
+        return principal?.role == .supervisor
+            && principal?.environmentId?.lowercased() == LabEnvironment.sharedTestId.lowercased()
     }
 
     /// The test badge is shown to everybody in the simulation, so nobody confuses it with

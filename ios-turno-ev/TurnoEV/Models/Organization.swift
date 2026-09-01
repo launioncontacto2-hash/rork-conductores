@@ -300,6 +300,10 @@ nonisolated struct SessionPrincipal: Codable, Sendable {
     let email: String
     /// Role granted by the active membership, never chosen by the client.
     let role: StaffRole
+    /// `environments.id` reached through the station proved by RLS. This is kept
+    /// separate from the local laboratory mode: a TEST backend session still performs
+    /// authoritative RPC writes, but it follows the shared TEST clock.
+    let environmentId: String?
     let stationId: String?
     let stationCode: String?
     let stationName: String?
@@ -307,6 +311,34 @@ nonisolated struct SessionPrincipal: Codable, Sendable {
     /// that do not work a shift.
     let shiftGroup: ShiftGroup?
     let shiftSlot: ShiftSlot?
+
+    init(
+        authUserId: String?,
+        profileId: String,
+        name: String,
+        employeeNumber: String,
+        email: String,
+        role: StaffRole,
+        environmentId: String? = nil,
+        stationId: String?,
+        stationCode: String?,
+        stationName: String?,
+        shiftGroup: ShiftGroup?,
+        shiftSlot: ShiftSlot?
+    ) {
+        self.authUserId = authUserId
+        self.profileId = profileId
+        self.name = name
+        self.employeeNumber = employeeNumber
+        self.email = email
+        self.role = role
+        self.environmentId = environmentId
+        self.stationId = stationId
+        self.stationCode = stationCode
+        self.stationName = stationName
+        self.shiftGroup = shiftGroup
+        self.shiftSlot = shiftSlot
+    }
 }
 
 /// Active session. The role stored here is the only thing that opens an interface.

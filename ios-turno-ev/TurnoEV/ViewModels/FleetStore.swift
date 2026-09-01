@@ -410,6 +410,14 @@ final class FleetStore {
     /// The one test that separates a backend session from a demonstration one.
     var isBackendSession: Bool { session?.principal != nil }
 
+    /// A proved identity whose station belongs to the shared TEST environment. This does
+    /// not turn the session into a local simulation: assignments and shifts still use
+    /// Supabase, while their schedule follows the shared logical clock.
+    var isBackendTestSession: Bool {
+        currentPrincipal?.environmentId?.lowercased()
+            == LabEnvironment.sharedTestId.lowercased()
+    }
+
     // MARK: - Execution environment
 
     /// The environment this session is running in, read live from the single source.
@@ -775,6 +783,7 @@ final class FleetStore {
             startedAt: Date(),
             principal: principal
         )
+        EnvironmentControl.observe(principal: principal)
         awaitsCredentialChoice = false
         reloadAssignment()
         persist()
@@ -823,6 +832,7 @@ final class FleetStore {
     /// Opens the session for an already authenticated account and links the device
     /// so future biometric unlocks resolve to this same credential.
     func signIn(account: StaffAccount, method: SignInMethod) {
+        EnvironmentControl.observe(principal: nil)
         if let profile = MockData.driver(for: account) {
             driver = profile
         } else if LabRuntime.isTest, account.role == .driver {
@@ -914,6 +924,8 @@ final class FleetStore {
         // current one.
         persist()
         session = nil
+        EnvironmentControl.observe(principal: nil)
+        SharedClockSync.shared.update(isTest: environment == .test)
         awaitsCredentialChoice = true
         if wasBackendSession {
             adoptDemoState()
@@ -928,6 +940,8 @@ final class FleetStore {
         persist()
         enrolledAccountId = nil
         session = nil
+        EnvironmentControl.observe(principal: nil)
+        SharedClockSync.shared.update(isTest: environment == .test)
         awaitsCredentialChoice = true
         if wasBackendSession {
             adoptDemoState()

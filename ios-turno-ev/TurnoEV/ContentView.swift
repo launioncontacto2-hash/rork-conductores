@@ -6,6 +6,7 @@ import SwiftUI
 /// No screen of another role is ever instantiated inside a session.
 struct ContentView: View {
     @Environment(FleetStore.self) private var store
+    @Environment(LabStore.self) private var lab
     @Environment(VisualEditorStore.self) private var editor
     @Environment(\.scenePhase) private var scenePhase
 
@@ -35,6 +36,15 @@ struct ContentView: View {
         .task(id: store.session?.accountId) {
             editor.observe(account: store.currentAccount)
             EnvironmentControl.observe(account: store.currentAccount)
+            EnvironmentControl.observe(principal: store.currentPrincipal)
+
+            let usesSharedClock = lab.isTest || store.isBackendTestSession
+            SharedClockSync.shared.update(isTest: usesSharedClock)
+            if store.isBackendTestSession {
+                await SharedClockSync.shared.refresh()
+                store.syncSimulationClock()
+            }
+
             if store.currentPrincipal?.role == .driver {
                 do {
                     try await store.refreshBackendOperationalState()
@@ -44,8 +54,15 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, store.currentPrincipal?.role == .driver else { return }
+            guard phase == .active else { return }
             Task {
+                if store.isBackendTestSession {
+                    SharedClockSync.shared.update(isTest: true)
+                    await SharedClockSync.shared.refresh()
+                    store.syncSimulationClock()
+                }
+
+                guard store.currentPrincipal?.role == .driver else { return }
                 do {
                     try await store.refreshBackendOperationalState()
                 } catch {
