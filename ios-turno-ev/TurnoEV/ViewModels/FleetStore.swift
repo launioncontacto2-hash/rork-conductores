@@ -26,6 +26,24 @@ nonisolated enum SessionOpenError: LocalizedError, Sendable {
     }
 }
 
+nonisolated enum BackendShiftContractError: LocalizedError, Sendable {
+    case invalidGroup
+    case invalidSlot
+    case mismatchedAssignment
+    case missingRevision
+    case missingFinishTime
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidGroup: "El turno remoto contiene un grupo desconocido."
+        case .invalidSlot: "El turno remoto contiene un horario desconocido."
+        case .mismatchedAssignment: "El turno remoto no corresponde a la asignación vigente."
+        case .missingRevision: "No se recibió la revisión vigente del turno."
+        case .missingFinishTime: "El servidor cerró el turno sin devolver la hora de finalización."
+        }
+    }
+}
+
 /// Single source of truth for the driver session, the active shift and every log.
 /// Persists to `UserDefaults` so a reopened app keeps the shift running.
 @Observable
@@ -101,6 +119,9 @@ final class FleetStore {
     var enrolledAccountId: String?
     var vehicles: [Vehicle] = []
     var activeShift: ActiveShift?
+    /// Server revision for the open backend shift. Refreshed with the row and never
+    /// invented locally; `finish_shift` requires it for optimistic concurrency.
+    var backendShiftRevision: Int64?
     var history: [ShiftRecord] = []
     var incomes: [IncomeEntry] = []
     var incidents: [Incident] = []
@@ -207,6 +228,11 @@ final class FleetStore {
     /// and the start screen says so. That is the correct operational state, and it is what
     /// every driver gets.
     func reloadAssignment() {
+        // Backend assignments are loaded asynchronously from Supabase. The local
+        // AssignmentBook contains demonstration rows only and must not erase a remote
+        // assignment each time ShiftView appears.
+        guard currentPrincipal == nil else { return }
+
         let capability = unitAssignmentCapability
         if let adopted = UnitAssignmentRules.resolve(
             stored: AssignmentBook.assignment(driverId: driver.id),
@@ -290,6 +316,31 @@ final class FleetStore {
             assignedAt: row.assigned_at,
             origin: .backend
         )
+    }
+
+    /// Refreshes both pieces in dependency order: an open shift is scoped by the active
+    /// assignment, so the assignment row must be resolved first.
+    func refreshBackendOperationalState() async throws {
+        guard let principal = currentPrincipal, principal.role == .driver else { return }
+
+        try await refreshBackendAssignment()
+        guard let assignment = unitAssignment else {
+            if activeShift?.origin == .backend { activeShift = nil }
+            backendShiftRevision = nil
+            persist()
+            return
+        }
+
+        guard let row = try await SupabaseShiftService.loadOpenShift(
+            assignmentId: assignment.id
+        ) else {
+            if activeShift?.origin == .backend { activeShift = nil }
+            backendShiftRevision = nil
+            persist()
+            return
+        }
+
+        _ = try adoptBackendShift(row)
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
@@ -460,6 +511,16 @@ final class FleetStore {
     /// start, so an `ActiveShift` minted here would be a nine-hour block the station never
     /// saw, feeding a history, a settlement and four bonuses.
     var canRunOperationalCycle: Bool { !runsAgainstStation }
+
+    /// The driver cycle now has a real station service. Incidents deliberately continue
+    /// to use `canRunOperationalCycle`, because their backend belongs to 15E.
+    var usesBackendShiftCycle: Bool {
+        runsAgainstStation && currentPrincipal?.role == .driver
+    }
+
+    var canRunShiftCycle: Bool {
+        canRunOperationalCycle || usesBackendShiftCycle
+    }
 
     /// The capability the shift cycle and the incident report are judged against.
     var operationalCapability: OperationalCapability {
@@ -815,6 +876,7 @@ final class FleetStore {
         )
         vehicles = owned.vehicles
         activeShift = owned.activeShift
+        backendShiftRevision = nil
         history = owned.history
         incomes = owned.incomes
         incidents = owned.incidents
@@ -834,6 +896,7 @@ final class FleetStore {
     /// erase the demo data instead of isolating it.
     private func adoptDemoState() {
         driver = MockData.driver
+        backendShiftRevision = nil
         if let stored = Self.restore(key: Self.demoStorageKey, defaults: defaults) {
             enrolledAccountId = stored.enrolledAccountId
             applyOperational(stored)
@@ -1187,12 +1250,113 @@ final class FleetStore {
 
     /// Step 1 of the start flow: sticker read against the assigned unit.
     func validateScannedUnit(vehicle: Vehicle) -> [AssignmentIssue] {
-        ShiftRules.validateUnit(
+        var validatedVehicle = vehicle
+        if unitAssignment?.origin == .backend,
+           unitAssignment?.vehicleId == vehicle.id,
+           vehicle.occupiedBy == driver.id,
+           vehicle.status == .occupied {
+            // In 15C `occupied` means assigned to this driver. The shared demo rule uses
+            // that same value to mean occupied by somebody else, so present the holder's
+            // own assigned unit as available only for this predictive client check. The
+            // RPC independently validates the authoritative database state.
+            validatedVehicle.status = .available
+        }
+        return ShiftRules.validateUnit(
             driver: driver,
-            vehicle: vehicle,
+            vehicle: validatedVehicle,
             assignedVehicleId: unitAssignment?.vehicleId,
             now: now
         )
+    }
+
+    /// Opens either the original local demonstration shift or the authenticated 15D
+    /// backend shift. Callers no longer have to decide which authority owns the session.
+    @discardableResult
+    func startAvailableShift(
+        vehicle: Vehicle,
+        odometerKm: Int,
+        batteryPct: Int,
+        odometerPhoto: Data?,
+        batteryPhoto: Data?,
+        idempotencyKey: String
+    ) async throws -> ActiveShift {
+        guard usesBackendShiftCycle else {
+            return try startShift(
+                vehicle: vehicle,
+                odometerKm: odometerKm,
+                batteryPct: batteryPct,
+                odometerPhoto: odometerPhoto,
+                batteryPhoto: batteryPhoto
+            )
+        }
+
+        guard let assignment = unitAssignment,
+              assignment.origin == .backend,
+              assignment.vehicleId == vehicle.id else {
+            throw UnitAssignmentError.unitNotAssigned
+        }
+
+        let row = try await SupabaseShiftService.start(
+            assignmentId: assignment.id,
+            odometerKm: odometerKm,
+            batteryPct: batteryPct,
+            idempotencyKey: idempotencyKey
+        )
+
+        var photos: [String: Data] = [:]
+        if let odometerPhoto { photos[InspectionSlot.odometer.rawValue] = odometerPhoto }
+        if let batteryPhoto { photos[InspectionSlot.battery.rawValue] = batteryPhoto }
+        return try adoptBackendShift(row, photos: photos)
+    }
+
+    @discardableResult
+    private func adoptBackendShift(
+        _ row: SupabaseShiftService.ShiftRow,
+        photos: [String: Data]? = nil
+    ) throws -> ActiveShift {
+        guard let principal = currentPrincipal,
+              let assignment = unitAssignment,
+              row.assignment_id.uuidString.lowercased() == assignment.id.lowercased(),
+              row.vehicle_id.uuidString.lowercased() == assignment.vehicleId.lowercased() else {
+            throw BackendShiftContractError.mismatchedAssignment
+        }
+        guard let group = ShiftGroup(rawValue: row.shift_group) else {
+            throw BackendShiftContractError.invalidGroup
+        }
+        guard let slot = ShiftSlot(rawValue: row.shift_slot) else {
+            throw BackendShiftContractError.invalidSlot
+        }
+
+        let cachedPhotos = activeShift?.id == row.id.uuidString
+            ? activeShift?.photos ?? [:]
+            : [:]
+        let shift = ActiveShift(
+            id: row.id.uuidString,
+            driverId: principal.profileId,
+            vehicleId: row.vehicle_id.uuidString,
+            group: group,
+            slot: slot,
+            scheduledStartAt: row.scheduled_start_at,
+            startedAt: row.started_at,
+            lateMinutes: row.late_minutes,
+            startOdometerKm: row.start_odometer_km,
+            startBatteryPct: row.start_battery_pct,
+            photos: photos ?? cachedPhotos,
+            trips: activeShift?.id == row.id.uuidString ? activeShift?.trips ?? 0 : 0,
+            earningsMxn: activeShift?.id == row.id.uuidString ? activeShift?.earningsMxn ?? 0 : 0,
+            origin: .backend
+        )
+
+        activeShift = shift
+        backendShiftRevision = row.revision
+        if let index = vehicles.firstIndex(where: { $0.id == shift.vehicleId }) {
+            vehicles[index].status = .occupied
+            vehicles[index].occupiedBy = principal.profileId
+            vehicles[index].odometerKm = shift.startOdometerKm
+            vehicles[index].batteryPct = shift.startBatteryPct
+        }
+        persist()
+        return shift
     }
 
     /// Step 2: photographed odometer, ±5 km against the registered reading.
@@ -1527,6 +1691,84 @@ final class FleetStore {
     /// the exit from a simulation would mint a real closed shift out of it. Neither
     /// deletes anything: the simulated shift stays in its own container, closeable where
     /// it was opened.
+    func finishAvailableShift(
+        endOdometerKm: Int,
+        endBatteryPct: Int,
+        photo: Data?,
+        idempotencyKey: String
+    ) async throws -> ShiftSummary {
+        guard usesBackendShiftCycle else {
+            return try finishShift(
+                endOdometerKm: endOdometerKm,
+                endBatteryPct: endBatteryPct,
+                photo: photo
+            )
+        }
+
+        guard let shift = activeShift, shift.origin == .backend else {
+            throw OperationalMutationError.unauthoritativeShift
+        }
+        guard let revision = backendShiftRevision else {
+            throw BackendShiftContractError.missingRevision
+        }
+
+        let row = try await SupabaseShiftService.finish(
+            shiftId: shift.id,
+            expectedRevision: revision,
+            odometerKm: endOdometerKm,
+            batteryPct: endBatteryPct,
+            idempotencyKey: idempotencyKey
+        )
+        guard let endedAt = row.finished_at else {
+            throw BackendShiftContractError.missingFinishTime
+        }
+
+        let record = ShiftRecord(
+            id: row.id.uuidString,
+            driverId: shift.driverId,
+            vehicleId: shift.vehicleId,
+            vehicleInternalNumber: activeVehicle?.internalNumber ?? "—",
+            group: shift.group,
+            slot: shift.slot,
+            scheduledStartAt: row.scheduled_start_at,
+            startedAt: row.started_at,
+            endedAt: endedAt,
+            lateMinutes: row.late_minutes,
+            paidBackMinutes: 0,
+            startOdometerKm: row.start_odometer_km,
+            endOdometerKm: row.end_odometer_km ?? endOdometerKm,
+            startBatteryPct: row.start_battery_pct,
+            endBatteryPct: row.end_battery_pct ?? endBatteryPct,
+            trips: shift.trips,
+            earningsMxn: shift.earningsMxn,
+            origin: .backend
+        )
+
+        history.insert(record, at: 0)
+        if let index = vehicles.firstIndex(where: { $0.id == shift.vehicleId }) {
+            // The supervisor's assignment remains active after a shift closes, so the
+            // vehicle remains occupied by this driver until that assignment ends.
+            vehicles[index].status = .occupied
+            vehicles[index].occupiedBy = driver.id
+            vehicles[index].odometerKm = record.endOdometerKm
+            vehicles[index].batteryPct = record.endBatteryPct
+        }
+        activeShift = nil
+        backendShiftRevision = nil
+        persist()
+
+        return ShiftSummary(
+            kmDriven: record.kmDriven,
+            durationMinutes: record.durationMinutes,
+            earningsMxn: record.earningsMxn,
+            trips: record.trips,
+            dailyGoalMxn: goals.dailyMxn,
+            missingMxn: max(0, goals.dailyMxn - record.earningsMxn),
+            missingTrips: max(0, goals.tripsPerDay - record.trips),
+            lateMinutes: record.lateMinutes
+        )
+    }
+
     func finishShift(endOdometerKm: Int, endBatteryPct: Int, photo: Data?) throws -> ShiftSummary {
         guard canRunOperationalCycle else { throw OperationalMutationError.backendRequired }
         guard let shift = activeShift else {
@@ -1583,6 +1825,7 @@ final class FleetStore {
             )
         }
         activeShift = nil
+        backendShiftRevision = nil
         persist()
 
         return ShiftSummary(

@@ -431,7 +431,7 @@ struct ShiftView: View {
                 BigButton(
                     title: "Iniciar turno",
                     symbol: "bolt.car.fill",
-                    isEnabled: canStart && store.hasAssignedUnit && store.canRunOperationalCycle
+                    isEnabled: canStart && store.hasAssignedUnit && store.canRunShiftCycle
                 ) {
                     route = .start
                 }
@@ -446,7 +446,7 @@ struct ShiftView: View {
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Palette.amber)
                         .padding(.top, 8)
-                } else if !store.canRunOperationalCycle {
+                } else if !store.canRunShiftCycle {
                     VStack(spacing: 4) {
                         Text("Tienes unidad asignada.")
                             .font(.system(size: 11, weight: .bold))

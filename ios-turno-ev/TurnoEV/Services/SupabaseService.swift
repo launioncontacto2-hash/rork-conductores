@@ -1060,3 +1060,146 @@ enum SupabaseAssignmentService {
         return DriverAssignment(assignment: assignment, vehicle: vehicle)
     }
 }
+
+// MARK: - 15D shift lifecycle
+
+/// Authenticated iOS contract for the 15D shift tables and RPCs. Reads remain subject
+/// to RLS; starts and finishes always cross the transactional server functions.
+@MainActor
+enum SupabaseShiftService {
+    nonisolated struct ShiftRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let driver_profile_id: UUID
+        let vehicle_id: UUID
+        let assignment_id: UUID
+        let folio: String
+        let status: String
+        let shift_group: String
+        let shift_slot: String
+        let scheduled_start_at: Date
+        let scheduled_end_at: Date
+        let started_at: Date
+        let finished_at: Date?
+        let late_minutes: Int
+        let start_odometer_km: Int
+        let start_battery_pct: Int
+        let end_odometer_km: Int?
+        let end_battery_pct: Int?
+        let revision: Int64
+    }
+
+    nonisolated struct StartParameters: Encodable, Sendable {
+        let p_assignment_id: UUID
+        let p_odometer_km: Int64
+        let p_battery_pct: Int
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct FinishParameters: Encodable, Sendable {
+        let p_shift_id: UUID
+        let p_expected_revision: Int64
+        let p_odometer_km: Int64
+        let p_battery_pct: Int
+        let p_idempotency_key: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "El turno o la asignación no tienen un identificador válido."
+            }
+        }
+    }
+
+    private static let columns = """
+        id,station_id,driver_profile_id,vehicle_id,assignment_id,folio,status,
+        shift_group,shift_slot,scheduled_start_at,scheduled_end_at,started_at,
+        finished_at,late_minutes,start_odometer_km,start_battery_pct,
+        end_odometer_km,end_battery_pct,revision
+        """
+
+    static func loadOpenShift(assignmentId: String) async throws -> ShiftRow? {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: assignmentId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let rows: [ShiftRow] = try await client
+            .from("shifts")
+            .select(columns)
+            .eq("assignment_id", value: assignmentId)
+            .eq("status", value: "open")
+            .execute()
+            .value
+
+        return rows.max { $0.started_at < $1.started_at }
+    }
+
+    static func loadSupervisorOpenShifts(stationId: String) async throws -> [ShiftRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let rows: [ShiftRow] = try await client
+            .from("shifts")
+            .select(columns)
+            .eq("station_id", value: stationId)
+            .eq("status", value: "open")
+            .execute()
+            .value
+
+        return rows.sorted { $0.started_at > $1.started_at }
+    }
+
+    static func start(
+        assignmentId: String,
+        odometerKm: Int,
+        batteryPct: Int,
+        idempotencyKey: String
+    ) async throws -> ShiftRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard let assignmentUUID = UUID(uuidString: assignmentId) else {
+            throw ServiceError.invalidIdentifier
+        }
+
+        let parameters = StartParameters(
+            p_assignment_id: assignmentUUID,
+            p_odometer_km: Int64(odometerKm),
+            p_battery_pct: batteryPct,
+            p_idempotency_key: idempotencyKey
+        )
+
+        return try await client
+            .rpc("start_shift", params: parameters)
+            .execute()
+            .value
+    }
+
+    static func finish(
+        shiftId: String,
+        expectedRevision: Int64,
+        odometerKm: Int,
+        batteryPct: Int,
+        idempotencyKey: String
+    ) async throws -> ShiftRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard let shiftUUID = UUID(uuidString: shiftId) else {
+            throw ServiceError.invalidIdentifier
+        }
+
+        let parameters = FinishParameters(
+            p_shift_id: shiftUUID,
+            p_expected_revision: expectedRevision,
+            p_odometer_km: Int64(odometerKm),
+            p_battery_pct: batteryPct,
+            p_idempotency_key: idempotencyKey
+        )
+
+        return try await client
+            .rpc("finish_shift", params: parameters)
+            .execute()
+            .value
+    }
+}
