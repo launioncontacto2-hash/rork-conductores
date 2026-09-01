@@ -7,7 +7,12 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$allowedBranches = @('main', '15C-backend-test', '15D-backend-shifts')
+$allowedBranches = @(
+    'main',
+    '15C-backend-test',
+    '15D-backend-shifts',
+    '15D-test-clock-rpc-fix'
+)
 
 function Write-Step {
     param([string]$Message)
