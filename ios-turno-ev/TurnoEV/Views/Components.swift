@@ -508,7 +508,7 @@ struct SessionMenuButton: View {
                         Text(identity.detail)
                     }
                     Section("Entorno") {
-                        Text(lab.mode.label)
+                        Text(store.isBackendTestSession ? "Pruebas backend" : lab.mode.label)
                         // The direct exit, offered to every role and every credential while
                         // the simulation is on. One tap and a confirmation — no sheet to
                         // reach it, no laboratory rights, no sign out. It is the only
@@ -602,7 +602,9 @@ struct DemoClockButton: View {
     @State private var isClockPresented: Bool = false
     @State private var isEnvironmentPresented: Bool = false
 
-    private var isTest: Bool { EnvironmentControl.showsTestBadge(mode: lab.mode) }
+    private var isTest: Bool {
+        EnvironmentControl.showsTestBadge(mode: lab.mode) || store.isBackendTestSession
+    }
 
     /// Turning the simulation on happens *from* production, so this must not depend on
     /// the environment. It is what keeps the button alive on a production screen.
@@ -611,7 +613,11 @@ struct DemoClockButton: View {
     }
 
     private var canControlClock: Bool {
-        EnvironmentControl.canControlClock(account: store.currentAccount, mode: lab.mode)
+        EnvironmentControl.canControlClock(
+            account: store.currentAccount,
+            mode: lab.mode,
+            principal: store.currentPrincipal
+        )
     }
 
     /// Inside the simulation every session may walk back to production, so the chip stops
@@ -621,9 +627,12 @@ struct DemoClockButton: View {
     }
 
     /// An unauthorised device in production still reads the hour; it opens nothing.
-    private var isInteractive: Bool { canSwitchEnvironment || canLeaveTest }
+    private var isInteractive: Bool {
+        canSwitchEnvironment || canLeaveTest || canControlClock
+    }
 
     private var badge: String? {
+        if store.isBackendTestSession { return "TEST" }
         guard isInteractive else { return nil }
         return isTest ? "PRUEBA" : "PROD"
     }

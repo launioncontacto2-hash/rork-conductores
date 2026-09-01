@@ -751,6 +751,7 @@ struct LoginView: View {
                         employeeNumber: result.profile.employee_number,
                         email: cleanedIdentifier,
                         role: role,
+                        environmentId: result.station.environment_id.uuidString,
                         stationId: result.station.id.uuidString,
                         stationCode: result.station.code,
                         stationName: result.station.name,
@@ -766,11 +767,20 @@ struct LoginView: View {
                             method: .credentials
                         )
 
-                        // A driver enters with the assignment that is currently active in
+                        // A TEST backend identity follows the shared logical clock without
+                        // entering the local simulation. Its assignments and shifts remain
+                        // authoritative Supabase records.
+                        if store.isBackendTestSession {
+                            SharedClockSync.shared.update(isTest: true)
+                            await SharedClockSync.shared.refresh()
+                            store.syncSimulationClock()
+                        }
+
+                        // A driver enters with the complete operation currently active in
                         // Supabase. The same refresh also runs whenever the app returns to
                         // the foreground, which is the two-iPhone handoff path.
                         if role == .driver {
-                            try await store.refreshBackendAssignment()
+                            try await store.refreshBackendOperationalState()
                         }
                     } catch {
                         // Opening a backend session and adopting its operational data is

@@ -166,7 +166,8 @@ struct BackendSupervisorAssignmentView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cerrar sesión") { fleet.signOut() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    DemoClockButton()
                     Button {
                         Task { await model.load() }
                     } label: {
