@@ -1660,6 +1660,22 @@ struct OperationalCycleBoundaryTests {
 
     // MARK: The laboratory keeps working
 
+    /// A real TEST credential follows the shared laboratory clock but writes the shift
+    /// through Supabase. The environment selector must not downgrade it to a local shift.
+    @Test func backendTestDriverUsesAuthoritativeShiftCycle() throws {
+        let bench = try Self.bench(environmentId: LabEnvironment.sharedTestId)
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.isBackendTestSession)
+        #expect(bench.store.usesBackendShiftCycle)
+        #expect(bench.store.canRunShiftCycle)
+        #expect(bench.store.shiftCapability == .stationRequired)
+        #expect(bench.store.operationalCapability == .localWorkflow)
+    }
+
     /// I · inside the laboratory the whole cycle runs exactly as before.
     @Test func theLaboratoryStillRunsTheCompleteCycle() throws {
         let bench = try Self.bench()
@@ -1775,7 +1791,7 @@ struct OperationalCycleBoundaryTests {
         }
     }
 
-    private static func bench() throws -> Bench {
+    private static func bench(environmentId: String? = nil) throws -> Bench {
         let suiteName = "turnoev.tests.cycle.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         let environment = RuntimeEnvironment(defaults: defaults)
@@ -1790,6 +1806,7 @@ struct OperationalCycleBoundaryTests {
                 employeeNumber: "EMP-TEST",
                 email: "cycle.driver@joramza.test",
                 role: .driver,
+                environmentId: environmentId,
                 stationId: "est-001",
                 stationCode: "IZT",
                 stationName: "Estación Iztapalapa",

@@ -522,8 +522,14 @@ final class FleetStore {
 
     /// The driver cycle now has a real station service. Incidents deliberately continue
     /// to use `canRunOperationalCycle`, because their backend belongs to 15E.
+    ///
+    /// A backend identity tied to the shared TEST environment is authoritative too. The
+    /// local `environment` flag only selects the shared logical clock; it must never turn
+    /// a proved TEST driver back into the simulated shift writer. Demonstration accounts
+    /// have no principal, so they continue through the original local workflow.
     var usesBackendShiftCycle: Bool {
-        runsAgainstStation && currentPrincipal?.role == .driver
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
     }
 
     var canRunShiftCycle: Bool {
@@ -533,6 +539,12 @@ final class FleetStore {
     /// The capability the shift cycle and the incident report are judged against.
     var operationalCapability: OperationalCapability {
         canRunOperationalCycle ? .localWorkflow : .stationRequired
+    }
+
+    /// Authority used only by shifts and their history. TEST backend drivers use the
+    /// station service even though unfinished laboratory modules may still simulate.
+    var shiftCapability: OperationalCapability {
+        usesBackendShiftCycle ? .stationRequired : operationalCapability
     }
 
     /// Provenance every operational record this session produces is stamped with, and the
@@ -579,7 +591,7 @@ final class FleetStore {
             owner: activeShift.driverId,
             origin: activeShift.origin,
             driverId: driver.id,
-            capability: operationalCapability
+            capability: shiftCapability
         )
     }
 
@@ -769,7 +781,11 @@ final class FleetStore {
         adoptedEnvironment = environmentSource.mode
 
         // From here the store holds this identity's operational state and nothing else.
-        adoptIdentityState(profileId: principal.profileId)
+        adoptIdentityState(
+            profileId: principal.profileId,
+            authoritativeShiftCycle: principal.role == .driver
+                && principal.environmentId?.lowercased() == LabEnvironment.sharedTestId.lowercased()
+        )
 
         if let profile {
             driver = profile
@@ -861,14 +877,21 @@ final class FleetStore {
     ///
     /// `enrolledAccountId` and `clockOffsetMinutes` are deliberately left alone: the
     /// biometric link and the simulation clock belong to the device, not to the driver.
-    private func adoptIdentityState(profileId: String) {
+    private func adoptIdentityState(
+        profileId: String,
+        authoritativeShiftCycle: Bool = false
+    ) {
         // The capability of the environment the state is being read **for**. Taken from
         // `adoptedEnvironment` rather than from `operationalCapability` because this runs
-        // mid-swap, before the session is necessarily standing: inside the laboratory a
-        // proved identity keeps its simulated cycle, in production it keeps none of it.
+        // mid-swap, before the session is necessarily standing. The general laboratory
+        // keeps its simulated cycle; an authenticated shared-TEST driver overrides only
+        // the shift authority below and restores certified rows instead.
         let capability: OperationalCapability = adoptedEnvironment == .production
             ? .stationRequired
             : .localWorkflow
+        let restoredShiftCapability: OperationalCapability = authoritativeShiftCycle
+            ? .stationRequired
+            : capability
         // Resolved from the same environment, separately on purpose: the two boundaries
         // answer alike today and are expected to diverge — a station can start publishing
         // notices long before it can certify a shift.
@@ -882,6 +905,7 @@ final class FleetStore {
             ),
             driverId: profileId,
             capability: capability,
+            shiftCapability: restoredShiftCapability,
             noticeAuthority: authority
         )
         vehicles = owned.vehicles
@@ -970,7 +994,10 @@ final class FleetStore {
             persist(key: storageKey(for: previous))
             adoptedEnvironment = current
             if let profileId = session?.principal?.profileId {
-                adoptIdentityState(profileId: profileId)
+                adoptIdentityState(
+                    profileId: profileId,
+                    authoritativeShiftCycle: usesBackendShiftCycle
+                )
             }
         }
 
@@ -1147,14 +1174,22 @@ final class FleetStore {
     /// lose a week — never as proof that one was earned.
     private func bonusInput(reference: Date) -> BonusRules.EvaluationInput {
         let driverId = driver.id
-        let capability = operationalCapability
+        let currentShiftCapability = shiftCapability
         return BonusRules.EvaluationInput(
             driver: driver,
             goals: goals,
-            history: OperationalRecordRules.history(history, driverId: driverId, capability: capability),
+            history: OperationalRecordRules.history(
+                history,
+                driverId: driverId,
+                capability: currentShiftCapability
+            ),
             incomes: incomes.filter { $0.driverId == driverId },
             reports: supervisorReports,
-            activeShift: OperationalRecordRules.shift(activeShift, driverId: driverId, capability: capability),
+            activeShift: OperationalRecordRules.shift(
+                activeShift,
+                driverId: driverId,
+                capability: currentShiftCapability
+            ),
             qualityScore: platformRating,
             schedule: bonusSchedule,
             now: reference
@@ -2078,6 +2113,7 @@ final class FleetStore {
         _ stored: PersistedState?,
         driverId: String,
         capability: OperationalCapability,
+        shiftCapability: OperationalCapability,
         noticeAuthority: NoticeAuthority
     ) -> PersistedState {
         var owned = emptyOperationalState()
@@ -2092,19 +2128,19 @@ final class FleetStore {
         // Ownership is no longer enough for the operational cycle. `driverId` says whose
         // row it is; it cannot say whether the day happened. A simulated block carrying
         // the exact `profileId` of the proved identity — which is precisely what a
-        // laboratory run by that identity produces — used to restore straight into
-        // production, where it became history, a settlement and a bonus verdict. It is
-        // not deleted: it stays in the blob, and it comes back the moment the laboratory
-        // asks for it.
+        // laboratory run by that identity produces — used to restore straight into an
+        // authoritative session, where it became history, a settlement and a bonus
+        // verdict. It is not deleted: it stays in the blob, but an authenticated shared
+        // TEST driver now ignores it just as production does.
         owned.activeShift = OperationalRecordRules.shift(
             stored.activeShift,
             driverId: driverId,
-            capability: capability
+            capability: shiftCapability
         )
         owned.history = OperationalRecordRules.history(
             stored.history,
             driverId: driverId,
-            capability: capability
+            capability: shiftCapability
         )
         owned.incomes = stored.incomes.filter { $0.driverId == driverId }
         owned.incidents = OperationalRecordRules.incidents(
