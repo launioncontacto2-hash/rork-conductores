@@ -67,6 +67,11 @@ SELECT environment_id, id AS station_id
 FROM public.stations
 WHERE id = '15d41000-0000-4000-8000-000000000001'::uuid;
 
+-- Las llamadas se ejecutan tras SET LOCAL ROLE authenticated. La tabla
+-- temporal conserva como propietario a postgres, por lo que el rol de la
+-- sesion necesita lectura explicita para resolver el environment_id.
+GRANT SELECT ON test_15d_clock_scope TO authenticated;
+
 INSERT INTO public.profiles (
     id, environment_id, employee_number, display_name, status
 )
@@ -153,6 +158,10 @@ CREATE TEMP TABLE test_15d_clock_before AS
 SELECT revision
 FROM public.test_clock
 WHERE environment_id = (SELECT environment_id FROM test_15d_clock_scope);
+
+-- Permite que el payload y el mensaje esperado de revision se calculen con
+-- el mismo valor capturado antes del cambio de rol.
+GRANT SELECT ON test_15d_clock_before TO authenticated;
 
 SET LOCAL ROLE authenticated;
 
