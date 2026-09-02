@@ -1674,6 +1674,8 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.canRunShiftCycle)
         #expect(bench.store.shiftCapability == .stationRequired)
         #expect(bench.store.usesBackendIncidentCycle)
+        #expect(bench.store.usesBackendCoverageCycle)
+        #expect(!bench.store.canSimulateOperationalCoordination)
         #expect(!bench.store.canReportIncident)
         #expect(bench.store.operationalCapability == .localWorkflow)
     }
@@ -1952,6 +1954,34 @@ struct BackendMaintenanceSessionTests {
     }
 }
 
+struct CoverageServiceErrorTests {
+    @Test func losingTheRaceHasAClearDriverMessage() {
+        let error = NSError(
+            domain: "TurnoEV.Coverage",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "vacancy_already_claimed"]
+        )
+
+        #expect(
+            SupabaseCoverageService.userMessage(for: error)
+                == "Otro conductor tomó esta guardia primero. Actualiza para ver que ya fue asignada."
+        )
+    }
+
+    @Test func staleSupervisorDataRequestsARefresh() {
+        let error = NSError(
+            domain: "TurnoEV.Coverage",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "vacancy_revision_conflict"]
+        )
+
+        #expect(
+            SupabaseCoverageService.userMessage(for: error)
+                == "La información cambió en otro dispositivo. Actualiza antes de continuar."
+        )
+    }
+}
+
 /// 15B.13.2.1 · the laboratory and the proved identity are one session, not two.
 ///
 /// Every case here runs on a single `FleetStore` instance against an isolated defaults
@@ -2032,9 +2062,10 @@ struct EnvironmentTransitionTests {
         #expect(bench.store.environment == .test)
         #expect(bench.store.canSimulateUnitAssignment)
         #expect(bench.store.canSimulateFinancialState)
-        #expect(bench.store.canSimulateOperationalCoordination)
+        #expect(bench.store.usesBackendCoverageCycle)
+        #expect(bench.store.canSimulateOperationalCoordination == false)
         #expect(bench.store.unitAssignmentCapability == .localSimulation)
-        #expect(bench.store.coordinationCapability == .localWorkflow)
+        #expect(bench.store.coordinationCapability == .stationRequired)
 
         // And the state follows: in the laboratory there is a fleet to work with.
         bench.store.adoptEnvironment()

@@ -1576,3 +1576,311 @@ enum SupabaseWorkshopService {
             .value
     }
 }
+
+// MARK: - 15F coverage lifecycle
+
+/// Authoritative absence and guard contract. The phone reads only rows admitted by RLS;
+/// identity, station, eligibility and the winner of a race are all decided in PostgreSQL.
+@MainActor
+enum SupabaseCoverageService {
+    nonisolated struct AbsenceRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let driver_profile_id: UUID
+        let vacancy_id: UUID?
+        let folio: String
+        let operating_date: String
+        let shift_group: String
+        let shift_slot: String
+        let kind: String
+        let reason: String
+        let comments: String
+        let status: String
+        let decision_note: String?
+        let revision: Int64
+        let requested_at: Date
+        let decided_at: Date?
+    }
+
+    nonisolated struct VacancyRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let absence_id: UUID?
+        let titular_driver_profile_id: UUID?
+        let folio: String
+        let operating_date: String
+        let shift_group: String
+        let shift_slot: String
+        let origin: String
+        let bonus_mode: String
+        let bonus_mxn: Int
+        let reason: String
+        let status: String
+        let is_critical: Bool
+        let revision: Int64
+        let opened_at: Date
+        let claimed_at: Date?
+        let approved_at: Date?
+    }
+
+    nonisolated struct ClaimRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let vacancy_id: UUID
+        let driver_profile_id: UUID
+        let status: String
+        let operating_date: String
+        let shift_slot: String
+        let note: String?
+        let claimed_at: Date
+        let decided_at: Date?
+    }
+
+    nonisolated struct DriverSnapshot: Sendable {
+        let absences: [AbsenceRow]
+        let vacancies: [VacancyRow]
+        let claims: [ClaimRow]
+    }
+
+    nonisolated struct StationSnapshot: Sendable {
+        let absences: [AbsenceRow]
+        let vacancies: [VacancyRow]
+        let claims: [ClaimRow]
+    }
+
+    nonisolated struct RequestParameters: Encodable, Sendable {
+        let p_operating_date: String
+        let p_shift_slot: String
+        let p_kind: String
+        let p_reason: String
+        let p_comments: String
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    nonisolated struct ClaimParameters: Encodable, Sendable {
+        let p_vacancy_id: UUID
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    nonisolated struct ApproveParameters: Encodable, Sendable {
+        let p_vacancy_id: UUID
+        let p_expected_revision: Int64
+        let p_note: String?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct ResolveParameters: Encodable, Sendable {
+        let p_absence_id: UUID
+        let p_expected_revision: Int64
+        let p_decision: String
+        let p_note: String
+        let p_idempotency_key: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "La vacante no tiene un identificador válido."
+            }
+        }
+    }
+
+    private static let absenceColumns = """
+        id,station_id,driver_profile_id,vacancy_id,folio,operating_date,
+        shift_group,shift_slot,kind,reason,comments,status,decision_note,
+        revision,requested_at,decided_at
+        """
+    private static let vacancyColumns = """
+        id,station_id,absence_id,titular_driver_profile_id,folio,operating_date,
+        shift_group,shift_slot,origin,bonus_mode,bonus_mxn,reason,status,
+        is_critical,revision,opened_at,claimed_at,approved_at
+        """
+    private static let claimColumns = """
+        id,station_id,vacancy_id,driver_profile_id,status,operating_date,
+        shift_slot,note,claimed_at,decided_at
+        """
+
+    static func loadDriverSnapshot(stationId: String) async throws -> DriverSnapshot {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        async let absenceRequest: [AbsenceRow] = client
+            .from("absences")
+            .select(absenceColumns)
+            .order("requested_at", ascending: false)
+            .execute()
+            .value
+        async let vacancyRequest: [VacancyRow] = client
+            .from("coverage_vacancies")
+            .select(vacancyColumns)
+            .eq("station_id", value: stationId)
+            .order("opened_at", ascending: false)
+            .execute()
+            .value
+        async let claimRequest: [ClaimRow] = client
+            .from("coverage_claims")
+            .select(claimColumns)
+            .order("claimed_at", ascending: false)
+            .execute()
+            .value
+
+        let (absences, vacancies, claims) = try await (
+            absenceRequest, vacancyRequest, claimRequest
+        )
+        return DriverSnapshot(absences: absences, vacancies: vacancies, claims: claims)
+    }
+
+    static func loadStationSnapshot(stationId: String) async throws -> StationSnapshot {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        async let absenceRequest: [AbsenceRow] = client
+            .from("absences")
+            .select(absenceColumns)
+            .eq("station_id", value: stationId)
+            .order("requested_at", ascending: false)
+            .execute()
+            .value
+        async let vacancyRequest: [VacancyRow] = client
+            .from("coverage_vacancies")
+            .select(vacancyColumns)
+            .eq("station_id", value: stationId)
+            .order("opened_at", ascending: false)
+            .execute()
+            .value
+        async let claimRequest: [ClaimRow] = client
+            .from("coverage_claims")
+            .select(claimColumns)
+            .eq("station_id", value: stationId)
+            .order("claimed_at", ascending: false)
+            .execute()
+            .value
+
+        let (absences, vacancies, claims) = try await (
+            absenceRequest, vacancyRequest, claimRequest
+        )
+        return StationSnapshot(absences: absences, vacancies: vacancies, claims: claims)
+    }
+
+    static func requestAbsence(
+        operatingDate: String,
+        shiftSlot: ShiftSlot,
+        kind: AbsenceKind,
+        reason: String,
+        comments: String,
+        idempotencyKey: String
+    ) async throws -> AbsenceRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "request_absence",
+                params: RequestParameters(
+                    p_operating_date: operatingDate,
+                    p_shift_slot: shiftSlot.rawValue,
+                    p_kind: kind.rawValue,
+                    p_reason: reason,
+                    p_comments: comments,
+                    p_idempotency_key: idempotencyKey,
+                    p_install_id: SupabaseDriverDeviceService.installId
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func claim(
+        vacancyId: UUID,
+        idempotencyKey: String
+    ) async throws -> ClaimRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "claim_guard",
+                params: ClaimParameters(
+                    p_vacancy_id: vacancyId,
+                    p_idempotency_key: idempotencyKey,
+                    p_install_id: SupabaseDriverDeviceService.installId
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func approve(
+        vacancy: VacancyRow,
+        note: String?,
+        idempotencyKey: String
+    ) async throws -> VacancyRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "approve_guard",
+                params: ApproveParameters(
+                    p_vacancy_id: vacancy.id,
+                    p_expected_revision: vacancy.revision,
+                    p_note: note,
+                    p_idempotency_key: idempotencyKey
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func resolve(
+        absence: AbsenceRow,
+        decision: String,
+        note: String,
+        idempotencyKey: String
+    ) async throws -> AbsenceRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "resolve_absence",
+                params: ResolveParameters(
+                    p_absence_id: absence.id,
+                    p_expected_revision: absence.revision,
+                    p_decision: decision,
+                    p_note: note,
+                    p_idempotency_key: idempotencyKey
+                )
+            )
+            .execute()
+            .value
+    }
+
+    nonisolated static func userMessage(for error: Error) -> String {
+        let message = error.localizedDescription
+        let lowered = message.lowercased()
+        if lowered.contains("vacancy_already_claimed") {
+            return "Otro conductor tomó esta guardia primero. Actualiza para ver que ya fue asignada."
+        }
+        if lowered.contains("driver_has_regular_shift_conflict") {
+            return "Esta guardia coincide con tu turno regular."
+        }
+        if lowered.contains("driver_has_shift_conflict")
+            || lowered.contains("driver_has_guard_conflict") {
+            return "Ya tienes un turno o guardia en ese horario."
+        }
+        if lowered.contains("titular_cannot_claim_own_vacancy") {
+            return "No puedes tomar la guardia creada por tu propia ausencia."
+        }
+        if lowered.contains("absence_shift_group_not_owned")
+            || lowered.contains("absence_shift_slot_not_owned") {
+            return "La fecha y el turno deben corresponder a tu bloque asignado."
+        }
+        if lowered.contains("revision_conflict") {
+            return "La información cambió en otro dispositivo. Actualiza antes de continuar."
+        }
+        return message
+    }
+}
