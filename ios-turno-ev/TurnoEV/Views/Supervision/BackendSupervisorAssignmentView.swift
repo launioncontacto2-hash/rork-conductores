@@ -66,6 +66,7 @@ private final class BackendAssignmentStore {
     }
 
     func load() async {
+        guard !isLoading else { return }
         guard let stationId = principal.stationId else {
             errorMessage = "La sesión del supervisor no contiene estación."
             return
@@ -138,6 +139,7 @@ private final class BackendAssignmentStore {
 
 struct BackendSupervisorAssignmentView: View {
     @Environment(FleetStore.self) private var fleet
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: BackendAssignmentStore
 
     init(principal: SessionPrincipal) {
@@ -179,6 +181,10 @@ struct BackendSupervisorAssignmentView: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await model.load() }
+            }
             .onChange(of: model.selectedDriverId) { _, _ in
                 model.kind = .titular
                 model.selectedVehicleId = model.availableVehicles.first?.id
