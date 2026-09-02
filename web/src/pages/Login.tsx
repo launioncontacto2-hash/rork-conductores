@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { BigButton } from "@/components/Pieces";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useConsoleAuth } from "@/console/ConsoleAuth";
 import {
   authenticateStaff,
   ROLE,
@@ -94,6 +95,7 @@ const RoleHandoff = ({ account }: { account: StaffAccount }) => {
  */
 const Login = () => {
   const { signIn, enrolledAccount } = useFleet();
+  const { accessMessage, isResolving, signInSupervisor } = useConsoleAuth();
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<Mode>(() => (enrolledAccount ? "biometric" : "credentials"));
@@ -151,7 +153,21 @@ const Login = () => {
     toast.error("Rostro no reconocido", { description: `Intento ${next} de ${MAX_BIOMETRIC_ATTEMPTS}` });
   }, [attempts]);
 
-  const submitCredentials = (): void => {
+  const submitCredentials = async (): Promise<void> => {
+    if (identifier.trim().toLowerCase() === "test.supervisor@joramza.test") {
+      setError(null);
+      try {
+        await signInSupervisor(identifier.trim(), password);
+        setPassword("");
+        toast.success("Supervisor TEST autenticado", { description: "Abriendo la consola de estación." });
+        navigate("/console", { replace: true });
+      } catch (reason) {
+        const message = reason instanceof Error ? reason.message : "No fue posible abrir la consola TEST.";
+        setError(message);
+        toast.error("Acceso denegado", { description: message });
+      }
+      return;
+    }
     const outcome = authenticateStaff(identifier, password);
     if (outcome.status !== "granted") {
       setError(outcome.message);
@@ -277,7 +293,7 @@ const Login = () => {
             className="mt-4 space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
-              submitCredentials();
+              void submitCredentials();
             }}
           >
             <Input
@@ -299,9 +315,13 @@ const Login = () => {
                 className="h-14 rounded-2xl pl-11 text-base"
               />
             </div>
-            {error && <p className="text-sm font-semibold text-destructive">{error}</p>}
-            <BigButton type="submit" icon={<ShieldCheck className="size-5" />}>
-              Identificar y entrar
+            {(error || accessMessage) && <p className="text-sm font-semibold text-destructive">{error ?? accessMessage}</p>}
+            <BigButton
+              type="submit"
+              disabled={isResolving}
+              icon={isResolving ? <Loader2 className="size-5 animate-spin" /> : <ShieldCheck className="size-5" />}
+            >
+              {isResolving ? "Validando membresía" : "Identificar y entrar"}
             </BigButton>
           </form>
 

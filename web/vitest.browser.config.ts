@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
+const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -12,7 +14,9 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
-      provider: playwright(),
+      provider: playwright({
+        launchOptions: localChromium ? { executablePath: localChromium } : undefined,
+      }),
       instances: [{ browser: "chromium" }],
     },
   },

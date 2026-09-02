@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom
 import { AppShell } from "@/components/AppShell";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ConsoleAuthProvider, useConsoleAuth } from "@/console/ConsoleAuth";
 import { ROLE, type StaffRole } from "@/lib/org";
 import { FleetProvider, useFleet } from "@/store/fleet";
 
@@ -20,6 +21,7 @@ import Inspeccion from "./pages/Inspeccion";
 import Login from "./pages/Login";
 import Metas from "./pages/Metas";
 import NotFound from "./pages/NotFound";
+import OperationsConsole from "./pages/OperationsConsole";
 import RoleWorkspace from "./pages/RoleWorkspace";
 import Turno from "./pages/Turno";
 
@@ -44,17 +46,26 @@ const DriverShell = () => (
 
 const LoginGate = () => {
   const { session } = useFleet();
+  const { identity } = useConsoleAuth();
+  if (identity) return <Navigate to="/console" replace />;
   return session ? <Navigate to={ROLE[session.role].home} replace /> : <Login />;
+};
+
+const ConsoleGate = () => {
+  const { identity } = useConsoleAuth();
+  return identity ? <OperationsConsole /> : <Navigate to="/" replace />;
 };
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <FleetProvider>
-      <TooltipProvider>
-        <Toaster position="top-center" />
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <Routes>
+      <ConsoleAuthProvider>
+        <TooltipProvider>
+          <Toaster position="top-center" />
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+            <Routes>
             <Route path="/" element={<LoginGate />} />
+            <Route path="/console" element={<ConsoleGate />} />
             <Route element={<DriverShell />}>
               <Route path="/turno" element={<Turno />} />
               <Route path="/metas" element={<Metas />} />
@@ -101,9 +112,10 @@ const App = () => (
               }
             />
             <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </ConsoleAuthProvider>
     </FleetProvider>
   </QueryClientProvider>
 );
