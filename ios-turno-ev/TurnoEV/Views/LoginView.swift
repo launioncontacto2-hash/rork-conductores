@@ -663,6 +663,9 @@ struct LoginView: View {
         // ====================================================
 
         let backendTestEmails: Set<String> = [
+            "test.001@joramza.test",
+            "test.002@joramza.test",
+            // Alias temporal mientras el usuario Auth existente se renombra a test.001.
             "test.driver@joramza.test",
             "test.supervisor@joramza.test"
         ]
@@ -762,6 +765,14 @@ struct LoginView: View {
                     )
 
                     do {
+                        // Supabase Auth accepts simultaneous sessions by design. Drivers
+                        // are stricter: the latest successful login claims this iPhone as
+                        // the only device allowed to start or finish a shift. Supervisors
+                        // deliberately keep their multi-device console access.
+                        if role == .driver {
+                            try await SupabaseDriverDeviceService.claim()
+                        }
+
                         try store.signIn(
                             principal: principal,
                             method: .credentials

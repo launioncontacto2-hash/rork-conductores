@@ -1061,7 +1061,110 @@ enum SupabaseAssignmentService {
     }
 }
 
-// MARK: - 15D shift lifecycle
+// MARK: - 16A exclusive driver device
+
+/// Claims and verifies the one iPhone allowed to perform driver operations.
+///
+/// The identifier belongs to the installation, not to the person. It contains no
+/// credential and survives app restarts so the server can distinguish two physical
+/// phones that authenticate with the same Supabase user.
+@MainActor
+enum SupabaseDriverDeviceService {
+    private static let installIdKey = "turnoev.backend.install-id"
+
+    nonisolated struct ClaimParameters: Encodable, Sendable {
+        let p_install_id: String
+        let p_app_version: String?
+    }
+
+    nonisolated struct HeartbeatParameters: Encodable, Sendable {
+        let p_install_id: String
+    }
+
+    nonisolated struct DeviceRow: Decodable, Sendable {
+        let id: UUID
+        let install_id: String
+        let profile_id: UUID
+        let platform: String
+        let last_seen_at: Date
+        let deleted_at: Date?
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case sessionReplaced
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured:
+                return "Supabase no está configurado."
+            case .sessionReplaced:
+                return "Esta cuenta se abrió en otro teléfono. Vuelve a iniciar sesión para tomar el control."
+            }
+        }
+    }
+
+    static var installId: String {
+        let defaults = UserDefaults.standard
+        if let stored = defaults.string(forKey: installIdKey),
+           !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return stored
+        }
+
+        let generated = UUID().uuidString.lowercased()
+        defaults.set(generated, forKey: installIdKey)
+        return generated
+    }
+
+    private static var appVersion: String? {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+
+    static func claim() async throws {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        let parameters = ClaimParameters(
+            p_install_id: installId,
+            p_app_version: appVersion
+        )
+
+        do {
+            let _: DeviceRow = try await client
+                .rpc("claim_driver_device", params: parameters)
+                .execute()
+                .value
+        } catch {
+            throw translate(error)
+        }
+    }
+
+    static func heartbeat() async throws {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        let parameters = HeartbeatParameters(p_install_id: installId)
+
+        do {
+            let _: DeviceRow = try await client
+                .rpc("heartbeat_driver_device", params: parameters)
+                .execute()
+                .value
+        } catch {
+            throw translate(error)
+        }
+    }
+
+    static func isSessionReplacement(_ error: Error) -> Bool {
+        if case ServiceError.sessionReplaced = error { return true }
+        return error.localizedDescription.contains("driver_session_replaced")
+    }
+
+    private static func translate(_ error: Error) -> Error {
+        if error.localizedDescription.contains("driver_session_replaced") {
+            return ServiceError.sessionReplaced
+        }
+        return error
+    }
+}
+
+// MARK: - 15D/16A shift lifecycle
 
 /// Authenticated iOS contract for the 15D shift tables and RPCs. Reads remain subject
 /// to RLS; starts and finishes always cross the transactional server functions.
@@ -1094,6 +1197,7 @@ enum SupabaseShiftService {
         let p_odometer_km: Int64
         let p_battery_pct: Int
         let p_idempotency_key: String
+        let p_install_id: String
     }
 
     nonisolated struct FinishParameters: Encodable, Sendable {
@@ -1102,6 +1206,7 @@ enum SupabaseShiftService {
         let p_odometer_km: Int64
         let p_battery_pct: Int
         let p_idempotency_key: String
+        let p_install_id: String
     }
 
     enum ServiceError: LocalizedError {
@@ -1168,11 +1273,12 @@ enum SupabaseShiftService {
             p_assignment_id: assignmentUUID,
             p_odometer_km: Int64(odometerKm),
             p_battery_pct: batteryPct,
-            p_idempotency_key: idempotencyKey
+            p_idempotency_key: idempotencyKey,
+            p_install_id: SupabaseDriverDeviceService.installId
         )
 
         return try await client
-            .rpc("start_shift", params: parameters)
+            .rpc("start_shift_v2", params: parameters)
             .execute()
             .value
     }
@@ -1194,11 +1300,12 @@ enum SupabaseShiftService {
             p_expected_revision: expectedRevision,
             p_odometer_km: Int64(odometerKm),
             p_battery_pct: batteryPct,
-            p_idempotency_key: idempotencyKey
+            p_idempotency_key: idempotencyKey,
+            p_install_id: SupabaseDriverDeviceService.installId
         )
 
         return try await client
-            .rpc("finish_shift", params: parameters)
+            .rpc("finish_shift_v2", params: parameters)
             .execute()
             .value
     }

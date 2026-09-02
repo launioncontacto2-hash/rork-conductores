@@ -6,13 +6,13 @@ SELECT plan(24);
 SELECT has_table('public', 'shifts', 'existe la tabla shifts');
 SELECT has_table('public', 'shift_readings', 'existe la tabla shift_readings');
 SELECT has_function(
-    'public', 'start_shift', ARRAY['uuid', 'bigint', 'integer', 'text'],
-    'existe start_shift con el contrato 15D'
+    'public', 'start_shift_v2', ARRAY['uuid', 'bigint', 'integer', 'text', 'text'],
+    'existe start_shift_v2 con sesion de dispositivo'
 );
 SELECT has_function(
-    'public', 'finish_shift',
-    ARRAY['uuid', 'bigint', 'bigint', 'integer', 'text'],
-    'existe finish_shift con revision optimista'
+    'public', 'finish_shift_v2',
+    ARRAY['uuid', 'bigint', 'bigint', 'integer', 'text', 'text'],
+    'existe finish_shift_v2 con revision y sesion de dispositivo'
 );
 
 INSERT INTO public.stations (
@@ -181,13 +181,23 @@ SELECT set_config(
     'request.jwt.claim.sub',
     '15d00000-0000-4000-8000-000000000003', true
 );
+SELECT set_config(
+    'request.jwt.claims',
+    '{"session_id":"15d60000-0000-4000-8000-000000000003"}', true
+);
 SET LOCAL ROLE authenticated;
+
+DO $block$
+BEGIN
+    PERFORM public.claim_driver_device('15d-install-other', 'pgtap');
+END
+$block$;
 
 SELECT throws_ok(
     $sql$
-        SELECT public.start_shift(
+        SELECT public.start_shift_v2(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-denied'
+            1001, 79, '15d-start-denied', '15d-install-other'
         )
     $sql$,
     '42501',
@@ -200,13 +210,23 @@ SELECT set_config(
     'request.jwt.claim.sub',
     '15d00000-0000-4000-8000-000000000002', true
 );
+SELECT set_config(
+    'request.jwt.claims',
+    '{"session_id":"15d60000-0000-4000-8000-000000000002"}', true
+);
 SET LOCAL ROLE authenticated;
+
+DO $block$
+BEGIN
+    PERFORM public.claim_driver_device('15d-install-driver', 'pgtap');
+END
+$block$;
 
 SELECT lives_ok(
     $sql$
-        SELECT public.start_shift(
+        SELECT public.start_shift_v2(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-1'
+            1001, 79, '15d-start-1', '15d-install-driver'
         )
     $sql$,
     'el conductor abre su turno dentro de la ventana'
@@ -252,9 +272,9 @@ SELECT results_eq(
 SET LOCAL ROLE authenticated;
 SELECT lives_ok(
     $sql$
-        SELECT public.start_shift(
+        SELECT public.start_shift_v2(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-1'
+            1001, 79, '15d-start-1', '15d-install-driver'
         )
     $sql$,
     'repetir la clave de apertura devuelve el mismo turno'
@@ -270,9 +290,9 @@ SELECT is(
 SET LOCAL ROLE authenticated;
 SELECT throws_ok(
     $sql$
-        SELECT public.start_shift(
+        SELECT public.start_shift_v2(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1002, 79, '15d-start-1'
+            1002, 79, '15d-start-1', '15d-install-driver'
         )
     $sql$,
     '23505', 'idempotency_key_conflict',
@@ -281,9 +301,9 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $sql$
-        SELECT public.finish_shift(
+        SELECT public.finish_shift_v2(
             (SELECT id FROM public.shifts LIMIT 1),
-            9, 1010, 60, '15d-finish-wrong-revision'
+            9, 1010, 60, '15d-finish-wrong-revision', '15d-install-driver'
         )
     $sql$,
     '40001', 'shift_revision_conflict',
@@ -292,9 +312,9 @@ SELECT throws_ok(
 
 SELECT lives_ok(
     $sql$
-        SELECT public.finish_shift(
+        SELECT public.finish_shift_v2(
             (SELECT id FROM public.shifts LIMIT 1),
-            1, 1010, 60, '15d-finish-1'
+            1, 1010, 60, '15d-finish-1', '15d-install-driver'
         )
     $sql$,
     'el conductor cierra su turno con la revision vigente'
@@ -373,8 +393,8 @@ SELECT is(
     has_function_privilege(
         'authenticated', 'public.start_shift(uuid,bigint,integer,text)', 'EXECUTE'
     ),
-    true,
-    'authenticated puede ejecutar start_shift'
+    false,
+    'authenticated no puede omitir la sesion usando start_shift legado'
 );
 
 SELECT * FROM finish();
