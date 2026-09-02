@@ -16,7 +16,8 @@ $allowedBranches = @(
     'fix/console-test-clock-control',
     '16A-driver-device-sessions',
     'fix/16a-migration-history-alignment',
-    '15E-incidents-work-orders'
+    '15E-incidents-work-orders',
+    '15F-coverage-claims'
 )
 
 function Write-Step {

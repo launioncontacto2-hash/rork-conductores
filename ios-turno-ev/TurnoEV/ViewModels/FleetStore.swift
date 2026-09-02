@@ -517,17 +517,17 @@ final class FleetStore {
 
     /// Whether this session may run the coverage workflow locally.
     ///
-    /// Money was the first boundary; coordination is the second. An absence request, a
-    /// claimed guard and a shift swap are decisions shared with a supervisor and a
-    /// station, and this app writes them into one blob on one device. A demonstration
-    /// session may do that: walking the chain end to end is the point. A proved identity
-    /// may not, because no coverage service exists on the server yet, and a request that
-    /// reaches nobody must never be shown as sent.
+    /// Money was the first boundary; coordination is the second. An absence request and
+    /// a claimed guard are decisions shared with a supervisor and a station. A
+    /// demonstration session may still exercise the rich in-memory workflow, while a
+    /// proved driver uses the 15F service and may never write those decisions locally.
     ///
-    /// Deliberately a second property instead of a reuse of the financial one. They
-    /// answer alike today only because both backends are missing; coverage may well
-    /// arrive before settlement, and when it does exactly one of them flips.
-    var canSimulateOperationalCoordination: Bool { !runsAgainstStation }
+    /// Deliberately a second property instead of a reuse of the financial one: coverage
+    /// now has a backend while settlement does not, so these capabilities intentionally
+    /// answer differently for a real TEST driver.
+    var canSimulateOperationalCoordination: Bool {
+        !runsAgainstStation && !usesBackendCoverageCycle
+    }
 
     /// The capability the coverage board operates under for the open session.
     ///
@@ -588,6 +588,14 @@ final class FleetStore {
     /// 15E gives authenticated drivers a real station receiver for incidents. It follows
     /// the same TEST/PROD routing as shifts without changing the demonstration workflow.
     var usesBackendIncidentCycle: Bool {
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
+    }
+
+    /// 15F routes every absence and guard decision from a proved driver through the
+    /// station service. TEST uses the same authoritative path as production while demo
+    /// credentials retain the original local coverage engine.
+    var usesBackendCoverageCycle: Bool {
         guard isBackendSession, currentPrincipal?.role == .driver else { return false }
         return runsAgainstStation || isBackendTestSession
     }

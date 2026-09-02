@@ -16,6 +16,9 @@ private final class BackendAssignmentStore {
     var assignments: [SupabaseAssignmentService.AssignmentRow] = []
     var activeShifts: [SupabaseShiftService.ShiftRow] = []
     var incidents: [SupabaseIncidentService.IncidentRow] = []
+    var absences: [SupabaseCoverageService.AbsenceRow] = []
+    var coverageVacancies: [SupabaseCoverageService.VacancyRow] = []
+    var coverageClaims: [SupabaseCoverageService.ClaimRow] = []
     var selectedDriverId: UUID?
     var selectedVehicleId: UUID?
     var kind: AssignedUnitKind = .titular
@@ -23,6 +26,7 @@ private final class BackendAssignmentStore {
     var isLoading = false
     var isAssigning = false
     var updatingIncidentId: UUID?
+    var updatingCoverageId: UUID?
     var errorMessage: String?
     var successMessage: String?
 
@@ -85,6 +89,26 @@ private final class BackendAssignmentStore {
             ?? incident.vehicle_id.uuidString
     }
 
+    var openCoverageVacancies: [SupabaseCoverageService.VacancyRow] {
+        coverageVacancies.filter { ["searching", "reserved", "confirmed"].contains($0.status) }
+    }
+
+    func absence(for vacancy: SupabaseCoverageService.VacancyRow) -> SupabaseCoverageService.AbsenceRow? {
+        guard let absenceId = vacancy.absence_id else { return nil }
+        return absences.first { $0.id == absenceId }
+    }
+
+    func winner(for vacancy: SupabaseCoverageService.VacancyRow) -> SupabaseCoverageService.ClaimRow? {
+        coverageClaims.first {
+            $0.vacancy_id == vacancy.id && ["won", "approved"].contains($0.status)
+        }
+    }
+
+    func driverLabel(for claim: SupabaseCoverageService.ClaimRow) -> String {
+        drivers.first { $0.id == claim.driver_profile_id }?.employee_number
+            ?? claim.driver_profile_id.uuidString
+    }
+
     func load() async {
         guard !isLoading else { return }
         guard let stationId = principal.stationId else {
@@ -106,16 +130,23 @@ private final class BackendAssignmentStore {
             async let incidentsRequest = SupabaseIncidentService.loadStationIncidents(
                 stationId: stationId
             )
-            let (snapshot, shifts, stationIncidents) = try await (
+            async let coverageRequest = SupabaseCoverageService.loadStationSnapshot(
+                stationId: stationId
+            )
+            let (snapshot, shifts, stationIncidents, stationCoverage) = try await (
                 snapshotRequest,
                 shiftsRequest,
-                incidentsRequest
+                incidentsRequest,
+                coverageRequest
             )
             drivers = snapshot.drivers
             vehicles = snapshot.vehicles
             assignments = snapshot.assignments
             activeShifts = shifts
             incidents = stationIncidents
+            absences = stationCoverage.absences
+            coverageVacancies = stationCoverage.vacancies
+            coverageClaims = stationCoverage.claims
 
             if selectedDriverId == nil || !drivers.contains(where: { $0.id == selectedDriverId }) {
                 selectedDriverId = drivers.first?.id
@@ -187,6 +218,52 @@ private final class BackendAssignmentStore {
         }
     }
 
+    func approveGuard(_ vacancy: SupabaseCoverageService.VacancyRow) async {
+        guard updatingCoverageId == nil else { return }
+        updatingCoverageId = vacancy.id
+        errorMessage = nil
+        successMessage = nil
+        defer { updatingCoverageId = nil }
+
+        do {
+            let updated = try await SupabaseCoverageService.approve(
+                vacancy: vacancy,
+                note: "Reemplazo confirmado por supervisión",
+                idempotencyKey: "ios-supervisor-guard-\(UUID().uuidString.lowercased())"
+            )
+            successMessage = "\(updated.folio) quedó confirmada."
+            await load()
+        } catch {
+            errorMessage = SupabaseCoverageService.userMessage(for: error)
+        }
+    }
+
+    func resolveAbsence(
+        _ absence: SupabaseCoverageService.AbsenceRow,
+        approved: Bool
+    ) async {
+        guard updatingCoverageId == nil else { return }
+        updatingCoverageId = absence.id
+        errorMessage = nil
+        successMessage = nil
+        defer { updatingCoverageId = nil }
+
+        do {
+            let updated = try await SupabaseCoverageService.resolve(
+                absence: absence,
+                decision: approved ? "approved" : "rejected",
+                note: approved
+                    ? "Ausencia autorizada con cobertura confirmada."
+                    : "Ausencia no autorizada por supervisión.",
+                idempotencyKey: "ios-supervisor-absence-\(UUID().uuidString.lowercased())"
+            )
+            successMessage = "\(updated.folio) quedó \(approved ? "autorizada" : "rechazada")."
+            await load()
+        } catch {
+            errorMessage = SupabaseCoverageService.userMessage(for: error)
+        }
+    }
+
 }
 
 struct BackendSupervisorAssignmentView: View {
@@ -206,6 +283,11 @@ struct BackendSupervisorAssignmentView: View {
                     statusCard
                     activeShiftsCard
                     incidentsCard
+                    coverageCard
+                    Text("ASIGNACIÓN DE UNIDAD")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(Palette.textMuted)
+                        .padding(.top, 4)
                     driverPicker
                     currentCard
                     kindPicker
@@ -216,7 +298,7 @@ struct BackendSupervisorAssignmentView: View {
                 .padding(18)
             }
             .background(Palette.canvas.ignoresSafeArea())
-            .navigationTitle("Asignar unidad")
+            .navigationTitle("Supervisión TEST")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cerrar sesión") { fleet.signOut() }
@@ -301,6 +383,109 @@ struct BackendSupervisorAssignmentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .panel()
+    }
+
+    private var coverageCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("COBERTURA Y GUARDIAS")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("\(model.openCoverageVacancies.count)")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(model.openCoverageVacancies.isEmpty ? Palette.textMuted : Palette.amber)
+            }
+
+            if model.openCoverageVacancies.isEmpty {
+                Text("No hay vacantes de cobertura abiertas.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.openCoverageVacancies) { vacancy in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(vacancy.folio)
+                                .font(.subheadline.weight(.bold))
+                            Spacer()
+                            Text(coverageStatus(vacancy.status))
+                                .font(.system(size: 9, weight: .black))
+                                .foregroundStyle(vacancy.status == "confirmed" ? Palette.volt : Palette.amber)
+                        }
+                        Text("\(vacancy.operating_date) · \(ShiftSlot(rawValue: vacancy.shift_slot)?.label ?? vacancy.shift_slot)")
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+
+                        if let winner = model.winner(for: vacancy) {
+                            Text("Ganador: \(model.driverLabel(for: winner))")
+                                .font(.caption2)
+                                .foregroundStyle(Palette.textMuted)
+                        } else {
+                            Text("Esperando que un conductor elegible la tome.")
+                                .font(.caption2)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+
+                        if vacancy.status == "reserved" {
+                            BigButton(
+                                title: model.updatingCoverageId == vacancy.id
+                                    ? "Confirmando…" : "Aprobar reemplazo",
+                                symbol: "person.fill.checkmark",
+                                isEnabled: model.updatingCoverageId == nil
+                            ) {
+                                Task { await model.approveGuard(vacancy) }
+                            }
+                        }
+
+                        if vacancy.status == "confirmed",
+                           let absence = model.absence(for: vacancy),
+                           absence.status == "awaiting_authorization" {
+                            HStack(spacing: 8) {
+                                Button {
+                                    Task { await model.resolveAbsence(absence, approved: true) }
+                                } label: {
+                                    Label("Autorizar ausencia", systemImage: "checkmark.seal.fill")
+                                        .font(.caption.weight(.bold))
+                                        .frame(maxWidth: .infinity, minHeight: 40)
+                                        .background(Palette.volt, in: .rect(cornerRadius: 12))
+                                        .foregroundStyle(Palette.canvas)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(model.updatingCoverageId != nil)
+
+                                Button {
+                                    Task { await model.resolveAbsence(absence, approved: false) }
+                                } label: {
+                                    Text("Rechazar")
+                                        .font(.caption.weight(.bold))
+                                        .frame(maxWidth: .infinity, minHeight: 40)
+                                        .background(Color.red.opacity(0.14), in: .rect(cornerRadius: 12))
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(model.updatingCoverageId != nil)
+                            }
+                        }
+                    }
+
+                    if vacancy.id != model.openCoverageVacancies.last?.id {
+                        Divider().overlay(Palette.hairline)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private func coverageStatus(_ raw: String) -> String {
+        switch raw {
+        case "searching": "ABIERTA"
+        case "reserved": "POR APROBAR"
+        case "confirmed": "CONFIRMADA"
+        default: raw.uppercased()
+        }
     }
 
     private var activeShiftsCard: some View {

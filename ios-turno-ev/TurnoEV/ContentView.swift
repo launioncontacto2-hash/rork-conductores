@@ -191,7 +191,8 @@ struct RootTabView: View {
     ///
     /// So this count moves when the board moves, never when the hour does.
     private var availableGuardCount: Int {
-        coverage.availableGuards(for: coverage.profile(for: store.driver)).count
+        guard !store.usesBackendCoverageCycle else { return 0 }
+        return coverage.availableGuards(for: coverage.profile(for: store.driver)).count
     }
 
     var body: some View {
@@ -205,7 +206,12 @@ struct RootTabView: View {
                         ShiftView()
                     }
                     Tab(value: 1) {
-                        DriverShiftsView()
+                        if let principal = store.currentPrincipal,
+                           store.usesBackendCoverageCycle {
+                            BackendDriverCoverageView(principal: principal)
+                        } else {
+                            DriverShiftsView()
+                        }
                     } label: {
                         Label("Turnos", systemImage: "calendar")
                     }
