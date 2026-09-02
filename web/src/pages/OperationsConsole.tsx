@@ -40,8 +40,19 @@ interface Vehicle {
 
 interface Driver {
   id: string;
+  profile_id: string;
   employee_number: string;
   status: string;
+  shift_group: string | null;
+  shift_slot: string | null;
+}
+
+interface Device {
+  id: string;
+  profile_id: string;
+  platform: "ios" | "web" | "android";
+  app_version: string | null;
+  last_seen_at: string;
 }
 
 interface Assignment {
@@ -67,7 +78,7 @@ interface ConsoleSnapshot {
   drivers: Driver[];
   assignments: Assignment[];
   shifts: OpenShift[];
-  activeDevices: number;
+  devices: Device[];
 }
 
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
@@ -82,6 +93,14 @@ const statusLabel: Record<Vehicle["status"], string> = {
   available: "Disponible",
   occupied: "Asignada",
   maintenance: "Taller",
+};
+
+const deviceIsConnected = (lastSeenAt: string) => Date.now() - new Date(lastSeenAt).getTime() <= 125_000;
+
+const platformLabel: Record<Device["platform"], string> = {
+  ios: "iPhone",
+  web: "Navegador",
+  android: "Android",
 };
 
 const OperationsConsole = () => {
@@ -99,10 +118,10 @@ const OperationsConsole = () => {
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
         supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
-        supabase.from("driver_profiles").select("id,employee_number,status").eq("station_id", stationId).order("employee_number"),
+        supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
         supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,assigned_at").eq("station_id", stationId),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at").eq("station_id", stationId).eq("status", "open").order("started_at"),
-        supabase.from("devices").select("id", { count: "exact", head: true }),
+        supabase.from("devices").select("id,profile_id,platform,app_version,last_seen_at").order("last_seen_at", { ascending: false }),
       ]);
       return {
         live: requireData(live) as StationLive | null,
@@ -111,7 +130,7 @@ const OperationsConsole = () => {
         drivers: (requireData(drivers) ?? []) as Driver[],
         assignments: (requireData(assignments) ?? []) as Assignment[],
         shifts: (requireData(shifts) ?? []) as OpenShift[],
-        activeDevices: devices.error ? 0 : devices.count ?? 0,
+        devices: (requireData(devices) ?? []) as Device[],
       };
     },
   });
@@ -120,7 +139,9 @@ const OperationsConsole = () => {
 
   const data = snapshot.data;
   const driverById = new Map(data?.drivers.map((driver) => [driver.id, driver]) ?? []);
+  const driverByProfileId = new Map(data?.drivers.map((driver) => [driver.profile_id, driver]) ?? []);
   const vehicleById = new Map(data?.vehicles.map((vehicle) => [vehicle.id, vehicle]) ?? []);
+  const connectedDevices = data?.devices.filter((device) => deviceIsConnected(device.last_seen_at)).length ?? 0;
   const cards = [
     { label: "Turnos activos", value: data?.live?.active_shifts ?? "—", icon: Activity, tone: "text-primary" },
     { label: "Conductores presentes", value: data?.live?.present_drivers ?? "—", icon: Users, tone: "text-cyan-300" },
@@ -200,7 +221,7 @@ const OperationsConsole = () => {
             <CardHeader><CardTitle className="text-lg">Estado de estación</CardTitle><CardDescription>Capacidad y conectividad observada.</CardDescription></CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
               <div className="panel-flat flex items-center justify-between p-4"><span className="text-sm text-muted-foreground">Capacidad autorizada</span><strong className="tabular">{data?.capacity ?? "—"}</strong></div>
-              <div className="panel-flat flex items-center justify-between p-4"><span className="text-sm text-muted-foreground">Navegadores/dispositivos</span><strong className="tabular">{data?.activeDevices ?? "—"}</strong></div>
+              <div className="panel-flat flex items-center justify-between p-4"><span className="text-sm text-muted-foreground">Dispositivos conectados</span><strong className="tabular">{connectedDevices}/{data?.devices.length ?? "—"}</strong></div>
               <div className="panel-flat flex items-center justify-between p-4"><span className="text-sm text-muted-foreground">Último evento</span><strong className="text-xs">{data?.live?.updated_at ? formatTime(data.live.updated_at, identity.station_timezone) : "—"}</strong></div>
             </CardContent>
           </Card>
@@ -225,6 +246,40 @@ const OperationsConsole = () => {
                     </TableRow>
                   );
                 })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card className="panel">
+          <CardHeader>
+            <CardTitle className="text-lg">Actividad de dispositivos</CardTitle>
+            <CardDescription>El estado conectado exige un heartbeat recibido durante los últimos 125 segundos.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader><TableRow><TableHead>Identidad</TableHead><TableHead>Plataforma</TableHead><TableHead>Versión</TableHead><TableHead>Última actividad</TableHead><TableHead>Conexión</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {data?.devices.map((device) => {
+                  const connected = deviceIsConnected(device.last_seen_at);
+                  const owner = device.profile_id === identity.profile_id
+                    ? identity.employee_number
+                    : driverByProfileId.get(device.profile_id)?.employee_number ?? "Personal de estación";
+                  return (
+                    <TableRow key={device.id}>
+                      <TableCell className="font-bold">{owner}</TableCell>
+                      <TableCell>{platformLabel[device.platform]}</TableCell>
+                      <TableCell>{device.app_version ?? "—"}</TableCell>
+                      <TableCell>{formatTime(device.last_seen_at, identity.station_timezone)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={connected ? "border-emerald-400/40 text-emerald-300" : "text-muted-foreground"}>
+                          {connected ? "Conectado" : "Sin pulso reciente"}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {!data?.devices.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay dispositivos registrados en la estación.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>

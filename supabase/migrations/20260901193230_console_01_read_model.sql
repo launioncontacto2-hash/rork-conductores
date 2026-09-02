@@ -35,6 +35,15 @@ USING (
     )
 );
 
+DROP POLICY IF EXISTS staff_memberships_supervisor_driver_read
+ON public.staff_memberships;
+CREATE POLICY staff_memberships_supervisor_driver_read
+ON public.staff_memberships FOR SELECT TO authenticated
+USING (
+    role = 'driver'
+    AND app.auth_has_role('supervisor', station_id)
+);
+
 DROP POLICY IF EXISTS assignments_station_staff_read ON public.assignments;
 CREATE POLICY assignments_station_staff_read
 ON public.assignments FOR SELECT TO authenticated
@@ -255,15 +264,43 @@ WHERE p.id = app.auth_profile_id()
   AND (m.ends_at IS NULL OR m.ends_at > app.auth_env_now(m.environment_id))
   AND s.status = 'active';
 
+CREATE VIEW public.console_drivers
+WITH (security_invoker = true)
+AS
+SELECT
+    dp.id,
+    dp.environment_id,
+    dp.station_id,
+    dp.profile_id,
+    dp.employee_number,
+    dp.status,
+    dp.revision,
+    m.id AS membership_id,
+    m.shift_group,
+    m.shift_slot,
+    m.starts_at,
+    m.ends_at
+FROM public.driver_profiles dp
+JOIN public.staff_memberships m
+  ON m.id = dp.membership_id
+ AND m.environment_id = dp.environment_id
+ AND m.station_id = dp.station_id
+WHERE m.role = 'driver'
+  AND m.starts_at <= app.auth_env_now(m.environment_id)
+  AND (m.ends_at IS NULL OR m.ends_at > app.auth_env_now(m.environment_id));
+
 REVOKE ALL ON TABLE public.station_capacity_current FROM anon, authenticated;
 REVOKE ALL ON TABLE public.assignment_current FROM anon, authenticated;
 REVOKE ALL ON TABLE public.console_identity FROM anon, authenticated;
+REVOKE ALL ON TABLE public.console_drivers FROM anon, authenticated;
 GRANT SELECT ON TABLE public.station_capacity_current TO authenticated;
 GRANT SELECT ON TABLE public.assignment_current TO authenticated;
 GRANT SELECT ON TABLE public.console_identity TO authenticated;
+GRANT SELECT ON TABLE public.console_drivers TO authenticated;
 GRANT ALL ON TABLE public.station_capacity_current TO postgres, service_role;
 GRANT ALL ON TABLE public.assignment_current TO postgres, service_role;
 GRANT ALL ON TABLE public.console_identity TO postgres, service_role;
+GRANT ALL ON TABLE public.console_drivers TO postgres, service_role;
 
 -- ---------------------------------------------------------------------
 -- 2. Dispositivos y heartbeat autenticado

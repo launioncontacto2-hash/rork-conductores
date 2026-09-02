@@ -1,12 +1,13 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(32);
+SELECT plan(35);
 
 SELECT has_table('public', 'station_capacity_grants', 'existe capacidad versionada');
 SELECT has_view('public', 'station_capacity_current', 'existe la vista de capacidad vigente');
 SELECT has_view('public', 'assignment_current', 'existe la vista de asignacion vigente');
 SELECT has_view('public', 'console_identity', 'existe la identidad vigente de consola');
+SELECT has_view('public', 'console_drivers', 'existe la lista de conductores con membresia vigente');
 SELECT has_table('public', 'devices', 'existe el registro de dispositivos');
 SELECT has_function(
     'public', 'touch_device', ARRAY['text', 'uuid', 'text', 'text'],
@@ -36,6 +37,14 @@ SELECT is(
      WHERE n.nspname = 'public' AND c.relname = 'console_identity'),
     true,
     'console_identity respeta RLS de identidad, membresia y estacion'
+);
+
+SELECT is(
+    (SELECT 'security_invoker=true' = ANY (coalesce(c.reloptions, ARRAY[]::text[]))
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = 'console_drivers'),
+    true,
+    'console_drivers respeta RLS de perfiles y membresias'
 );
 
 SELECT is(
@@ -399,6 +408,15 @@ SELECT results_eq(
     $sql$,
     $sql$ VALUES ('supervisor'::text, 'console-01-station'::text) $sql$,
     'la consola resuelve una membresia supervisora vigente con reloj TEST'
+);
+
+SELECT results_eq(
+    $sql$
+        SELECT employee_number, shift_group, shift_slot
+        FROM public.console_drivers
+    $sql$,
+    $sql$ VALUES ('CONSOLE-DRIVER'::text, 'weekday'::text, 'morning'::text) $sql$,
+    'la consola entrega solo conductores vigentes de la estacion autorizada'
 );
 
 SELECT is(
