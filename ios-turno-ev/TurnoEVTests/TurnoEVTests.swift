@@ -1673,6 +1673,8 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.usesBackendShiftCycle)
         #expect(bench.store.canRunShiftCycle)
         #expect(bench.store.shiftCapability == .stationRequired)
+        #expect(bench.store.usesBackendIncidentCycle)
+        #expect(!bench.store.canReportIncident)
         #expect(bench.store.operationalCapability == .localWorkflow)
     }
 

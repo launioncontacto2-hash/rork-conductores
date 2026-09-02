@@ -1315,3 +1315,93 @@ enum SupabaseShiftService {
             .value
     }
 }
+
+// MARK: - 15E incident lifecycle
+
+/// Authenticated contract for incident reports. The server derives identity, vehicle,
+/// station, severity and timestamp from the signed-in driver's open shift; the phone only
+/// sends the human observation and an idempotency key.
+@MainActor
+enum SupabaseIncidentService {
+    nonisolated struct IncidentRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let shift_id: UUID
+        let vehicle_id: UUID
+        let reported_by: UUID
+        let folio: String
+        let kind: String
+        let severity: String
+        let description: String
+        let status: String
+        let resolution_note: String?
+        let revision: Int64
+        let reported_at: Date
+        let closed_at: Date?
+    }
+
+    nonisolated struct ReportParameters: Encodable, Sendable {
+        let p_shift_id: UUID
+        let p_kind: String
+        let p_description: String
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "El turno no tiene un identificador válido."
+            }
+        }
+    }
+
+    private static let columns = """
+        id,station_id,shift_id,vehicle_id,reported_by,folio,kind,severity,
+        description,status,resolution_note,revision,reported_at,closed_at
+        """
+
+    static func loadDriverIncidents(profileId: String) async throws -> [IncidentRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: profileId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let rows: [IncidentRow] = try await client
+            .from("incidents")
+            .select(columns)
+            .eq("reported_by", value: profileId)
+            .order("reported_at", ascending: false)
+            .execute()
+            .value
+
+        return rows
+    }
+
+    static func report(
+        shiftId: String,
+        kind: IncidentKind,
+        description: String,
+        idempotencyKey: String
+    ) async throws -> IncidentRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard let shiftUUID = UUID(uuidString: shiftId) else {
+            throw ServiceError.invalidIdentifier
+        }
+
+        let parameters = ReportParameters(
+            p_shift_id: shiftUUID,
+            p_kind: kind.rawValue,
+            p_description: description,
+            p_idempotency_key: idempotencyKey,
+            p_install_id: SupabaseDriverDeviceService.installId
+        )
+
+        return try await client
+            .rpc("report_incident", params: parameters)
+            .execute()
+            .value
+    }
+}

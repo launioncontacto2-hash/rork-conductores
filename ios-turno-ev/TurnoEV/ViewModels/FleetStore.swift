@@ -44,6 +44,14 @@ nonisolated enum BackendShiftContractError: LocalizedError, Sendable {
     }
 }
 
+nonisolated enum BackendIncidentContractError: LocalizedError, Sendable {
+    case invalidPayload
+
+    var errorDescription: String? {
+        "La incidencia remota contiene un tipo o estado desconocido."
+    }
+}
+
 /// Single source of truth for the driver session, the active shift and every log.
 /// Persists to `UserDefaults` so a reopened app keeps the shift running.
 @Observable
@@ -318,6 +326,46 @@ final class FleetStore {
         )
     }
 
+    /// Pulls only reports owned by the authenticated driver. RLS repeats this boundary
+    /// in PostgreSQL; the explicit profile filter keeps the wire payload equally narrow.
+    func refreshBackendIncidents() async throws {
+        guard let principal = currentPrincipal, principal.role == .driver else { return }
+
+        let rows = try await SupabaseIncidentService.loadDriverIncidents(
+            profileId: principal.profileId
+        )
+        incidents = rows.compactMap { row in
+            guard let kind = IncidentKind(rawValue: row.kind),
+                  let status = IncidentStatus(rawValue: row.status) else { return nil }
+
+            let vehicleId = row.vehicle_id.uuidString
+            let retainedPhotos = incidents.first {
+                $0.id.caseInsensitiveCompare(row.id.uuidString) == .orderedSame
+            }?.photos ?? []
+            let vehicleNumber = vehicles.first {
+                $0.id.caseInsensitiveCompare(vehicleId) == .orderedSame
+            }?.internalNumber ?? unitAssignment.flatMap {
+                $0.vehicleId.caseInsensitiveCompare(vehicleId) == .orderedSame
+                    ? $0.vehicleNumber
+                    : nil
+            } ?? "—"
+
+            return Incident(
+                id: row.id.uuidString,
+                driverId: row.reported_by.uuidString,
+                vehicleId: vehicleId,
+                vehicleInternalNumber: vehicleNumber,
+                kind: kind,
+                createdAt: row.reported_at,
+                description: row.description,
+                photos: retainedPhotos,
+                status: status,
+                origin: .backend
+            )
+        }
+        persist()
+    }
+
     /// Refreshes both pieces in dependency order: an open shift is scoped by the active
     /// assignment, so the assignment row must be resolved first.
     func refreshBackendOperationalState() async throws {
@@ -328,6 +376,7 @@ final class FleetStore {
         // mutated and the root router closes this local session.
         try await SupabaseDriverDeviceService.heartbeat()
         try await refreshBackendAssignment()
+        try await refreshBackendIncidents()
         guard let assignment = unitAssignment else {
             if activeShift?.origin == .backend { activeShift = nil }
             backendShiftRevision = nil
@@ -524,8 +573,8 @@ final class FleetStore {
     /// saw, feeding a history, a settlement and four bonuses.
     var canRunOperationalCycle: Bool { !runsAgainstStation }
 
-    /// The driver cycle now has a real station service. Incidents deliberately continue
-    /// to use `canRunOperationalCycle`, because their backend belongs to 15E.
+    /// The driver shift cycle has a real station service. Each later operational module
+    /// gets its own capability so enabling incidents never enables unfinished services.
     ///
     /// A backend identity tied to the shared TEST environment is authoritative too. The
     /// local `environment` flag only selects the shared logical clock; it must never turn
@@ -534,6 +583,20 @@ final class FleetStore {
     var usesBackendShiftCycle: Bool {
         guard isBackendSession, currentPrincipal?.role == .driver else { return false }
         return runsAgainstStation || isBackendTestSession
+    }
+
+    /// 15E gives authenticated drivers a real station receiver for incidents. It follows
+    /// the same TEST/PROD routing as shifts without changing the demonstration workflow.
+    var usesBackendIncidentCycle: Bool {
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
+    }
+
+    var canReportIncident: Bool {
+        if usesBackendIncidentCycle {
+            return activeShift?.origin == .backend
+        }
+        return canRunOperationalCycle
     }
 
     var canRunShiftCycle: Bool {
@@ -1712,6 +1775,12 @@ final class FleetStore {
     /// The screen stays open and the photographs stay capturable — as a draft the caller
     /// holds, never as `incidents`, which is the list that means "reported".
     func reportIncident(kind: IncidentKind, description: String, photos: [Data]) throws {
+        // Authenticated TEST and PROD identities must cross `report_incident`; keeping
+        // this synchronous writer private to demonstrations prevents a future caller
+        // from bypassing the async authority router by mistake.
+        guard !usesBackendIncidentCycle else {
+            throw OperationalMutationError.backendRequired
+        }
         guard canRunOperationalCycle else { throw OperationalMutationError.backendRequired }
         let vehicle = activeVehicle ?? vehicles.first
         let incident = Incident(
@@ -1733,6 +1802,68 @@ final class FleetStore {
             body: "Tu reporte de \(kind.label.lowercased()) quedó en revisión."
         )
         persist()
+    }
+
+    /// Reports through the station in an authenticated session, or preserves the original
+    /// local demonstration behavior. A successful RPC is adopted only after the server
+    /// returns the authoritative identifier, folio and timestamp.
+    @discardableResult
+    func reportAvailableIncident(
+        kind: IncidentKind,
+        description: String,
+        photos: [Data],
+        idempotencyKey: String
+    ) async throws -> Incident {
+        guard usesBackendIncidentCycle else {
+            try reportIncident(kind: kind, description: description, photos: photos)
+            guard let incident = incidents.first else {
+                throw OperationalMutationError.backendRequired
+            }
+            return incident
+        }
+
+        guard let shift = activeShift, shift.origin == .backend else {
+            throw OperationalMutationError.unauthoritativeShift
+        }
+
+        let row = try await SupabaseIncidentService.report(
+            shiftId: shift.id,
+            kind: kind,
+            description: description,
+            idempotencyKey: idempotencyKey
+        )
+        guard let remoteKind = IncidentKind(rawValue: row.kind),
+              let remoteStatus = IncidentStatus(rawValue: row.status) else {
+            throw BackendIncidentContractError.invalidPayload
+        }
+
+        let vehicleNumber = vehicles.first {
+            $0.id.caseInsensitiveCompare(row.vehicle_id.uuidString) == .orderedSame
+        }?.internalNumber ?? unitAssignment?.vehicleNumber ?? "—"
+        let incident = Incident(
+            id: row.id.uuidString,
+            driverId: row.reported_by.uuidString,
+            vehicleId: row.vehicle_id.uuidString,
+            vehicleInternalNumber: vehicleNumber,
+            kind: remoteKind,
+            createdAt: row.reported_at,
+            description: row.description,
+            photos: photos,
+            status: remoteStatus,
+            origin: .backend
+        )
+
+        incidents.removeAll {
+            $0.id.caseInsensitiveCompare(incident.id) == .orderedSame
+        }
+        incidents.insert(incident, at: 0)
+        pushNotice(
+            kind: .station,
+            title: "Incidencia recibida por la estación",
+            body: "El reporte (row.folio) quedó abierto para supervisión y taller."
+        )
+        persist()
+        return incident
     }
 
     /// Closes the open shift: files the record, releases the unit and returns the summary.

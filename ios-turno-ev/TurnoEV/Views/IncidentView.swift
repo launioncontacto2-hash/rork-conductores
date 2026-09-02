@@ -11,6 +11,7 @@ struct IncidentView: View {
     @State private var photos: [Data?] = [nil, nil, nil]
     @State private var errorMessage: String?
     @State private var areDocumentsPresented: Bool = false
+    @State private var isSubmitting: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -63,7 +64,7 @@ struct IncidentView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .panelFlat()
 
-                        if !store.canRunOperationalCycle {
+                        if !store.canReportIncident {
                             disconnectedBanner
                         }
 
@@ -77,16 +78,18 @@ struct IncidentView: View {
                         // the evidence gathered, but the button never says "enviar" when
                         // nothing is on the other end to receive it.
                         BigButton(
-                            title: store.canRunOperationalCycle
-                                ? "Enviar reporte"
-                                : "El envío requiere conexión",
-                            symbol: store.canRunOperationalCycle
+                            title: isSubmitting
+                                ? "Enviando reporte…"
+                                : (store.canReportIncident
+                                    ? "Enviar reporte"
+                                    : "El envío requiere conexión"),
+                            symbol: store.canReportIncident
                                 ? "paperplane.fill"
                                 : "antenna.radiowaves.left.and.right.slash",
-                            tone: store.canRunOperationalCycle ? .danger : .outline,
-                            isEnabled: store.canRunOperationalCycle
+                            tone: store.canReportIncident ? .danger : .outline,
+                            isEnabled: store.canReportIncident && !isSubmitting
                         ) {
-                            submit()
+                            Task { await submit() }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -125,17 +128,25 @@ struct IncidentView: View {
             HStack(spacing: 8) {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .font(.system(size: 12, weight: .bold))
-                Text("Reporte sin enviar")
+                Text(store.usesBackendIncidentCycle ? "Turno requerido" : "Reporte sin enviar")
                     .font(.system(.footnote, weight: .black))
             }
             .foregroundStyle(Palette.amber)
 
-            Text(OperationalMutationError.backendRequired.errorDescription ?? "")
+            Text(
+                store.usesBackendIncidentCycle
+                    ? "Para vincular la incidencia con el conductor y la unidad correctos, primero debe existir un turno abierto."
+                    : (OperationalMutationError.backendRequired.errorDescription ?? "")
+            )
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("Lo que captures aquí queda en tu dispositivo como borrador. Para una incidencia en curso, comunícate con tu supervisor de estación.")
+            Text(
+                store.usesBackendIncidentCycle
+                    ? "Inicia el turno y vuelve a esta pantalla; la estación recibirá el reporte en cuanto lo envíes."
+                    : "Lo que captures aquí queda en tu dispositivo como borrador. Para una incidencia en curso, comunícate con tu supervisor de estación."
+            )
                 .font(.system(size: 11))
                 .foregroundStyle(Palette.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -248,14 +259,25 @@ struct IncidentView: View {
         .buttonStyle(.plain)
     }
 
-    private func submit() {
+    @MainActor
+    private func submit() async {
         let text = comments.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.count >= 10 else {
             errorMessage = "Describe la incidencia con al menos una frase."
             return
         }
+
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+
         do {
-            try store.reportIncident(kind: kind, description: text, photos: photos.compactMap { $0 })
+            try await store.reportAvailableIncident(
+                kind: kind,
+                description: text,
+                photos: photos.compactMap { $0 },
+                idempotencyKey: "incident-\(UUID().uuidString.lowercased())"
+            )
         } catch {
             let failure = error as? OperationalMutationError
             errorMessage = failure?.errorDescription
