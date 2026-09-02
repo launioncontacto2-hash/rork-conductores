@@ -14,7 +14,8 @@ $allowedBranches = @(
     '15D-test-clock-rpc-fix',
     'console-01-backend',
     'fix/console-test-clock-control',
-    '16A-driver-device-sessions'
+    '16A-driver-device-sessions',
+    'fix/16a-migration-history-alignment'
 )
 
 function Write-Step {
