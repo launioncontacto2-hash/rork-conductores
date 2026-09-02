@@ -1,7 +1,7 @@
 -- Provisionamiento idempotente de Conductor TEST 002.
 --
 -- Requisito previo: crear en Supabase Auth, desde el Dashboard de TEST, el usuario
--- test.driver.002@joramza.test con una contrasena que nunca se copie a Git ni a este SQL.
+-- test.002@joramza.test con una contrasena que nunca se copie a Git ni a este SQL.
 -- Este archivo solo enlaza esa identidad Auth con el dominio operativo existente.
 
 BEGIN;
@@ -18,10 +18,10 @@ BEGIN
     SELECT u.id
     INTO v_auth_user_id
     FROM auth.users u
-    WHERE lower(u.email) = 'test.driver.002@joramza.test';
+    WHERE lower(u.email) = 'test.002@joramza.test';
 
     IF v_auth_user_id IS NULL THEN
-        RAISE EXCEPTION 'auth_user_test_driver_002_required'
+        RAISE EXCEPTION 'auth_user_test_002_required'
             USING ERRCODE = 'P0002';
     END IF;
 

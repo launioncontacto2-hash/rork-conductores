@@ -663,8 +663,10 @@ struct LoginView: View {
         // ====================================================
 
         let backendTestEmails: Set<String> = [
+            "test.001@joramza.test",
+            "test.002@joramza.test",
+            // Alias temporal mientras el usuario Auth existente se renombra a test.001.
             "test.driver@joramza.test",
-            "test.driver.002@joramza.test",
             "test.supervisor@joramza.test"
         ]
 
