@@ -323,6 +323,10 @@ final class FleetStore {
     func refreshBackendOperationalState() async throws {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
+        // This is both a heartbeat and the handoff detector. If the same credential was
+        // used on another phone, the server refuses before any operational row is read or
+        // mutated and the root router closes this local session.
+        try await SupabaseDriverDeviceService.heartbeat()
         try await refreshBackendAssignment()
         guard let assignment = unitAssignment else {
             if activeShift?.origin == .backend { activeShift = nil }

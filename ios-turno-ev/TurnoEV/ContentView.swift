@@ -49,7 +49,34 @@ struct ContentView: View {
                 do {
                     try await store.refreshBackendOperationalState()
                 } catch {
+                    if SupabaseDriverDeviceService.isSessionReplacement(error) {
+                        store.signOut()
+                    }
                     print("[15D] No se pudo restaurar la operación: \(error.localizedDescription)")
+                }
+            }
+        }
+        // A second phone can take control while this one remains in the foreground.
+        // Polling only this tiny lease endpoint keeps that window below 20 seconds; it
+        // does not reload the assignment or the shift on every beat.
+        .task(id: store.session?.startedAt) {
+            guard store.currentPrincipal?.role == .driver else { return }
+
+            while !Task.isCancelled,
+                  store.currentPrincipal?.role == .driver {
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled else { return }
+
+                do {
+                    try await SupabaseDriverDeviceService.heartbeat()
+                } catch {
+                    if SupabaseDriverDeviceService.isSessionReplacement(error) {
+                        store.signOut()
+                        return
+                    }
+                    // A transient network failure never signs a driver out. The next beat
+                    // retries, while every protected mutation still verifies the lease.
+                    print("[16A] Heartbeat pendiente: \(error.localizedDescription)")
                 }
             }
         }
@@ -66,6 +93,9 @@ struct ContentView: View {
                 do {
                     try await store.refreshBackendOperationalState()
                 } catch {
+                    if SupabaseDriverDeviceService.isSessionReplacement(error) {
+                        store.signOut()
+                    }
                     print("[15D] No se pudo actualizar la operación: \(error.localizedDescription)")
                 }
             }
