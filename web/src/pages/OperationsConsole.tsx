@@ -104,7 +104,7 @@ const platformLabel: Record<Device["platform"], string> = {
 };
 
 const OperationsConsole = () => {
-  const { identity, realtimeConnections, signOut } = useConsoleAuth();
+  const { identity, realtimeConnections, refreshIdentity, signOut } = useConsoleAuth();
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -113,6 +113,11 @@ const OperationsConsole = () => {
     refetchOnWindowFocus: true,
     queryFn: async (): Promise<ConsoleSnapshot> => {
       if (!supabase || !identity) throw new Error("Supabase o la identidad no están disponibles.");
+      const currentIdentity = await refreshIdentity();
+      if (!currentIdentity) {
+        await signOut();
+        throw new Error("La membresía de la consola dejó de estar vigente.");
+      }
       const stationId = identity.station_id;
       const [live, capacity, vehicles, drivers, assignments, shifts, devices] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),

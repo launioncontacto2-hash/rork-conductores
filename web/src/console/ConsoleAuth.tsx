@@ -29,6 +29,16 @@ interface ConsoleAuthValue {
 const ConsoleAuthContext = createContext<ConsoleAuthValue | null>(null);
 const CONSOLE_QUERY_PREFIX = "console";
 
+const sameIdentity = (left: ConsoleIdentity | null, right: ConsoleIdentity) =>
+  Boolean(
+    left &&
+      left.membership_id === right.membership_id &&
+      left.station_id === right.station_id &&
+      left.display_name === right.display_name &&
+      left.station_name === right.station_name &&
+      left.station_timezone === right.station_timezone,
+  );
+
 const getInstallId = (): string => {
   const key = "turnoev.console.install-id";
   const existing = window.sessionStorage.getItem(key);
@@ -56,9 +66,10 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
     const { data, error } = await supabase.from("console_identity").select("*").maybeSingle();
     if (error) throw new Error(error.message);
     const next = (data as ConsoleIdentity | null) ?? null;
-    setIdentity(next);
+    if (next) setIdentity((current) => (sameIdentity(current, next) ? current : next));
+    else clearConsole();
     return next;
-  }, []);
+  }, [clearConsole]);
 
   const signOut = useCallback(async () => {
     clearConsole();
@@ -181,4 +192,3 @@ export const useConsoleAuth = (): ConsoleAuthValue => {
   if (!value) throw new Error("useConsoleAuth debe usarse dentro de ConsoleAuthProvider");
   return value;
 };
-
