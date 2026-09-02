@@ -667,7 +667,8 @@ struct LoginView: View {
             "test.002@joramza.test",
             // Alias temporal mientras el usuario Auth existente se renombra a test.001.
             "test.driver@joramza.test",
-            "test.supervisor@joramza.test"
+            "test.supervisor@joramza.test",
+            "test.maintenance@joramza.test"
         ]
 
         if credentialMode == .email,

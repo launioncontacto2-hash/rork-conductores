@@ -1920,6 +1920,38 @@ struct OperationalCycleBoundaryTests {
 
 // MARK: - 15B.13.2.1 · environment transitions under one identity
 
+@MainActor
+struct BackendMaintenanceSessionTests {
+    @Test func maintenancePrincipalNeedsNoDriverSchedule() throws {
+        let suiteName = "turnoev.tests.maintenance.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+        let principal = SessionPrincipal(
+            authUserId: UUID().uuidString,
+            profileId: UUID().uuidString,
+            name: "Taller TEST 001",
+            employeeNumber: "MNT-TEST-001",
+            email: "test.maintenance@joramza.test",
+            role: .maintenance,
+            environmentId: LabEnvironment.sharedTestId,
+            stationId: UUID().uuidString,
+            stationCode: "PUE-TEST-01",
+            stationName: "Puebla Laboratorio 01",
+            shiftGroup: nil,
+            shiftSlot: nil
+        )
+
+        try store.signIn(principal: principal, method: .credentials)
+
+        #expect(store.currentPrincipal?.role == .maintenance)
+        #expect(store.hasAccess(to: .maintenance))
+        #expect(store.currentAccount == nil)
+    }
+}
+
 /// 15B.13.2.1 · the laboratory and the proved identity are one session, not two.
 ///
 /// Every case here runs on a single `FleetStore` instance against an isolated defaults
