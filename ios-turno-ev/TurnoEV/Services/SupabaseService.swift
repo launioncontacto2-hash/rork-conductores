@@ -801,7 +801,9 @@ enum SupabaseAuthProbe {
             throw ProbeError.noMembership
         }
 
-        guard membership.role == "driver" || membership.role == "supervisor" else {
+        guard membership.role == "driver"
+                || membership.role == "supervisor"
+                || membership.role == "maintenance" else {
             throw ProbeError.wrongRole(membership.role)
         }
 
@@ -1311,6 +1313,265 @@ enum SupabaseShiftService {
 
         return try await client
             .rpc("finish_shift_v2", params: parameters)
+            .execute()
+            .value
+    }
+}
+
+// MARK: - 15E incident lifecycle
+
+/// Authenticated contract for incident reports. The server derives identity, vehicle,
+/// station, severity and timestamp from the signed-in driver's open shift; the phone only
+/// sends the human observation and an idempotency key.
+@MainActor
+enum SupabaseIncidentService {
+    nonisolated struct IncidentRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let shift_id: UUID
+        let vehicle_id: UUID
+        let reported_by: UUID
+        let folio: String
+        let kind: String
+        let severity: String
+        let description: String
+        let status: String
+        let resolution_note: String?
+        let revision: Int64
+        let reported_at: Date
+        let closed_at: Date?
+    }
+
+    nonisolated struct ReportParameters: Encodable, Sendable {
+        let p_shift_id: UUID
+        let p_kind: String
+        let p_description: String
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    nonisolated struct UpdateParameters: Encodable, Sendable {
+        let p_incident_id: UUID
+        let p_expected_revision: Int64
+        let p_status: String
+        let p_note: String?
+        let p_idempotency_key: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "El turno no tiene un identificador válido."
+            }
+        }
+    }
+
+    private static let columns = """
+        id,station_id,shift_id,vehicle_id,reported_by,folio,kind,severity,
+        description,status,resolution_note,revision,reported_at,closed_at
+        """
+
+    static func loadDriverIncidents(profileId: String) async throws -> [IncidentRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: profileId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let rows: [IncidentRow] = try await client
+            .from("incidents")
+            .select(columns)
+            .eq("reported_by", value: profileId)
+            .order("reported_at", ascending: false)
+            .execute()
+            .value
+
+        return rows
+    }
+
+    static func loadStationIncidents(stationId: String) async throws -> [IncidentRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        return try await client
+            .from("incidents")
+            .select(columns)
+            .eq("station_id", value: stationId)
+            .order("reported_at", ascending: false)
+            .execute()
+            .value
+    }
+
+    static func report(
+        shiftId: String,
+        kind: IncidentKind,
+        description: String,
+        idempotencyKey: String
+    ) async throws -> IncidentRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard let shiftUUID = UUID(uuidString: shiftId) else {
+            throw ServiceError.invalidIdentifier
+        }
+
+        let parameters = ReportParameters(
+            p_shift_id: shiftUUID,
+            p_kind: kind.rawValue,
+            p_description: description,
+            p_idempotency_key: idempotencyKey,
+            p_install_id: SupabaseDriverDeviceService.installId
+        )
+
+        return try await client
+            .rpc("report_incident", params: parameters)
+            .execute()
+            .value
+    }
+
+    static func update(
+        incident: IncidentRow,
+        status: String,
+        note: String?,
+        idempotencyKey: String
+    ) async throws -> IncidentRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "update_incident",
+                params: UpdateParameters(
+                    p_incident_id: incident.id,
+                    p_expected_revision: incident.revision,
+                    p_status: status,
+                    p_note: note,
+                    p_idempotency_key: idempotencyKey
+                )
+            )
+            .execute()
+            .value
+    }
+}
+
+// MARK: - 15E workshop lifecycle
+
+/// Station-scoped workshop contract. RLS selects the maintenance technician's station;
+/// every mutation remains an authenticated, revision-checked and idempotent RPC.
+@MainActor
+enum SupabaseWorkshopService {
+    nonisolated struct WorkOrderRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let vehicle_id: UUID
+        let incident_id: UUID
+        let folio: String
+        let problem: String
+        let priority: String
+        let status: String
+        let estimated_minutes: Int
+        let work_done: String
+        let revision: Int64
+        let opened_at: Date
+        let closed_at: Date?
+    }
+
+    nonisolated struct OpenParameters: Encodable, Sendable {
+        let p_incident_id: UUID
+        let p_priority: String
+        let p_estimated_minutes: Int
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct CloseParameters: Encodable, Sendable {
+        let p_work_order_id: UUID
+        let p_expected_revision: Int64
+        let p_work_done: String
+        let p_idempotency_key: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "La estación no tiene un identificador válido."
+            }
+        }
+    }
+
+    private static let columns = """
+        id,station_id,vehicle_id,incident_id,folio,problem,priority,status,
+        estimated_minutes,work_done,revision,opened_at,closed_at
+        """
+
+    static func loadStationOrders(stationId: String) async throws -> [WorkOrderRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        return try await client
+            .from("work_orders")
+            .select(columns)
+            .eq("station_id", value: stationId)
+            .order("opened_at", ascending: false)
+            .execute()
+            .value
+    }
+
+    static func loadStationVehicles(
+        stationId: String
+    ) async throws -> [SupabaseAssignmentService.VehicleRow] {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        return try await client
+            .from("vehicles")
+            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .eq("station_id", value: stationId)
+            .order("internal_number", ascending: true)
+            .execute()
+            .value
+    }
+
+    static func open(
+        incidentId: UUID,
+        priority: String,
+        estimatedMinutes: Int,
+        idempotencyKey: String
+    ) async throws -> WorkOrderRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "open_work_order",
+                params: OpenParameters(
+                    p_incident_id: incidentId,
+                    p_priority: priority,
+                    p_estimated_minutes: estimatedMinutes,
+                    p_idempotency_key: idempotencyKey
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func close(
+        order: WorkOrderRow,
+        workDone: String,
+        idempotencyKey: String
+    ) async throws -> WorkOrderRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client
+            .rpc(
+                "close_work_order",
+                params: CloseParameters(
+                    p_work_order_id: order.id,
+                    p_expected_revision: order.revision,
+                    p_work_done: workDone,
+                    p_idempotency_key: idempotencyKey
+                )
+            )
             .execute()
             .value
     }

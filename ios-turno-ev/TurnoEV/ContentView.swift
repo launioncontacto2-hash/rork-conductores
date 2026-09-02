@@ -13,14 +13,16 @@ struct ContentView: View {
     var body: some View {
         Group {
             // A backend session resolves to no directory account on purpose, so it is
-            // routed by the role the server proved. Only the driver interface is wired to
-            // a real session today; any other role reaching this branch is refused rather
-            // than opened against demonstration data.
+            // routed by the role the server proved. Only roles with an authoritative
+            // backend workspace are opened; every other role is refused rather than
+            // silently routed into demonstration data.
             if let principal = store.currentPrincipal {
                 if principal.role == .driver, store.hasAccess(to: .driver) {
                     RootTabView()
                 } else if principal.role == .supervisor, store.hasAccess(to: .supervisor) {
                     BackendSupervisorAssignmentView(principal: principal)
+                } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
+                    BackendMaintenanceView(principal: principal)
                 } else {
                     AccessDeniedView()
                 }

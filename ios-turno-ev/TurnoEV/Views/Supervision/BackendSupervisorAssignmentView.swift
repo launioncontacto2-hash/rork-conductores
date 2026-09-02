@@ -1,11 +1,11 @@
 import Observation
 import SwiftUI
 
-/// Narrow 15D workspace for a supervisor authenticated by Supabase.
+/// Authoritative station workspace for a supervisor authenticated by Supabase.
 ///
 /// It intentionally does not reuse `SupervisionStore`: that store is the rich local
-/// simulation used by demo accounts. This screen has one authority and one purpose — read
-/// the station catalogue and open shifts through RLS, and call the assignment RPC.
+/// simulation used by demo accounts. It reads the station catalogue, open shifts and
+/// incidents through RLS, and performs assignment/review only through backend RPCs.
 @MainActor
 @Observable
 private final class BackendAssignmentStore {
@@ -15,12 +15,14 @@ private final class BackendAssignmentStore {
     var vehicles: [SupabaseAssignmentService.VehicleRow] = []
     var assignments: [SupabaseAssignmentService.AssignmentRow] = []
     var activeShifts: [SupabaseShiftService.ShiftRow] = []
+    var incidents: [SupabaseIncidentService.IncidentRow] = []
     var selectedDriverId: UUID?
     var selectedVehicleId: UUID?
     var kind: AssignedUnitKind = .titular
     var note: String = ""
     var isLoading = false
     var isAssigning = false
+    var updatingIncidentId: UUID?
     var errorMessage: String?
     var successMessage: String?
 
@@ -78,6 +80,11 @@ private final class BackendAssignmentStore {
             ?? shift.vehicle_id.uuidString
     }
 
+    func vehicleLabel(for incident: SupabaseIncidentService.IncidentRow) -> String {
+        vehicles.first { $0.id == incident.vehicle_id }?.internal_number
+            ?? incident.vehicle_id.uuidString
+    }
+
     func load() async {
         guard !isLoading else { return }
         guard let stationId = principal.stationId else {
@@ -96,11 +103,19 @@ private final class BackendAssignmentStore {
             async let shiftsRequest = SupabaseShiftService.loadSupervisorOpenShifts(
                 stationId: stationId
             )
-            let (snapshot, shifts) = try await (snapshotRequest, shiftsRequest)
+            async let incidentsRequest = SupabaseIncidentService.loadStationIncidents(
+                stationId: stationId
+            )
+            let (snapshot, shifts, stationIncidents) = try await (
+                snapshotRequest,
+                shiftsRequest,
+                incidentsRequest
+            )
             drivers = snapshot.drivers
             vehicles = snapshot.vehicles
             assignments = snapshot.assignments
             activeShifts = shifts
+            incidents = stationIncidents
 
             if selectedDriverId == nil || !drivers.contains(where: { $0.id == selectedDriverId }) {
                 selectedDriverId = drivers.first?.id
@@ -148,6 +163,30 @@ private final class BackendAssignmentStore {
             errorMessage = error.localizedDescription
         }
     }
+
+    func markReviewed(_ incident: SupabaseIncidentService.IncidentRow) async {
+        guard updatingIncidentId == nil else { return }
+        updatingIncidentId = incident.id
+        errorMessage = nil
+        successMessage = nil
+        defer { updatingIncidentId = nil }
+
+        do {
+            let updated = try await SupabaseIncidentService.update(
+                incident: incident,
+                status: "review",
+                note: "Recibida por supervisión",
+                idempotencyKey: "ios-supervisor-review-\(UUID().uuidString.lowercased())"
+            )
+            if let index = incidents.firstIndex(where: { $0.id == updated.id }) {
+                incidents[index] = updated
+            }
+            successMessage = "\(updated.folio) quedó recibida por supervisión."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
 }
 
 struct BackendSupervisorAssignmentView: View {
@@ -166,6 +205,7 @@ struct BackendSupervisorAssignmentView: View {
                     identityCard
                     statusCard
                     activeShiftsCard
+                    incidentsCard
                     driverPicker
                     currentCard
                     kindPicker
@@ -203,6 +243,64 @@ struct BackendSupervisorAssignmentView: View {
                 model.selectedVehicleId = model.availableVehicles.first?.id
             }
         }
+    }
+
+    private var incidentsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("INCIDENCIAS DE LA ESTACIÓN")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("\(model.incidents.filter { $0.status != "closed" }.count)")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.amber)
+            }
+
+            if model.incidents.isEmpty {
+                Text("No hay incidencias reportadas.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(Array(model.incidents.prefix(8))) { incident in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(incident.folio)
+                                .font(.subheadline.weight(.bold))
+                            Spacer()
+                            Text(incident.status == "open" ? "NUEVA" : incident.status.uppercased())
+                                .font(.system(size: 9, weight: .black))
+                                .foregroundStyle(incident.status == "closed" ? Palette.textMuted : Palette.amber)
+                        }
+                        Text("\(model.vehicleLabel(for: incident)) · \(incident.kind.capitalized) · \(incident.severity.capitalized)")
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+                        Text(incident.description)
+                            .font(.footnote)
+
+                        if incident.status == "open" {
+                            Button {
+                                Task { await model.markReviewed(incident) }
+                            } label: {
+                                Label(
+                                    model.updatingIncidentId == incident.id ? "Registrando…" : "Marcar como recibida",
+                                    systemImage: "checkmark.circle"
+                                )
+                                .font(.footnote.weight(.bold))
+                            }
+                            .disabled(model.updatingIncidentId != nil)
+                        }
+                    }
+
+                    if incident.id != model.incidents.prefix(8).last?.id {
+                        Divider().overlay(Palette.hairline)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
     }
 
     private var activeShiftsCard: some View {
