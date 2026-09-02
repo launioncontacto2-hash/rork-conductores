@@ -50,9 +50,22 @@ private final class BackendAssignmentStore {
         vehicles.filter { $0.status == "available" }
     }
 
+    var assignmentBlockReason: String? {
+        guard !isLoading else { return "Actualizando inventario…" }
+        guard selectedDriver != nil else { return "Selecciona un conductor." }
+        guard selectedVehicle != nil else {
+            return availableVehicles.isEmpty
+                ? "No hay vehículos disponibles; actualiza el inventario."
+                : "Selecciona un vehículo disponible."
+        }
+        guard kind == .titular || currentAssignment != nil else {
+            return "La unidad sustituta requiere una asignación titular vigente."
+        }
+        return nil
+    }
+
     var canAssign: Bool {
-        guard selectedDriver != nil, selectedVehicle != nil, !isAssigning else { return false }
-        return kind == .titular || currentAssignment != nil
+        !isAssigning && assignmentBlockReason == nil
     }
 
     func driverLabel(for shift: SupabaseShiftService.ShiftRow) -> String {
@@ -66,6 +79,7 @@ private final class BackendAssignmentStore {
     }
 
     func load() async {
+        guard !isLoading else { return }
         guard let stationId = principal.stationId else {
             errorMessage = "La sesión del supervisor no contiene estación."
             return
@@ -138,6 +152,7 @@ private final class BackendAssignmentStore {
 
 struct BackendSupervisorAssignmentView: View {
     @Environment(FleetStore.self) private var fleet
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: BackendAssignmentStore
 
     init(principal: SessionPrincipal) {
@@ -179,6 +194,10 @@ struct BackendSupervisorAssignmentView: View {
             }
             .refreshable { await model.load() }
             .task { await model.load() }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                Task { await model.load() }
+            }
             .onChange(of: model.selectedDriverId) { _, _ in
                 model.kind = .titular
                 model.selectedVehicleId = model.availableVehicles.first?.id
@@ -266,6 +285,13 @@ struct BackendSupervisorAssignmentView: View {
             Label(success, systemImage: "checkmark.seal.fill")
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.green)
+        } else {
+            Label(
+                "\(model.drivers.count) conductores · \(model.availableVehicles.count) vehículos disponibles",
+                systemImage: "checkmark.circle"
+            )
+            .font(.footnote)
+            .foregroundStyle(Palette.textMuted)
         }
     }
 
@@ -363,12 +389,21 @@ struct BackendSupervisorAssignmentView: View {
     }
 
     private var assignButton: some View {
-        BigButton(
-            title: model.isAssigning ? "Asignando…" : "Confirmar asignación",
-            symbol: model.isAssigning ? "hourglass" : "car.side.fill",
-            isEnabled: model.canAssign
-        ) {
-            Task { await model.assign() }
+        VStack(spacing: 8) {
+            BigButton(
+                title: model.isAssigning ? "Asignando…" : "Confirmar asignación",
+                symbol: model.isAssigning ? "hourglass" : "car.side.fill",
+                isEnabled: model.canAssign
+            ) {
+                Task { await model.assign() }
+            }
+
+            if let reason = model.assignmentBlockReason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 }
