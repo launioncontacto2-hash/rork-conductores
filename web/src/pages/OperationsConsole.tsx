@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 
 import { useConsoleAuth } from "@/console/ConsoleAuth";
+import { TestClockDialog } from "@/console/TestClockDialog";
+import { SHARED_TEST_ENVIRONMENT_ID, type TestClockRow } from "@/console/testClock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,6 +75,7 @@ interface OpenShift {
 
 interface ConsoleSnapshot {
   live: StationLive | null;
+  testClock: TestClockRow | null;
   capacity: number | null;
   vehicles: Vehicle[];
   drivers: Driver[];
@@ -119,8 +122,9 @@ const OperationsConsole = () => {
         throw new Error("La membresía de la consola dejó de estar vigente.");
       }
       const stationId = identity.station_id;
-      const [live, capacity, vehicles, drivers, assignments, shifts, devices] = await Promise.all([
+      const [live, testClock, capacity, vehicles, drivers, assignments, shifts, devices] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
+        supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", identity.environment_id).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
         supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
         supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
@@ -130,6 +134,7 @@ const OperationsConsole = () => {
       ]);
       return {
         live: requireData(live) as StationLive | null,
+        testClock: requireData(testClock) as TestClockRow | null,
         capacity: (requireData(capacity) as { capacity: number } | null)?.capacity ?? null,
         vehicles: (requireData(vehicles) ?? []) as Vehicle[],
         drivers: (requireData(drivers) ?? []) as Driver[],
@@ -173,7 +178,14 @@ const OperationsConsole = () => {
               {identity.station_name} · {identity.station_code} · {identity.display_name}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {identity.environment_id.toLowerCase() === SHARED_TEST_ENVIRONMENT_ID && (
+              <TestClockDialog
+                clock={data?.testClock}
+                stationTimeZone={identity.station_timezone}
+                onApplied={() => snapshot.refetch()}
+              />
+            )}
             <Button variant="outline" onClick={() => snapshot.refetch()} disabled={snapshot.isFetching}>
               <RefreshCw className={snapshot.isFetching ? "animate-spin" : ""} /> Actualizar
             </Button>
