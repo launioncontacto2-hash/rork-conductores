@@ -146,4 +146,4 @@ REVOKE ALL ON FUNCTION public.update_test_clock(
 
 GRANT EXECUTE ON FUNCTION public.update_test_clock(
     uuid, timestamptz, timestamptz, double precision, boolean, bigint
-) TO authenticated;
+) TO authenticated;;

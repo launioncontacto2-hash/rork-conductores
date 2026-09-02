@@ -719,3 +719,5 @@ COMMENT ON TABLE public.station_live IS
     'Proyeccion reconstruible de una fila por estacion para la Consola 0.1 y Realtime.';
 COMMENT ON FUNCTION public.touch_device(text, uuid, text, text) IS
     'Registra como maximo un heartbeat por minuto desde clientes; siempre deriva identidad y entorno de la sesion.';
+
+;
