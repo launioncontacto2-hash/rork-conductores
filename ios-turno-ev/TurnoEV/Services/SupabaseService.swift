@@ -779,6 +779,11 @@ enum SupabaseAuthProbe {
                 ends_at
                 """
             )
+            // A supervisor can legitimately read every active membership at the
+            // station. Authentication must resolve only the signed-in profile's
+            // membership, not treat those supervised drivers as duplicate identities.
+            .eq("profile_id", value: profile.id.uuidString)
+            .is("ends_at", value: nil)
             .execute()
             .value
 
