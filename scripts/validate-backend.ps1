@@ -12,7 +12,8 @@ $allowedBranches = @(
     '15C-backend-test',
     '15D-backend-shifts',
     '15D-test-clock-rpc-fix',
-    'console-01-backend'
+    'console-01-backend',
+    'fix/console-test-clock-control'
 )
 
 function Write-Step {
