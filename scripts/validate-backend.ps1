@@ -20,7 +20,8 @@ $allowedBranches = @(
     '15F-coverage-claims',
     '15G-financial-lifecycle',
     '15G-financial-hardening',
-    '15G-financial-hardening-v2'
+    '15G-financial-hardening-v2',
+    '15H-backend-hiring'
 )
 
 function Write-Step {
