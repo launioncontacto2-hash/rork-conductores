@@ -9,6 +9,34 @@ import Foundation
 import Testing
 @testable import TurnoEV
 
+struct FinancialRPCEncodingTests {
+    @Test func registerIncomeIncludesEveryNullableSQLArgument() throws {
+        let parameters = SupabaseFinancialService.RegisterIncomeParameters(
+            p_shift_id: UUID(),
+            p_source: "uber",
+            p_amount_mxn: 123,
+            p_trips: 2,
+            p_external_reference: nil,
+            p_evidence_path: nil,
+            p_note: nil,
+            p_reversal_of: nil,
+            p_idempotency_key: "test-income-rpc-encoding",
+            p_install_id: "test-install"
+        )
+        let data = try JSONEncoder().encode(parameters)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(object.keys) == Set([
+            "p_shift_id", "p_source", "p_amount_mxn", "p_trips",
+            "p_external_reference", "p_evidence_path", "p_note", "p_reversal_of",
+            "p_idempotency_key", "p_install_id",
+        ]))
+        #expect(object["p_external_reference"] is NSNull)
+        #expect(object["p_evidence_path"] is NSNull)
+        #expect(object["p_note"] is NSNull)
+        #expect(object["p_reversal_of"] is NSNull)
+    }
+}
+
 /// 15B.10 · the credit instalment is a deduction only when the contract can be verified.
 ///
 /// These cover the rule itself, which is pure: given a contract and the week being
