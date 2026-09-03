@@ -17,7 +17,8 @@ $allowedBranches = @(
     '16A-driver-device-sessions',
     'fix/16a-migration-history-alignment',
     '15E-incidents-work-orders',
-    '15F-coverage-claims'
+    '15F-coverage-claims',
+    '15G-financial-lifecycle'
 )
 
 function Write-Step {
