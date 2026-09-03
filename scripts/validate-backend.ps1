@@ -49,9 +49,14 @@ try {
         throw "No se encontro un repositorio Git en $repoRoot."
     }
 
-    $branch = (& git branch --show-current).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw 'No se pudo consultar la rama actual.'
+    $branchOutput = & git -c "safe.directory=$repoRoot" branch --show-current 2>&1
+    $branchExitCode = $LASTEXITCODE
+    if ($branchExitCode -ne 0) {
+        throw "No se pudo consultar la rama actual: $($branchOutput -join ' ')"
+    }
+    $branch = ([string]($branchOutput -join '')).Trim()
+    if ([string]::IsNullOrWhiteSpace($branch)) {
+        throw 'El repositorio esta en estado detached HEAD; selecciona una rama permitida.'
     }
     if ($branch -notin $allowedBranches) {
         throw "Rama no permitida: '$branch'. Permitidas: $($allowedBranches -join ', ')."
@@ -100,7 +105,7 @@ try {
     )
 
     Write-Step 'Verificando formato del diff de Git'
-    Invoke-Checked git @('diff', '--check')
+    Invoke-Checked git @('-c', "safe.directory=$repoRoot", 'diff', '--check')
 
     $testsPath = Join-Path $repoRoot 'supabase\tests'
     $sqlTests = @(Get-ChildItem -Path $testsPath -Filter '*.sql' -File -ErrorAction SilentlyContinue)
