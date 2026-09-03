@@ -274,6 +274,10 @@ struct BackendRecruitmentView: View {
 
     private func candidateRow(_ candidate: SupabaseHiringService.CandidateRow) -> some View {
         let accepted = model.documents(for: candidate.id)
+        let acceptedKinds = Set(accepted.map(\.kind))
+        let missingKinds = BackendRecruitmentStore.documentKinds.filter {
+            !acceptedKinds.contains($0)
+        }
         let hiring = model.hiring(for: candidate.id)
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -292,6 +296,12 @@ struct BackendRecruitmentView: View {
 
             Text("Documentos vigentes: \(accepted.count)/6 · \(candidate.requested_shift_group) / \(candidate.requested_shift_slot)")
                 .font(.footnote)
+
+            if !missingKinds.isEmpty {
+                Text("Faltan: \(missingKinds.map(BackendRecruitmentStore.kindLabel).joined(separator: ", "))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if hiring?.status != "completed" && candidate.stage != "lost" {
                 Picker("Documento", selection: $documentKind) {

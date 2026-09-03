@@ -25,6 +25,13 @@ struct BackendRoleMappingTests {
     }
 }
 
+struct HiringDocumentIntegrityTests {
+    @Test func computesStableSHA256Metadata() {
+        let digest = SupabaseHiringService.sha256Hex(Data("abc".utf8))
+        #expect(digest == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    }
+}
+
 /// 15B.10 · the credit instalment is a deduction only when the contract can be verified.
 ///
 /// These cover the rule itself, which is pure: given a contract and the week being

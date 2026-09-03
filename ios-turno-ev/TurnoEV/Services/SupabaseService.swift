@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Supabase
 
 // MARK: - Credentials
@@ -2055,6 +2056,7 @@ enum SupabaseHiringService {
         else { throw ServiceError.invalidScope }
 
         let operationId = UUID().uuidString.lowercased()
+        let checksum = sha256Hex(data)
         let extensionName = (filename as NSString).pathExtension.lowercased()
         let storedName = extensionName.isEmpty ? operationId : "\(operationId).\(extensionName)"
         let path = "\(environmentId)/\(stationId)/\(candidate.id.uuidString.lowercased())/\(storedName)"
@@ -2077,12 +2079,18 @@ enum SupabaseHiringService {
                     p_original_filename: filename,
                     p_issued_at: issuedAt,
                     p_expires_at: expiresAt,
-                    p_checksum_sha256: nil,
+                    p_checksum_sha256: checksum,
                     p_idempotency_key: "ios-document-\(operationId)"
                 )
             )
             .execute()
             .value
+    }
+
+    nonisolated static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     static func completeHiring(
