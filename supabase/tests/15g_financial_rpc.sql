@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(32);
+SELECT plan(34);
 
 INSERT INTO public.stations(id,environment_id,region_id,code,name,status,timezone)
 SELECT '15740000-0000-4000-8000-000000000001',r.environment_id,r.id,'15g-rpc-station','15G RPC Station','active','America/Mexico_City'
@@ -38,6 +38,13 @@ SELECT '15760000-0000-4000-8000-000000000001',s.environment_id,s.station_id,'157
  '2026-08-31','2026-08-31 11:00:00+00','2026-08-31 20:00:00+00','2026-08-31 11:00:00+00','2026-08-31 18:00:00+00',0,1200,70,1250,35,2
 FROM test_15g_scope s;
 
+INSERT INTO storage.objects(bucket_id,name,owner_id,metadata)
+SELECT 'financial-evidence',s.environment_id::text||'/'||s.station_id::text||'/15720000-0000-4000-8000-000000000001/deposit.jpg',
+ '15700000-0000-4000-8000-000000000001',jsonb_build_object('mimetype','image/jpeg','size',1024)
+FROM test_15g_scope s;
+
+SELECT is((SELECT public FROM storage.buckets WHERE id='financial-evidence'),false,'bucket financiero es privado');
+
 CREATE OR REPLACE FUNCTION app.auth_profile_id() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path TO 'pg_catalog','public','app','auth','pg_temp'
 AS $function$ SELECT NULLIF(current_setting('request.jwt.claim.sub',true),'')::uuid $function$;
@@ -46,6 +53,10 @@ SELECT set_config('request.jwt.claim.sub','15700000-0000-4000-8000-000000000001'
 SELECT set_config('request.jwt.claims','{"session_id":"15770000-0000-4000-8000-000000000001"}',true);
 SET LOCAL ROLE authenticated;
 DO $block$ BEGIN PERFORM public.claim_driver_device('15g-install-driver','pgtap'); END $block$;
+SELECT throws_ok($sql$ SELECT public.register_income('15760000-0000-4000-8000-000000000001','other',50,0,NULL,
+ (SELECT environment_id::text||'/'||station_id::text||'/15720000-0000-4000-8000-000000000001/missing.jpg' FROM test_15g_scope),
+ 'evidencia ausente',NULL,'15g-missing-evidence','15g-install-driver') $sql$,
+ '22023','owned_financial_evidence_required','ingreso no puede declarar una evidencia inexistente');
 SELECT lives_ok($sql$ SELECT public.register_income('15760000-0000-4000-8000-000000000001','uber',1000,8,'UB-1000',NULL,'turno principal',NULL,'15g-income-1','15g-install-driver') $sql$,'conductor registra ingreso');
 SELECT lives_ok($sql$ SELECT public.register_income('15760000-0000-4000-8000-000000000001','uber',1000,8,'UB-1000',NULL,'turno principal',NULL,'15g-income-1','15g-install-driver') $sql$,'registro de ingreso es idempotente');
 RESET ROLE;
@@ -55,7 +66,9 @@ SET LOCAL ROLE authenticated;
 SELECT lives_ok($sql$ SELECT public.register_income('15760000-0000-4000-8000-000000000001','other',200,1,NULL,NULL,'ajuste a revertir',NULL,'15g-income-2','15g-install-driver') $sql$,'registra segundo ingreso');
 SELECT lives_ok($sql$ SELECT public.register_income('15760000-0000-4000-8000-000000000001','other',200,0,NULL,NULL,'reversa',
  (SELECT id FROM public.incomes WHERE amount_mxn=200),'15g-income-reversal','15g-install-driver') $sql$,'reversa crea movimiento opuesto');
-SELECT lives_ok($sql$ SELECT public.register_cash_deposit('15760000-0000-4000-8000-000000000001',300,'BBVA','REC-15G-1','receipts/15g.jpg','15g-deposit-1','15g-install-driver') $sql$,'registra comprobante de deposito');
+SELECT lives_ok($sql$ SELECT public.register_cash_deposit('15760000-0000-4000-8000-000000000001',300,'BBVA','REC-15G-1',
+ (SELECT environment_id::text||'/'||station_id::text||'/15720000-0000-4000-8000-000000000001/deposit.jpg' FROM test_15g_scope),
+ '15g-deposit-1','15g-install-driver') $sql$,'registra comprobante de deposito');
 SELECT lives_ok($sql$ SELECT public.set_bank_account('15720000-0000-4000-8000-000000000001','BBVA','012345678901234567','15g-bank-1','15g-install-driver') $sql$,'conductor propone cuenta bancaria');
 RESET ROLE;
 SELECT results_eq($sql$ SELECT count(*)::bigint,sum(amount_mxn)::bigint FROM public.incomes $sql$,$sql$ VALUES(3::bigint,1000::bigint) $sql$,'ingresos conservan original y reversa');
