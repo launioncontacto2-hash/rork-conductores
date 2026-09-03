@@ -450,6 +450,37 @@ enum SupabaseFinancialService {
         let p_reversal_of: UUID?
         let p_idempotency_key: String
         let p_install_id: String
+
+        private enum CodingKeys: String, CodingKey {
+            case p_shift_id
+            case p_source
+            case p_amount_mxn
+            case p_trips
+            case p_external_reference
+            case p_evidence_path
+            case p_note
+            case p_reversal_of
+            case p_idempotency_key
+            case p_install_id
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(p_shift_id, forKey: .p_shift_id)
+            try values.encode(p_source, forKey: .p_source)
+            try values.encode(p_amount_mxn, forKey: .p_amount_mxn)
+            try values.encode(p_trips, forKey: .p_trips)
+            try values.encodeIfPresent(p_external_reference, forKey: .p_external_reference)
+            if p_external_reference == nil { try values.encodeNil(forKey: .p_external_reference) }
+            try values.encodeIfPresent(p_evidence_path, forKey: .p_evidence_path)
+            if p_evidence_path == nil { try values.encodeNil(forKey: .p_evidence_path) }
+            try values.encodeIfPresent(p_note, forKey: .p_note)
+            if p_note == nil { try values.encodeNil(forKey: .p_note) }
+            try values.encodeIfPresent(p_reversal_of, forKey: .p_reversal_of)
+            if p_reversal_of == nil { try values.encodeNil(forKey: .p_reversal_of) }
+            try values.encode(p_idempotency_key, forKey: .p_idempotency_key)
+            try values.encode(p_install_id, forKey: .p_install_id)
+        }
     }
 
     nonisolated struct SetBankAccountParameters: Encodable, Sendable {
