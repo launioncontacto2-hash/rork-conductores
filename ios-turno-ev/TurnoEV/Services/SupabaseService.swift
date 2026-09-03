@@ -803,7 +803,8 @@ enum SupabaseAuthProbe {
 
         guard membership.role == "driver"
                 || membership.role == "supervisor"
-                || membership.role == "maintenance" else {
+                || membership.role == "maintenance"
+                || membership.role == "recruitment" else {
             throw ProbeError.wrongRole(membership.role)
         }
 
@@ -1880,6 +1881,247 @@ enum SupabaseCoverageService {
         }
         if lowered.contains("revision_conflict") {
             return "La información cambió en otro dispositivo. Actualiza antes de continuar."
+        }
+        return message
+    }
+}
+
+// MARK: - 15H recruitment dossier + hiring
+
+/// Authoritative recruitment contract. The app can read only the station rows exposed by
+/// RLS, uploads immutable objects to the private bucket and mutates the lifecycle solely
+/// through the audited RPC/Edge Function pair.
+@MainActor
+enum SupabaseHiringService {
+    nonisolated struct CandidateRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let full_name: String
+        let phone: String
+        let email: String
+        let city: String
+        let age: Int
+        let curp: String
+        let requested_shift_group: String
+        let requested_shift_slot: String
+        let stage: String
+        let screening_status: String?
+        let interview_score: Int?
+        let interview_decision: String?
+        let notes: String?
+        let revision: Int64
+        let created_at: Date
+        let updated_at: Date
+        let hired_at: Date?
+    }
+
+    nonisolated struct DocumentRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let candidate_id: UUID
+        let kind: String
+        let status: String
+        let object_path: String
+        let original_filename: String
+        let content_type: String
+        let byte_size: Int64
+        let issued_at: String?
+        let expires_at: String?
+        let uploaded_at: Date
+    }
+
+    nonisolated struct HiringRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let candidate_id: UUID
+        let employee_number: String
+        let shift_group: String
+        let shift_slot: String
+        let status: String
+        let revision: Int64
+        let failure_code: String?
+        let signed_at: Date
+        let completed_at: Date?
+    }
+
+    nonisolated struct Snapshot: Sendable {
+        let candidates: [CandidateRow]
+        let documents: [DocumentRow]
+        let hirings: [HiringRow]
+    }
+
+    nonisolated struct UploadParameters: Encodable, Sendable {
+        let p_candidate_id: UUID
+        let p_kind: String
+        let p_object_path: String
+        let p_original_filename: String
+        let p_issued_at: String?
+        let p_expires_at: String?
+        let p_checksum_sha256: String?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct CompleteParameters: Encodable, Sendable {
+        let candidate_id: UUID
+        let employee_number: String
+        let temporary_password: String
+        let idempotency_key: String
+    }
+
+    nonisolated struct CompleteResponse: Decodable, Sendable {
+        let hiring: HiringRow
+        let created: Bool
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidStation
+        case invalidScope
+        case unsupportedFile
+        case fileTooLarge
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidStation: "La sesión de reclutamiento no contiene una estación válida."
+            case .invalidScope: "El expediente no corresponde a esta sesión."
+            case .unsupportedFile: "Usa PDF, JPEG, PNG o HEIC."
+            case .fileTooLarge: "El archivo supera el límite de 10 MB."
+            }
+        }
+    }
+
+    private static let candidateColumns = """
+        id,station_id,full_name,phone,email,city,age,curp,
+        requested_shift_group,requested_shift_slot,stage,screening_status,
+        interview_score,interview_decision,notes,revision,created_at,updated_at,hired_at
+        """
+    private static let documentColumns = """
+        id,candidate_id,kind,status,object_path,original_filename,content_type,
+        byte_size,issued_at,expires_at,uploaded_at
+        """
+    private static let hiringColumns = """
+        id,candidate_id,employee_number,shift_group,shift_slot,status,revision,
+        failure_code,signed_at,completed_at
+        """
+
+    static func loadSnapshot(stationId: String) async throws -> Snapshot {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidStation }
+
+        async let candidateRequest: [CandidateRow] = client
+            .from("candidates")
+            .select(candidateColumns)
+            .eq("station_id", value: stationId)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+        async let documentRequest: [DocumentRow] = client
+            .from("candidate_documents")
+            .select(documentColumns)
+            .eq("station_id", value: stationId)
+            .order("uploaded_at", ascending: false)
+            .execute()
+            .value
+        async let hiringRequest: [HiringRow] = client
+            .from("hirings")
+            .select(hiringColumns)
+            .eq("station_id", value: stationId)
+            .order("signed_at", ascending: false)
+            .execute()
+            .value
+
+        let (candidates, documents, hirings) = try await (
+            candidateRequest, documentRequest, hiringRequest
+        )
+        return Snapshot(candidates: candidates, documents: documents, hirings: hirings)
+    }
+
+    static func uploadDocument(
+        data: Data,
+        filename: String,
+        contentType: String,
+        candidate: CandidateRow,
+        principal: SessionPrincipal,
+        kind: String,
+        issuedAt: String? = nil,
+        expiresAt: String? = nil
+    ) async throws -> DocumentRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard data.count <= 10 * 1_024 * 1_024 else { throw ServiceError.fileTooLarge }
+        guard ["application/pdf", "image/jpeg", "image/png", "image/heic"].contains(contentType)
+        else { throw ServiceError.unsupportedFile }
+        guard let environmentId = principal.environmentId,
+              let stationId = principal.stationId,
+              candidate.station_id.uuidString.caseInsensitiveCompare(stationId) == .orderedSame
+        else { throw ServiceError.invalidScope }
+
+        let operationId = UUID().uuidString.lowercased()
+        let extensionName = (filename as NSString).pathExtension.lowercased()
+        let storedName = extensionName.isEmpty ? operationId : "\(operationId).\(extensionName)"
+        let path = "\(environmentId)/\(stationId)/\(candidate.id.uuidString.lowercased())/\(storedName)"
+
+        try await client.storage
+            .from("candidate-documents")
+            .upload(
+                path: path,
+                file: data,
+                options: FileOptions(contentType: contentType, upsert: false)
+            )
+
+        return try await client
+            .rpc(
+                "upload_document",
+                params: UploadParameters(
+                    p_candidate_id: candidate.id,
+                    p_kind: kind,
+                    p_object_path: path,
+                    p_original_filename: filename,
+                    p_issued_at: issuedAt,
+                    p_expires_at: expiresAt,
+                    p_checksum_sha256: nil,
+                    p_idempotency_key: "ios-document-\(operationId)"
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func completeHiring(
+        candidateId: UUID,
+        employeeNumber: String,
+        temporaryPassword: String
+    ) async throws -> CompleteResponse {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+
+        return try await client.functions.invoke(
+            "complete-hiring",
+            options: FunctionInvokeOptions(
+                body: CompleteParameters(
+                    candidate_id: candidateId,
+                    employee_number: employeeNumber,
+                    temporary_password: temporaryPassword,
+                    idempotency_key: "ios-hiring-\(UUID().uuidString.lowercased())"
+                )
+            )
+        )
+    }
+
+    nonisolated static func userMessage(for error: Error) -> String {
+        let message = error.localizedDescription
+        let lowered = message.lowercased()
+        if lowered.contains("candidate_not_ready") || lowered.contains("candidate_documents_incomplete") {
+            return "El expediente todavía no contiene los seis documentos vigentes."
+        }
+        if lowered.contains("employee_number_already_exists") {
+            return "Ese número de empleado ya pertenece a otra persona."
+        }
+        if lowered.contains("auth_identity_creation_failed") {
+            return "No se pudo crear la identidad de acceso. Verifica que el correo no esté registrado."
+        }
+        if lowered.contains("test_environment_required") {
+            return "El alta automática está habilitada únicamente en TEST."
+        }
+        if lowered.contains("session") || lowered.contains("jwt") {
+            return "La sesión venció. Inicia sesión nuevamente."
         }
         return message
     }

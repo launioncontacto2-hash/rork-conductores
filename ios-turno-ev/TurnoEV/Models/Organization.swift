@@ -43,6 +43,18 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
     /// Test administrator / superadmin. Opens the laboratory console and nothing else.
     case lab
 
+    /// Database memberships use operational nouns while the original app enum uses
+    /// interface names. Keep that translation explicit at the authentication boundary;
+    /// the client must never rewrite or guess a role after opening a session.
+    init?(backendValue: String) {
+        switch backendValue {
+        case "recruitment": self = .recruiter
+        case "management": self = .manager
+        case "direction": self = .national
+        default: self.init(rawValue: backendValue)
+        }
+    }
+
     var label: String {
         switch self {
         case .driver: "Conductor"

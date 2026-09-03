@@ -9,6 +9,22 @@ import Foundation
 import Testing
 @testable import TurnoEV
 
+struct BackendRoleMappingTests {
+    @Test func mapsDatabaseRecruitmentRoleToRecruiterWorkspace() {
+        #expect(StaffRole(backendValue: "recruitment") == .recruiter)
+    }
+
+    @Test func preservesRolesWhoseNamesAlreadyMatch() {
+        #expect(StaffRole(backendValue: "driver") == .driver)
+        #expect(StaffRole(backendValue: "supervisor") == .supervisor)
+        #expect(StaffRole(backendValue: "maintenance") == .maintenance)
+    }
+
+    @Test func rejectsUnknownDatabaseRole() {
+        #expect(StaffRole(backendValue: "unknown") == nil)
+    }
+}
+
 /// 15B.10 · the credit instalment is a deduction only when the contract can be verified.
 ///
 /// These cover the rule itself, which is pure: given a contract and the week being

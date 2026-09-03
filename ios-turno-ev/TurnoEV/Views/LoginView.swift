@@ -737,7 +737,7 @@ struct LoginView: View {
                     // ============================================
 
                     guard let role = StaffRole(
-                        rawValue: result.membership.role
+                        backendValue: result.membership.role
                     ) else {
                         supabaseProbeMessage = nil
                         errorMessage =
