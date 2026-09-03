@@ -1795,6 +1795,11 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.canRunOperationalCycle)
         #expect(bench.store.operationalCapability == .localWorkflow)
 
+        // A demonstration credential opens on the seeded world, so what this case proves
+        // is the delta the cycle adds — not an empty ledger it never had.
+        let incidentBaseline = bench.store.incidents.count
+        let historyBaseline = bench.store.history.count
+
         let shift = try bench.store.startShift(
             vehicle: unit,
             odometerKm: unit.odometerKm,
@@ -1813,7 +1818,7 @@ struct OperationalCycleBoundaryTests {
         #expect(taken.occupiedBy == bench.profileId)
 
         try bench.store.reportIncident(kind: .damage, description: "Rayón lateral en patio.", photos: [])
-        #expect(bench.store.incidents.count == 1)
+        #expect(bench.store.incidents.count == incidentBaseline + 1)
         #expect(bench.store.incidents.first?.origin == .simulated)
 
         let summary = try bench.store.finishShift(
@@ -1824,7 +1829,7 @@ struct OperationalCycleBoundaryTests {
 
         #expect(summary.kmDriven == 180)
         #expect(bench.store.activeShift == nil)
-        #expect(bench.store.history.count == 1)
+        #expect(bench.store.history.count == historyBaseline + 1)
         #expect(bench.store.history.first?.origin == .simulated)
 
         let released = try #require(bench.store.vehicles.first { $0.id == unit.id })
@@ -1832,54 +1837,52 @@ struct OperationalCycleBoundaryTests {
         #expect(released.occupiedBy == nil)
     }
 
-    /// J · a simulated shift left running does not follow the driver into production.
+    /// J · a proved driver cannot open a simulated shift, laboratory or not.
     ///
-    /// Not deleted, not closeable, not blocking — and waiting where it was left.
-    @Test func aSimulatedShiftDoesNotSurviveIntoProductionAndComesBack() throws {
-        let bench = try Self.demoBench()
+    /// This replaces the older case that carried a simulated shift across the environment
+    /// switch. That scenario no longer exists: a proved identity never reads the local
+    /// assignment book, and `startShift` refuses a unit the station did not hand over, so
+    /// no public path mints the shift it used to carry. What is worth pinning is the
+    /// refusal itself — and that the round trip leaves nothing behind to come back to.
+    @Test func backendDriverCannotStartASimulatedShiftInLaboratory() throws {
+        let bench = try Self.bench()
         defer { bench.discard() }
-
-        let unit = try Self.enterLaboratoryWithAUnit(bench)
-        let shift = try bench.store.startShift(
-            vehicle: unit,
-            odometerKm: unit.odometerKm,
-            batteryPct: 90,
-            odometerPhoto: nil,
-            batteryPhoto: nil
-        )
-        #expect(bench.store.activeShift?.id == shift.id)
-
-        bench.environment.set(.production)
-        bench.store.adoptEnvironment()
-
-        // Gone from production, in every sense the interface can read.
-        #expect(bench.store.activeShift == nil)
-        #expect(bench.store.activeVehicle == nil)
-        #expect(bench.store.canActOnActiveShift == false)
-        #expect(bench.store.history.isEmpty)
-        #expect(bench.store.incidents.isEmpty)
-        // And it does not stand in the way of the real operation starting one day.
-        #expect(throws: OperationalMutationError.backendRequired) {
-            try bench.store.finishShift(endOdometerKm: unit.odometerKm + 40, endBatteryPct: 30, photo: nil)
-        }
 
         bench.environment.set(.test)
         bench.store.adoptEnvironment()
 
-        // Exactly where it was left, on the same identity, with no sign in.
-        #expect(bench.store.activeShift?.id == shift.id)
-        #expect(bench.store.activeShift?.origin == .simulated)
-        #expect(bench.store.canActOnActiveShift)
-        #expect(bench.store.isBackendSession)
+        // No row is written to the shared book: an assignment is the station's act, and
+        // this driver's units live in Supabase.
+        #expect(bench.store.unitAssignment == nil)
+        #expect(bench.store.hasAssignedUnit == false)
 
-        // And it closes there, which is where it belongs.
-        let summary = try bench.store.finishShift(
-            endOdometerKm: unit.odometerKm + 120,
-            endBatteryPct: 28,
-            photo: nil
-        )
-        #expect(summary.kmDriven == 120)
-        #expect(bench.store.history.first?.origin == .simulated)
+        let unit = try #require(bench.store.vehicles.first { $0.status == .available })
+
+        #expect(throws: UnitAssignmentError.unitNotAssigned) {
+            try bench.store.startShift(
+                vehicle: unit,
+                odometerKm: unit.odometerKm,
+                batteryPct: 90,
+                odometerPhoto: nil,
+                batteryPhoto: nil
+            )
+        }
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        // Same identity, no sign in, and still nothing to resume.
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+        #expect(bench.store.isBackendSession)
     }
 
     // MARK: Bench
@@ -2190,9 +2193,9 @@ struct EnvironmentTransitionTests {
         #expect(bench.store.canSimulateUnitAssignment)
         #expect(bench.store.canSimulateFinancialState)
         #expect(bench.store.usesBackendCoverageCycle == false)
-        #expect(bench.store.canSimulateOperationalCoordination == false)
+        #expect(bench.store.canSimulateOperationalCoordination == true)
         #expect(bench.store.unitAssignmentCapability == .localSimulation)
-        #expect(bench.store.coordinationCapability == .stationRequired)
+        #expect(bench.store.coordinationCapability == .localWorkflow)
 
         // And the state follows: in the laboratory there is a fleet to work with.
         bench.store.adoptEnvironment()
