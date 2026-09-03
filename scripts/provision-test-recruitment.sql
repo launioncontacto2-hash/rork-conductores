@@ -23,6 +23,14 @@ BEGIN
         RAISE EXCEPTION 'auth_user_test_recruitment_required'
             USING ERRCODE = 'P0002';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM auth.users u
+        WHERE u.id = v_auth_user_id
+          AND u.email_confirmed_at IS NULL
+    ) THEN
+        RAISE EXCEPTION 'auth_user_test_recruitment_must_be_confirmed'
+            USING ERRCODE = '22023';
+    END IF;
 
     SELECT e.id
     INTO STRICT v_environment_id
@@ -36,6 +44,25 @@ BEGIN
       AND s.code = 'PUE-TEST-01'
       AND s.status = 'active';
 
+    -- Fixed fixture identifiers must never take ownership of rows from another
+    -- environment. Stop loudly instead of moving or rewriting such a row.
+    IF EXISTS (
+        SELECT 1 FROM public.profiles profile
+        WHERE profile.id = v_profile_id
+          AND profile.environment_id <> v_environment_id
+    ) OR EXISTS (
+        SELECT 1 FROM public.staff_memberships membership
+        WHERE membership.id = v_membership_id
+          AND membership.environment_id <> v_environment_id
+    ) OR EXISTS (
+        SELECT 1 FROM public.candidates candidate
+        WHERE candidate.id = v_candidate_id
+          AND candidate.environment_id <> v_environment_id
+    ) THEN
+        RAISE EXCEPTION 'recruitment_test_fixture_id_cross_environment_conflict'
+            USING ERRCODE = '23505';
+    END IF;
+
     IF EXISTS (
         SELECT 1 FROM public.profiles profile
         WHERE profile.auth_user_id = v_auth_user_id
@@ -47,11 +74,33 @@ BEGIN
 
     IF EXISTS (
         SELECT 1 FROM public.profiles profile
-        WHERE profile.environment_id = v_environment_id
-          AND profile.employee_number = 'REC-TEST-001'
+        WHERE profile.employee_number = 'REC-TEST-001'
           AND profile.id <> v_profile_id
     ) THEN
         RAISE EXCEPTION 'recruitment_test_employee_number_conflict'
+            USING ERRCODE = '23505';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.staff_memberships membership
+        WHERE membership.profile_id = v_profile_id
+          AND membership.ends_at IS NULL
+          AND membership.id <> v_membership_id
+    ) THEN
+        RAISE EXCEPTION 'recruitment_test_active_membership_conflict'
+            USING ERRCODE = '23505';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.candidates candidate
+        WHERE candidate.environment_id = v_environment_id
+          AND candidate.id <> v_candidate_id
+          AND (
+              lower(btrim(candidate.email)) = 'test.hire.001@joramza.test'
+              OR btrim(candidate.curp) = 'TEST900101HPLABC01'
+          )
+    ) THEN
+        RAISE EXCEPTION 'recruitment_test_candidate_identity_conflict'
             USING ERRCODE = '23505';
     END IF;
 
