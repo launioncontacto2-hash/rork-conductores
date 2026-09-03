@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(39);
+SELECT plan(53);
 
 SELECT has_table('public','incomes','existe incomes');
 SELECT has_table('public','cash_deposits','existe cash_deposits');
@@ -25,6 +25,20 @@ SELECT has_index('public','cash_charges','cash_charges_single_reversal_unique','
 SELECT has_index('public','bank_accounts','bank_accounts_active_driver_unique','solo hay una cuenta activa por conductor');
 SELECT has_index('public','bank_accounts','bank_accounts_pending_driver_unique','solo hay una cuenta pendiente por conductor');
 SELECT has_index('public','transfers','transfers_active_settlement_unique','una liquidacion no admite dos transferencias activas');
+SELECT has_index('public','incomes','incomes_shift_scope_fkey_idx','ingresos cubre la relacion de turno');
+SELECT has_index('public','incomes','incomes_driver_scope_fkey_idx','ingresos cubre la relacion de conductor');
+SELECT has_index('public','cash_deposits','cash_deposits_shift_scope_fkey_idx','depositos cubre la relacion de turno');
+SELECT has_index('public','cash_deposits','cash_deposits_driver_scope_fkey_idx','depositos cubre la relacion de conductor');
+SELECT has_index('public','cash_charges','cash_charges_driver_scope_fkey_idx','cargos cubre la relacion de conductor');
+SELECT has_index('public','cash_charges','cash_charges_creator_environment_fkey_idx','cargos cubre la relacion de creador');
+SELECT has_index('public','bank_accounts','bank_accounts_driver_scope_fkey_idx','cuentas cubre la relacion de conductor');
+SELECT has_index('public','bank_accounts','bank_accounts_creator_environment_fkey_idx','cuentas cubre la relacion de creador');
+SELECT has_index('public','bank_accounts','bank_accounts_approver_environment_fkey_idx','cuentas cubre la relacion de aprobador');
+SELECT has_index('public','settlements','settlements_driver_scope_fkey_idx','liquidaciones cubre la relacion de conductor');
+SELECT has_index('public','settlements','settlements_closer_environment_fkey_idx','liquidaciones cubre la relacion de cierre');
+SELECT has_index('public','transfers','transfers_settlement_scope_fkey_idx','transferencias cubre la relacion de liquidacion');
+SELECT has_index('public','transfers','transfers_bank_account_scope_fkey_idx','transferencias cubre la relacion de cuenta');
+SELECT has_index('public','transfers','transfers_authorizer_environment_fkey_idx','transferencias cubre la relacion de autorizador');
 
 SELECT is(
   (SELECT bool_and(c.relrowsecurity) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

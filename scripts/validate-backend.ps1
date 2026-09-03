@@ -18,7 +18,9 @@ $allowedBranches = @(
     'fix/16a-migration-history-alignment',
     '15E-incidents-work-orders',
     '15F-coverage-claims',
-    '15G-financial-lifecycle'
+    '15G-financial-lifecycle',
+    '15G-financial-hardening',
+    '15G-financial-hardening-v2'
 )
 
 function Write-Step {
