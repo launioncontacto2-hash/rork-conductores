@@ -88,13 +88,48 @@ Deno.serve(async (request) => {
     return json(403, { error: "test_environment_required" });
   }
 
-  const { data: signed, error: signError } = await caller.rpc("sign_hiring", {
-    p_candidate_id: candidateId,
-    p_employee_number: employeeNumber,
-    p_idempotency_key: idempotencyKey,
-  });
-  if (signError || !signed) {
-    return json(409, { error: signError?.message ?? "hiring_signature_failed" });
+  // A previous invocation may have signed the hiring and then stopped after
+  // creating Auth but before completing Postgres. Recover that reservation
+  // even when a restarted client sends a fresh idempotency key.
+  const recoverSignedHiring = () => caller
+    .from("hirings")
+    .select("*")
+    .eq("candidate_id", candidateId)
+    .in("status", ["identity_pending", "completed"])
+    .limit(1)
+    .maybeSingle();
+
+  let { data: signed, error: recoveryError } = await recoverSignedHiring();
+  if (recoveryError) {
+    return json(500, { error: "hiring_recovery_failed" });
+  }
+  if (signed && signed.employee_number !== employeeNumber) {
+    return json(409, { error: "candidate_hiring_conflict" });
+  }
+
+  if (!signed) {
+    const signResult = await caller.rpc("sign_hiring", {
+      p_candidate_id: candidateId,
+      p_employee_number: employeeNumber,
+      p_idempotency_key: idempotencyKey,
+    });
+    signed = signResult.data;
+
+    if (signResult.error || !signed) {
+      // Concurrent requests can race between the recovery read and the
+      // signature. Re-read the unique active hiring before reporting failure.
+      const concurrent = await recoverSignedHiring();
+      if (
+        concurrent.error ||
+        !concurrent.data ||
+        concurrent.data.employee_number !== employeeNumber
+      ) {
+        return json(409, {
+          error: signResult.error?.message ?? "hiring_signature_failed",
+        });
+      }
+      signed = concurrent.data;
+    }
   }
   if (signed.status === "completed") {
     return json(200, { hiring: signed, created: false });
