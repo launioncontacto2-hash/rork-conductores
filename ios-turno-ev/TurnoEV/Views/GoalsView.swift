@@ -60,7 +60,11 @@ struct GoalsView: View {
                 }
             }
             .fullScreenCover(isPresented: $isIncomePresented) {
-                IncomeView()
+                if store.usesBackendFinancialCycle {
+                    BackendDriverFinanceView(presentsCloseButton: true)
+                } else {
+                    IncomeView()
+                }
             }
         }
         .editorScreen(.driverGoals)

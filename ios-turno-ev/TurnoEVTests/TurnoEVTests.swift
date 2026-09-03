@@ -1675,6 +1675,8 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.shiftCapability == .stationRequired)
         #expect(bench.store.usesBackendIncidentCycle)
         #expect(bench.store.usesBackendCoverageCycle)
+        #expect(bench.store.usesBackendFinancialCycle)
+        #expect(!bench.store.canSimulateFinancialState)
         #expect(!bench.store.canSimulateOperationalCoordination)
         #expect(!bench.store.canReportIncident)
         #expect(bench.store.operationalCapability == .localWorkflow)

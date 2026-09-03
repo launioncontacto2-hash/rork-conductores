@@ -348,6 +348,289 @@ enum SupabaseConfig {
     }
 }
 
+// MARK: - Financial lifecycle
+
+/// Authoritative 15G contract for the driver's money screens. RLS decides which rows
+/// are visible; the phone never computes a settlement or advances a transfer locally.
+@MainActor
+enum SupabaseFinancialService {
+    nonisolated struct DriverProfileRow: Decodable, Sendable {
+        let id: UUID
+        let profile_id: UUID
+        let station_id: UUID
+        let status: String
+    }
+
+    nonisolated struct IncomeRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let station_id: UUID
+        let shift_id: UUID
+        let driver_profile_id: UUID
+        let reversal_of: UUID?
+        let folio: String
+        let source: String
+        let amount_mxn: Int
+        let trips: Int
+        let external_reference: String?
+        let evidence_path: String?
+        let note: String?
+        let reported_at: Date
+    }
+
+    nonisolated struct CashChargeRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let driver_profile_id: UUID
+        let reversal_of: UUID?
+        let folio: String
+        let concept: String
+        let amount_mxn: Int
+        let charged_at: Date
+    }
+
+    nonisolated struct BankAccountRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let driver_profile_id: UUID
+        let bank_name: String
+        let clabe_last4: String
+        let version: Int
+        let status: String
+        let created_at: Date
+        let approved_at: Date?
+    }
+
+    nonisolated struct SettlementRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let driver_profile_id: UUID
+        let folio: String
+        let period_start: String
+        let period_end: String
+        let gross_income_mxn: Int
+        let cash_charges_mxn: Int
+        let net_mxn: Int
+        let status: String
+        let revision: Int64
+        let closed_at: Date
+    }
+
+    nonisolated struct TransferRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let settlement_id: UUID
+        let bank_account_id: UUID
+        let folio: String
+        let amount_mxn: Int
+        let status: String
+        let revision: Int64
+        let authorized_at: Date
+        let processed_at: Date?
+        let completed_at: Date?
+    }
+
+    nonisolated struct DriverSnapshot: Sendable {
+        let driverProfileId: UUID
+        let incomes: [IncomeRow]
+        let cashCharges: [CashChargeRow]
+        let bankAccounts: [BankAccountRow]
+        let settlements: [SettlementRow]
+        let transfers: [TransferRow]
+
+        var currentBankAccount: BankAccountRow? {
+            bankAccounts.first { $0.status == "active" }
+                ?? bankAccounts.first { $0.status == "pending" }
+        }
+    }
+
+    nonisolated struct RegisterIncomeParameters: Encodable, Sendable {
+        let p_shift_id: UUID
+        let p_source: String
+        let p_amount_mxn: Int
+        let p_trips: Int
+        let p_external_reference: String?
+        let p_evidence_path: String?
+        let p_note: String?
+        let p_reversal_of: UUID?
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    nonisolated struct SetBankAccountParameters: Encodable, Sendable {
+        let p_driver_profile_id: UUID
+        let p_bank_name: String
+        let p_clabe: String
+        let p_idempotency_key: String
+        let p_install_id: String
+    }
+
+    enum ServiceError: LocalizedError {
+        case notConfigured
+        case invalidIdentifier
+        case driverProfileNotVisible
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured: "Supabase no está configurado."
+            case .invalidIdentifier: "La sesión no contiene identificadores financieros válidos."
+            case .driverProfileNotVisible: "RLS no devolvió el perfil financiero del conductor."
+            }
+        }
+    }
+
+    private static let incomeColumns = """
+        id,station_id,shift_id,driver_profile_id,reversal_of,folio,source,
+        amount_mxn,trips,external_reference,evidence_path,note,reported_at
+        """
+    private static let chargeColumns = """
+        id,driver_profile_id,reversal_of,folio,concept,amount_mxn,charged_at
+        """
+    private static let accountColumns = """
+        id,driver_profile_id,bank_name,clabe_last4,version,status,created_at,approved_at
+        """
+    private static let settlementColumns = """
+        id,driver_profile_id,folio,period_start,period_end,gross_income_mxn,
+        cash_charges_mxn,net_mxn,status,revision,closed_at
+        """
+    private static let transferColumns = """
+        id,settlement_id,bank_account_id,folio,amount_mxn,status,revision,
+        authorized_at,processed_at,completed_at
+        """
+
+    static func loadDriverSnapshot(profileId: String) async throws -> DriverSnapshot {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: profileId) != nil else { throw ServiceError.invalidIdentifier }
+
+        let profiles: [DriverProfileRow] = try await client
+            .from("driver_profiles")
+            .select("id,profile_id,station_id,status")
+            .eq("profile_id", value: profileId)
+            .eq("status", value: "active")
+            .execute()
+            .value
+        guard profiles.count == 1, let driver = profiles.first else {
+            throw ServiceError.driverProfileNotVisible
+        }
+        let driverId = driver.id.uuidString
+
+        async let incomeRequest: [IncomeRow] = client
+            .from("incomes")
+            .select(incomeColumns)
+            .eq("driver_profile_id", value: driverId)
+            .order("reported_at", ascending: false)
+            .execute()
+            .value
+        async let chargeRequest: [CashChargeRow] = client
+            .from("cash_charges")
+            .select(chargeColumns)
+            .eq("driver_profile_id", value: driverId)
+            .order("charged_at", ascending: false)
+            .execute()
+            .value
+        async let accountRequest: [BankAccountRow] = client
+            .from("bank_accounts")
+            .select(accountColumns)
+            .eq("driver_profile_id", value: driverId)
+            .order("version", ascending: false)
+            .execute()
+            .value
+        async let settlementRequest: [SettlementRow] = client
+            .from("settlements")
+            .select(settlementColumns)
+            .eq("driver_profile_id", value: driverId)
+            .order("period_start", ascending: false)
+            .execute()
+            .value
+        async let transferRequest: [TransferRow] = client
+            .from("transfers")
+            .select(transferColumns)
+            .order("authorized_at", ascending: false)
+            .execute()
+            .value
+
+        let (incomes, charges, accounts, settlements, transfers) = try await (
+            incomeRequest, chargeRequest, accountRequest, settlementRequest, transferRequest
+        )
+        return DriverSnapshot(
+            driverProfileId: driver.id,
+            incomes: incomes,
+            cashCharges: charges,
+            bankAccounts: accounts,
+            settlements: settlements,
+            transfers: transfers
+        )
+    }
+
+    static func registerIncome(
+        shiftId: UUID,
+        source: String,
+        amountMxn: Int,
+        trips: Int,
+        externalReference: String?,
+        note: String?,
+        idempotencyKey: String
+    ) async throws -> IncomeRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        return try await client
+            .rpc(
+                "register_income",
+                params: RegisterIncomeParameters(
+                    p_shift_id: shiftId,
+                    p_source: source,
+                    p_amount_mxn: amountMxn,
+                    p_trips: trips,
+                    p_external_reference: externalReference,
+                    p_evidence_path: nil,
+                    p_note: note,
+                    p_reversal_of: nil,
+                    p_idempotency_key: idempotencyKey,
+                    p_install_id: SupabaseDriverDeviceService.installId
+                )
+            )
+            .execute()
+            .value
+    }
+
+    static func setBankAccount(
+        driverProfileId: UUID,
+        bankName: String,
+        clabe: String,
+        idempotencyKey: String
+    ) async throws -> BankAccountRow {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        return try await client
+            .rpc(
+                "set_bank_account",
+                params: SetBankAccountParameters(
+                    p_driver_profile_id: driverProfileId,
+                    p_bank_name: bankName,
+                    p_clabe: clabe,
+                    p_idempotency_key: idempotencyKey,
+                    p_install_id: SupabaseDriverDeviceService.installId
+                )
+            )
+            .execute()
+            .value
+    }
+
+    nonisolated static func userMessage(for error: Error) -> String {
+        let message = error.localizedDescription
+        let lowered = message.lowercased()
+        if lowered.contains("driver_device_session_replaced") {
+            return "Esta sesión fue reemplazada por otro iPhone. Inicia sesión nuevamente."
+        }
+        if lowered.contains("owned_shift_required") {
+            return "Abre tu turno antes de registrar ingresos."
+        }
+        if lowered.contains("bank_account_pending_review") {
+            return "Ya existe una cuenta pendiente de revisión."
+        }
+        if lowered.contains("invalid_bank_account") {
+            return "Captura un banco y una CLABE válida de 18 dígitos."
+        }
+        if lowered.contains("idempotency_key_conflict") {
+            return "La solicitud ya fue usada con información distinta. Actualiza e intenta de nuevo."
+        }
+        return message
+    }
+}
+
 // MARK: - Client
 
 /// Single Supabase client of the application.
