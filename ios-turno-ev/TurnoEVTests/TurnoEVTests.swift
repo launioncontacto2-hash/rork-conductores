@@ -1682,6 +1682,77 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.operationalCapability == .localWorkflow)
     }
 
+    /// 15G · the ledger is authoritative for both the wallet and the open shift.
+    /// Rows from older shifts remain visible in history but cannot inflate the totals
+    /// shown for the shift that is currently open.
+    @Test func backendFinancialSnapshotRefreshesOnlyTheOpenShiftTotals() throws {
+        let bench = try Self.bench(environmentId: LabEnvironment.sharedTestId)
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        let openShiftId = UUID()
+        let olderShiftId = UUID()
+        let stationId = UUID()
+        let driverProfileId = UUID()
+        let reportedAt = Date(timeIntervalSince1970: 1_788_154_100)
+        bench.store.activeShift = ActiveShift(
+            id: openShiftId.uuidString,
+            driverId: bench.profileId,
+            vehicleId: "veh-backend-test",
+            group: .weekday,
+            slot: .morning,
+            scheduledStartAt: reportedAt,
+            startedAt: reportedAt,
+            lateMinutes: 0,
+            startOdometerKm: 96_000,
+            startBatteryPct: 90,
+            photos: [:],
+            trips: 99,
+            earningsMxn: 9_999,
+            origin: .backend
+        )
+
+        func income(shiftId: UUID, source: String, amount: Int, trips: Int) -> SupabaseFinancialService.IncomeRow {
+            SupabaseFinancialService.IncomeRow(
+                id: UUID(),
+                station_id: stationId,
+                shift_id: shiftId,
+                driver_profile_id: driverProfileId,
+                reversal_of: nil,
+                folio: "INC-\(UUID().uuidString.prefix(8))",
+                source: source,
+                amount_mxn: amount,
+                trips: trips,
+                external_reference: nil,
+                evidence_path: nil,
+                note: nil,
+                reported_at: reportedAt
+            )
+        }
+
+        let snapshot = SupabaseFinancialService.DriverSnapshot(
+            driverProfileId: driverProfileId,
+            incomes: [
+                income(shiftId: openShiftId, source: "uber", amount: 123, trips: 2),
+                income(shiftId: openShiftId, source: "didi", amount: 77, trips: 1),
+                income(shiftId: olderShiftId, source: "other", amount: 900, trips: 8),
+            ],
+            cashCharges: [],
+            bankAccounts: [],
+            settlements: [],
+            transfers: []
+        )
+
+        bench.store.adoptBackendFinancialSnapshot(snapshot)
+
+        #expect(bench.store.incomes.count == 3)
+        #expect(bench.store.incomes.allSatisfy { $0.origin == .backend })
+        #expect(bench.store.activeShift?.earningsMxn == 200)
+        #expect(bench.store.activeShift?.trips == 3)
+    }
+
     /// I · inside the laboratory the whole cycle runs exactly as before.
     @Test func theLaboratoryStillRunsTheCompleteCycle() throws {
         let bench = try Self.bench()
