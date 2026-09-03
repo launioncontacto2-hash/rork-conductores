@@ -1704,6 +1704,10 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.usesBackendIncidentCycle)
         #expect(bench.store.usesBackendCoverageCycle)
         #expect(bench.store.usesBackendFinancialCycle)
+        #expect(bench.store.usesBackendAssignmentCycle)
+        #expect(!bench.store.canSimulateUnitAssignment)
+        #expect(bench.store.unitAssignmentCapability == .stationRequired)
+        #expect(bench.store.vehicles.isEmpty)
         #expect(!bench.store.canSimulateFinancialState)
         #expect(!bench.store.canSimulateOperationalCoordination)
         #expect(!bench.store.canReportIncident)
@@ -1783,7 +1787,7 @@ struct OperationalCycleBoundaryTests {
 
     /// I · inside the laboratory the whole cycle runs exactly as before.
     @Test func theLaboratoryStillRunsTheCompleteCycle() throws {
-        let bench = try Self.bench()
+        let bench = try Self.demoBench()
         defer { bench.discard() }
 
         let unit = try Self.enterLaboratoryWithAUnit(bench)
@@ -1832,7 +1836,7 @@ struct OperationalCycleBoundaryTests {
     ///
     /// Not deleted, not closeable, not blocking — and waiting where it was left.
     @Test func aSimulatedShiftDoesNotSurviveIntoProductionAndComesBack() throws {
-        let bench = try Self.bench()
+        let bench = try Self.demoBench()
         defer { bench.discard() }
 
         let unit = try Self.enterLaboratoryWithAUnit(bench)
@@ -1927,6 +1931,28 @@ struct OperationalCycleBoundaryTests {
             environment: environment,
             store: store,
             profileId: profileId
+        )
+    }
+
+    /// A demonstration bench: the same storage isolation, without a proved identity.
+    ///
+    /// `reloadAssignment()` refuses to read the local book under a principal — the
+    /// station's rows reach a real driver through Supabase — so the two laboratory cycle
+    /// cases below run on the credential that is allowed to simulate one.
+    private static func demoBench() throws -> Bench {
+        let suiteName = "turnoev.tests.cycle.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+
+        store.signIn(account: StaffDirectory.demoDriverAccount, method: .credentials)
+
+        return Bench(
+            suiteName: suiteName,
+            defaults: defaults,
+            environment: environment,
+            store: store,
+            profileId: store.driver.id
         )
     }
 
@@ -2163,7 +2189,7 @@ struct EnvironmentTransitionTests {
         #expect(bench.store.environment == .test)
         #expect(bench.store.canSimulateUnitAssignment)
         #expect(bench.store.canSimulateFinancialState)
-        #expect(bench.store.usesBackendCoverageCycle)
+        #expect(bench.store.usesBackendCoverageCycle == false)
         #expect(bench.store.canSimulateOperationalCoordination == false)
         #expect(bench.store.unitAssignmentCapability == .localSimulation)
         #expect(bench.store.coordinationCapability == .stationRequired)
@@ -2380,7 +2406,8 @@ struct EnvironmentTransitionTests {
         let relaunched = FleetStore(environment: relaunchedEnvironment, defaults: bench.defaults)
         #expect(relaunched.environment == .test)
         #expect(relaunched.isBackendSession == false)
-        #expect(relaunched.awaitsCredentialChoice)
+        #expect(relaunched.isAuthenticated == false)
+        #expect(relaunched.currentPrincipal == nil)
         // The laboratory's own blob is still there for the identity that comes back.
         #expect(bench.defaults.data(forKey: bench.laboratoryKey) != nil)
     }

@@ -593,7 +593,18 @@ final class FleetStore {
     /// demonstration with no unit has nothing to demonstrate. A proved identity gets what
     /// the server assigned, which today is nothing — and "todavía no tienes unidad" is a
     /// true sentence, while a borrowed TEV-014 is not.
-    var canSimulateUnitAssignment: Bool { !runsAgainstStation }
+    var canSimulateUnitAssignment: Bool {
+        !runsAgainstStation && !usesBackendAssignmentCycle
+    }
+
+    /// Assignments of a proved driver are written by the station, in TEST as in
+    /// production. The local flag only selects the shared logical clock; it must never
+    /// hand the demonstration catalogue to a person whose units live in Supabase.
+    /// Demonstration credentials carry no principal and keep the local book.
+    var usesBackendAssignmentCycle: Bool {
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
+    }
 
     /// The capability every read and write of the assignment book is judged against.
     var unitAssignmentCapability: UnitAssignmentCapability {
