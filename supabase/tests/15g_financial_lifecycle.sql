@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(38);
+SELECT plan(39);
 
 SELECT has_table('public','incomes','existe incomes');
 SELECT has_table('public','cash_deposits','existe cash_deposits');
@@ -18,6 +18,7 @@ SELECT has_function('public','approve_bank_account',ARRAY['uuid','boolean','text
 SELECT has_function('public','close_settlement',ARRAY['uuid','date','date','text'],'existe close_settlement');
 SELECT has_function('public','record_cash_charge',ARRAY['uuid','text','integer','uuid','text'],'existe record_cash_charge');
 SELECT has_function('public','authorize_transfer',ARRAY['uuid','bigint','text'],'existe authorize_transfer');
+SELECT has_function('app','auth_has_region_role',ARRAY['text','uuid'],'gerencia se autoriza por region');
 
 SELECT has_index('public','incomes','incomes_single_reversal_unique','un ingreso solo se revierte una vez');
 SELECT has_index('public','cash_charges','cash_charges_single_reversal_unique','un cargo solo se revierte una vez');
@@ -73,9 +74,21 @@ SELECT is(
   6::bigint,'hechos financieros protegidos contra update y delete'
 );
 
-SELECT has_check('public','incomes','incomes_reversal_sign_check','reversion de ingreso exige signo opuesto');
-SELECT has_check('public','bank_accounts','bank_accounts_approval_consistent','cuenta activa exige aprobacion');
-SELECT has_check('public','settlements','settlements_amounts_check','neto de liquidacion debe cuadrar');
+SELECT is(
+  (SELECT count(*)::bigint FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+   WHERE n.nspname='public' AND t.relname='incomes' AND c.conname='incomes_reversal_sign_check' AND c.contype='c'),
+  1::bigint,'reversion de ingreso exige signo opuesto'
+);
+SELECT is(
+  (SELECT count(*)::bigint FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+   WHERE n.nspname='public' AND t.relname='bank_accounts' AND c.conname='bank_accounts_approval_consistent' AND c.contype='c'),
+  1::bigint,'cuenta activa exige aprobacion'
+);
+SELECT is(
+  (SELECT count(*)::bigint FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace
+   WHERE n.nspname='public' AND t.relname='settlements' AND c.conname='settlements_amounts_check' AND c.contype='c'),
+  1::bigint,'neto de liquidacion debe cuadrar'
+);
 
 SELECT is(
   (SELECT count(*)::bigint FROM pg_publication_tables WHERE pubname='supabase_realtime' AND schemaname='public' AND tablename='transfers'),

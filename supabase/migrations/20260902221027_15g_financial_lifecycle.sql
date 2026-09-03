@@ -296,30 +296,52 @@ CREATE TRIGGER cash_charges_block_delete BEFORE DELETE ON public.cash_charges FO
 CREATE TRIGGER settlements_touch BEFORE UPDATE ON public.settlements FOR EACH ROW EXECUTE FUNCTION app.touch_updated_at();
 CREATE TRIGGER transfers_touch BEFORE UPDATE ON public.transfers FOR EACH ROW EXECUTE FUNCTION app.touch_updated_at();
 
+CREATE OR REPLACE FUNCTION app.auth_has_region_role(p_role text, p_station_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path TO 'pg_catalog','public','app','auth','pg_temp'
+AS $function$
+  SELECT (SELECT app.auth_profile_id()) IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.staff_memberships membership
+    JOIN public.stations home_station ON home_station.id=membership.station_id
+    JOIN public.stations target_station ON target_station.id=p_station_id
+    WHERE membership.profile_id=(SELECT app.auth_profile_id())
+      AND membership.role=p_role
+      AND membership.starts_at<=app.env_now(target_station.environment_id)
+      AND (membership.ends_at IS NULL OR membership.ends_at>app.env_now(target_station.environment_id))
+      AND home_station.region_id=target_station.region_id
+      AND home_station.environment_id=target_station.environment_id
+      AND target_station.environment_id=app.current_environment_id()
+      AND home_station.status='active' AND target_station.status='active'
+  )
+$function$;
+REVOKE ALL ON FUNCTION app.auth_has_region_role(text,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app.auth_has_region_role(text,uuid) TO authenticated, service_role, postgres;
+
 CREATE POLICY incomes_authorized_read ON public.incomes FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.driver_profiles dp WHERE dp.id = driver_profile_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 CREATE POLICY cash_deposits_authorized_read ON public.cash_deposits FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.driver_profiles dp WHERE dp.id = driver_profile_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 CREATE POLICY cash_charges_authorized_read ON public.cash_charges FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.driver_profiles dp WHERE dp.id = driver_profile_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_role('supervisor', station_id) OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 CREATE POLICY bank_accounts_authorized_read ON public.bank_accounts FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.driver_profiles dp WHERE dp.id = driver_profile_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 CREATE POLICY settlements_authorized_read ON public.settlements FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.driver_profiles dp WHERE dp.id = driver_profile_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 CREATE POLICY transfers_authorized_read ON public.transfers FOR SELECT TO authenticated USING (
     EXISTS (SELECT 1 FROM public.settlements st JOIN public.driver_profiles dp ON dp.id = st.driver_profile_id
             WHERE st.id = settlement_id AND dp.profile_id = (SELECT app.auth_profile_id()))
-    OR app.auth_has_role('management', station_id) OR app.auth_has_role('direction')
+    OR app.auth_has_region_role('management', station_id) OR app.auth_has_role('direction')
 );
 
 GRANT SELECT ON TABLE public.incomes, public.cash_deposits, public.cash_charges,
@@ -464,7 +486,7 @@ BEGIN
     SELECT * INTO v_driver FROM public.driver_profiles WHERE id=p_driver_profile_id AND environment_id=v_env AND status='active';
     IF NOT FOUND THEN RAISE EXCEPTION 'active_driver_required' USING ERRCODE='22023'; END IF;
     v_is_owner := v_driver.profile_id=v_actor AND app.auth_has_role('driver',v_driver.station_id);
-    v_is_manager := app.auth_has_role('management',v_driver.station_id) OR app.auth_has_role('direction');
+    v_is_manager := app.auth_has_region_role('management',v_driver.station_id) OR app.auth_has_role('direction');
     IF NOT v_is_owner AND NOT v_is_manager THEN RAISE EXCEPTION 'bank_account_forbidden' USING ERRCODE='42501'; END IF;
     IF v_is_owner THEN PERFORM app.assert_driver_device_session(p_install_id); END IF;
     v_request:=jsonb_build_object('driver_profile_id',p_driver_profile_id,'bank_name',btrim(p_bank_name),
@@ -520,7 +542,7 @@ BEGIN
     END IF;
     SELECT * INTO v_account FROM public.bank_accounts WHERE id=p_bank_account_id AND environment_id=v_env FOR UPDATE;
     IF NOT FOUND OR v_account.status<>'pending' THEN RAISE EXCEPTION 'pending_bank_account_required' USING ERRCODE='22023'; END IF;
-    IF NOT (app.auth_has_role('management',v_account.station_id) OR app.auth_has_role('direction'))
+    IF NOT (app.auth_has_region_role('management',v_account.station_id) OR app.auth_has_role('direction'))
       THEN RAISE EXCEPTION 'bank_account_approval_forbidden' USING ERRCODE='42501'; END IF;
     IF v_account.created_by=v_actor THEN RAISE EXCEPTION 'bank_account_dual_control_required' USING ERRCODE='42501'; END IF;
     INSERT INTO public.command_log(environment_id,actor_profile_id,command_name,idempotency_key,status,request_payload,occurred_at)
@@ -557,7 +579,7 @@ BEGIN
     v_env:=app.current_environment_id(); v_now:=app.env_now(v_env);
     SELECT * INTO v_driver FROM public.driver_profiles WHERE id=p_driver_profile_id AND environment_id=v_env AND status='active';
     IF NOT FOUND THEN RAISE EXCEPTION 'active_driver_required' USING ERRCODE='22023'; END IF;
-    IF NOT (app.auth_has_role('management',v_driver.station_id) OR app.auth_has_role('direction'))
+    IF NOT (app.auth_has_region_role('management',v_driver.station_id) OR app.auth_has_role('direction'))
       THEN RAISE EXCEPTION 'settlement_close_forbidden' USING ERRCODE='42501'; END IF;
     SELECT timezone INTO STRICT v_tz FROM public.stations WHERE id=v_driver.station_id;
     IF p_period_end >= (v_now AT TIME ZONE v_tz)::date THEN RAISE EXCEPTION 'settlement_period_not_closed' USING ERRCODE='22023'; END IF;
@@ -606,7 +628,7 @@ BEGIN
     v_env:=app.current_environment_id(); v_now:=app.env_now(v_env);
     SELECT * INTO v_driver FROM public.driver_profiles WHERE id=p_driver_profile_id AND environment_id=v_env AND status='active';
     IF NOT FOUND THEN RAISE EXCEPTION 'active_driver_required' USING ERRCODE='22023'; END IF;
-    IF NOT (app.auth_has_role('management',v_driver.station_id) OR app.auth_has_role('direction'))
+    IF NOT (app.auth_has_region_role('management',v_driver.station_id) OR app.auth_has_role('direction'))
       THEN RAISE EXCEPTION 'cash_charge_forbidden' USING ERRCODE='42501'; END IF;
     v_request:=jsonb_build_object('driver_profile_id',p_driver_profile_id,'concept',btrim(p_concept),
       'amount_mxn',p_amount_mxn,'reversal_of',p_reversal_of);
@@ -658,7 +680,7 @@ BEGIN
     SELECT * INTO v_settlement FROM public.settlements WHERE id=p_settlement_id AND environment_id=v_env FOR UPDATE;
     IF NOT FOUND OR v_settlement.status<>'available' THEN RAISE EXCEPTION 'available_settlement_required' USING ERRCODE='22023'; END IF;
     IF v_settlement.revision<>p_expected_revision THEN RAISE EXCEPTION 'stale_settlement_revision' USING ERRCODE='40001'; END IF;
-    IF NOT (app.auth_has_role('management',v_settlement.station_id) OR app.auth_has_role('direction'))
+    IF NOT (app.auth_has_region_role('management',v_settlement.station_id) OR app.auth_has_role('direction'))
       THEN RAISE EXCEPTION 'transfer_authorization_forbidden' USING ERRCODE='42501'; END IF;
     IF v_settlement.net_mxn<=0 THEN RAISE EXCEPTION 'positive_settlement_required' USING ERRCODE='22023'; END IF;
     SELECT * INTO v_account FROM public.bank_accounts WHERE driver_profile_id=v_settlement.driver_profile_id AND status='active' FOR UPDATE;

@@ -1,10 +1,13 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(31);
+SELECT plan(32);
 
 INSERT INTO public.stations(id,environment_id,region_id,code,name,status,timezone)
 SELECT '15740000-0000-4000-8000-000000000001',r.environment_id,r.id,'15g-rpc-station','15G RPC Station','active','America/Mexico_City'
 FROM public.regions r ORDER BY r.created_at,r.id LIMIT 1;
+INSERT INTO public.stations(id,environment_id,region_id,code,name,status,timezone)
+SELECT '15740000-0000-4000-8000-000000000002',s.environment_id,s.region_id,'15g-rpc-station-2','15G RPC Station 2','active',s.timezone
+FROM public.stations s WHERE s.id='15740000-0000-4000-8000-000000000001';
 CREATE TEMP TABLE test_15g_scope AS SELECT environment_id,id station_id FROM public.stations WHERE id='15740000-0000-4000-8000-000000000001';
 UPDATE app.env_clock c SET is_simulated=true,anchor_logical_at='2026-08-31 18:00:00+00',anchor_real_at=now(),speed=1,is_paused=true
 FROM test_15g_scope s WHERE c.environment_id=s.environment_id;
@@ -61,6 +64,7 @@ SELECT is((SELECT clabe FROM app.bank_account_secrets),'012345678901234567','la 
 
 SELECT set_config('request.jwt.claim.sub','15700000-0000-4000-8000-000000000002',true);
 SET LOCAL ROLE authenticated;
+SELECT ok(app.auth_has_region_role('management','15740000-0000-4000-8000-000000000002'),'gerencia alcanza otra estacion de su region');
 SELECT lives_ok($sql$ SELECT public.approve_bank_account((SELECT id FROM public.bank_accounts),true,'15g-bank-approve') $sql$,'gerencia aprueba con segundo actor');
 SELECT lives_ok($sql$ SELECT public.record_cash_charge('15720000-0000-4000-8000-000000000001','Servicio semanal',100,NULL,'15g-charge-1') $sql$,'gerencia registra cargo');
 RESET ROLE;
