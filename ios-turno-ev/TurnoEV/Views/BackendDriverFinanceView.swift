@@ -51,7 +51,9 @@ struct BackendDriverFinanceView: View {
 
     private var parsedAmount: Int { Int(amount.trimmingCharacters(in: .whitespaces)) ?? 0 }
     private var parsedTrips: Int { Int(trips.trimmingCharacters(in: .whitespaces)) ?? 0 }
-    private var clabeDigits: String { clabe.filter(\.isNumber) }
+    /// PostgreSQL validates CLABE with `[0-9]`, so normalize to the same ASCII alphabet
+    /// instead of accepting other Unicode numeral characters that the RPC will reject.
+    private var clabeDigits: String { clabe.filter { $0 >= "0" && $0 <= "9" } }
     private var hasPendingAccount: Bool {
         snapshot?.bankAccounts.contains { $0.status == "pending" } == true
     }

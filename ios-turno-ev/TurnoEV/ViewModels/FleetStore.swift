@@ -410,8 +410,9 @@ final class FleetStore {
         persist()
     }
 
-    /// Refreshes both pieces in dependency order: an open shift is scoped by the active
-    /// assignment, so the assignment row must be resolved first.
+    /// Refreshes the authoritative driver state in dependency order. An open shift is
+    /// scoped by the active assignment, and its financial totals can only be projected
+    /// after that shift has been reconstructed locally.
     func refreshBackendOperationalState() async throws {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
@@ -421,24 +422,24 @@ final class FleetStore {
         try await SupabaseDriverDeviceService.heartbeat()
         try await refreshBackendAssignment()
         try await refreshBackendIncidents()
-        try await refreshBackendFinancialState()
         guard let assignment = unitAssignment else {
             if activeShift?.origin == .backend { activeShift = nil }
             backendShiftRevision = nil
             persist()
+            try await refreshBackendFinancialState()
             return
         }
 
-        guard let row = try await SupabaseShiftService.loadOpenShift(
+        if let row = try await SupabaseShiftService.loadOpenShift(
             assignmentId: assignment.id
-        ) else {
+        ) {
+            _ = try adoptBackendShift(row)
+        } else {
             if activeShift?.origin == .backend { activeShift = nil }
             backendShiftRevision = nil
             persist()
-            return
         }
-
-        _ = try adoptBackendShift(row)
+        try await refreshBackendFinancialState()
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
