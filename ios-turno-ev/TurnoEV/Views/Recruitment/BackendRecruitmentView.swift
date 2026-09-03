@@ -1,4 +1,5 @@
 import Observation
+import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 

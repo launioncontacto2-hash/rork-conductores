@@ -2062,8 +2062,8 @@ enum SupabaseHiringService {
         try await client.storage
             .from("candidate-documents")
             .upload(
-                path: path,
-                file: data,
+                path,
+                data: data,
                 options: FileOptions(contentType: contentType, upsert: false)
             )
 
