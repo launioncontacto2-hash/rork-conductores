@@ -9,6 +9,7 @@ INSERT INTO public.stations(id,environment_id,region_id,code,name,status,timezon
 SELECT '15740000-0000-4000-8000-000000000002',s.environment_id,s.region_id,'15g-rpc-station-2','15G RPC Station 2','active',s.timezone
 FROM public.stations s WHERE s.id='15740000-0000-4000-8000-000000000001';
 CREATE TEMP TABLE test_15g_scope AS SELECT environment_id,id station_id FROM public.stations WHERE id='15740000-0000-4000-8000-000000000001';
+GRANT SELECT ON TABLE test_15g_scope TO authenticated;
 UPDATE app.env_clock c SET is_simulated=true,anchor_logical_at='2026-08-31 18:00:00+00',anchor_real_at=now(),speed=1,is_paused=true
 FROM test_15g_scope s WHERE c.environment_id=s.environment_id;
 

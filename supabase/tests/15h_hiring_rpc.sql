@@ -47,6 +47,7 @@ CREATE TEMP TABLE test_15h_scope AS
 SELECT environment_id, id AS station_id
 FROM public.stations
 WHERE id = '15840000-0000-4000-8000-000000000001';
+GRANT SELECT ON TABLE test_15h_scope TO authenticated;
 
 UPDATE app.env_clock clock
 SET is_simulated = true,
