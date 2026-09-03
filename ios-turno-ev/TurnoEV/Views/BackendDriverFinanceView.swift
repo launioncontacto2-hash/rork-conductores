@@ -25,8 +25,21 @@ struct BackendDriverFinanceView: View {
     @State private var bankName = ""
     @State private var clabe = ""
 
+    @FocusState private var focusedField: Field?
+
     init(presentsCloseButton: Bool = false) {
         self.presentsCloseButton = presentsCloseButton
+    }
+
+    /// Every editable field of this screen. The numeric keypads carry no return key, so
+    /// without an explicit way out the keyboard stays up and covers the tab bar.
+    private enum Field: Hashable {
+        case amount
+        case trips
+        case externalReference
+        case incomeNote
+        case bankName
+        case clabe
     }
 
     private enum IncomeSource: String, CaseIterable, Identifiable {
@@ -106,6 +119,7 @@ struct BackendDriverFinanceView: View {
                     .padding(.bottom, 34)
                 }
                 .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
                 .refreshable { await refresh() }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -114,6 +128,11 @@ struct BackendDriverFinanceView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Cerrar") { dismiss() }
                     }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Listo") { focusedField = nil }
+                        .font(.system(.body, weight: .bold))
                 }
             }
             .task { await refresh() }
@@ -210,8 +229,10 @@ struct BackendDriverFinanceView: View {
             HStack(spacing: 10) {
                 TextField("Monto MXN", text: $amount)
                     .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .amount)
                 TextField("Viajes", text: $trips)
                     .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .trips)
                     .frame(maxWidth: 100)
             }
             .textFieldStyle(.plain)
@@ -220,11 +241,13 @@ struct BackendDriverFinanceView: View {
 
             TextField("Referencia externa (opcional)", text: $externalReference)
                 .textInputAutocapitalization(.characters)
+                .focused($focusedField, equals: .externalReference)
                 .padding(13)
                 .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
 
             TextField("Nota (opcional)", text: $incomeNote, axis: .vertical)
                 .lineLimit(2...4)
+                .focused($focusedField, equals: .incomeNote)
                 .padding(13)
                 .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
 
@@ -273,10 +296,12 @@ struct BackendDriverFinanceView: View {
             } else if showsBankForm || current == nil {
                 TextField("Banco", text: $bankName)
                     .textInputAutocapitalization(.words)
+                    .focused($focusedField, equals: .bankName)
                     .padding(13)
                     .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
                 SecureField("CLABE de 18 dígitos", text: $clabe)
                     .keyboardType(.numberPad)
+                    .focused($focusedField, equals: .clabe)
                     .padding(13)
                     .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
 
@@ -411,6 +436,9 @@ struct BackendDriverFinanceView: View {
 
     @MainActor
     private func registerIncome() async {
+        // Released before the guard, so tapping the button always puts the keyboard away
+        // — including on the paths that refuse the write and return early.
+        focusedField = nil
         guard let shiftId = backendShiftId, parsedAmount > 0, parsedTrips >= 0 else { return }
         isSavingIncome = true
         successMessage = nil
@@ -438,6 +466,7 @@ struct BackendDriverFinanceView: View {
 
     @MainActor
     private func setBankAccount() async {
+        focusedField = nil
         guard let driverProfileId = snapshot?.driverProfileId, clabeDigits.count == 18 else { return }
         isSavingAccount = true
         successMessage = nil
