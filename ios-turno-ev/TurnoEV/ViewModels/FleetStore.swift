@@ -366,8 +366,53 @@ final class FleetStore {
         persist()
     }
 
-    /// Refreshes both pieces in dependency order: an open shift is scoped by the active
-    /// assignment, so the assignment row must be resolved first.
+    /// Pulls the driver's authoritative income ledger and adopts it into the existing
+    /// goal calculations. The local `IncomeEntry` values are projections only: every
+    /// write still goes through `register_income` and the next refresh replaces them.
+    func refreshBackendFinancialState() async throws {
+        guard usesBackendFinancialCycle, let principal = currentPrincipal else { return }
+        let snapshot = try await SupabaseFinancialService.loadDriverSnapshot(
+            profileId: principal.profileId
+        )
+        adoptBackendFinancialSnapshot(snapshot)
+    }
+
+    func adoptBackendFinancialSnapshot(_ snapshot: SupabaseFinancialService.DriverSnapshot) {
+        guard usesBackendFinancialCycle else { return }
+
+        incomes = snapshot.incomes.map { row in
+            let platform: IncomePlatform = switch row.source {
+            case "uber": .uber
+            case "didi": .didi
+            case "cash": .cash
+            default: .other
+            }
+            return IncomeEntry(
+                id: row.id.uuidString,
+                driverId: driver.id,
+                origin: .backend,
+                shiftId: row.shift_id.uuidString,
+                date: row.reported_at,
+                amountMxn: row.amount_mxn,
+                trips: row.trips,
+                platform: platform,
+                evidence: nil,
+                note: row.note
+            )
+        }
+
+        if var active = activeShift, active.origin == .backend {
+            let shiftRows = snapshot.incomes.filter { $0.shift_id.uuidString == active.id }
+            active.earningsMxn = shiftRows.reduce(0) { $0 + $1.amount_mxn }
+            active.trips = shiftRows.reduce(0) { $0 + $1.trips }
+            activeShift = active
+        }
+        persist()
+    }
+
+    /// Refreshes the authoritative driver state in dependency order. An open shift is
+    /// scoped by the active assignment, and its financial totals can only be projected
+    /// after that shift has been reconstructed locally.
     func refreshBackendOperationalState() async throws {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
@@ -381,19 +426,20 @@ final class FleetStore {
             if activeShift?.origin == .backend { activeShift = nil }
             backendShiftRevision = nil
             persist()
+            try await refreshBackendFinancialState()
             return
         }
 
-        guard let row = try await SupabaseShiftService.loadOpenShift(
+        if let row = try await SupabaseShiftService.loadOpenShift(
             assignmentId: assignment.id
-        ) else {
+        ) {
+            _ = try adoptBackendShift(row)
+        } else {
             if activeShift?.origin == .backend { activeShift = nil }
             backendShiftRevision = nil
             persist()
-            return
         }
-
-        _ = try adoptBackendShift(row)
+        try await refreshBackendFinancialState()
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
@@ -497,17 +543,15 @@ final class FleetStore {
 
     /// Whether this session may mint financial state locally.
     ///
-    /// A demonstration session may: fabricating a contract or an income is the whole
-    /// point of a flow that has no server behind it yet. A backend identity may not.
-    /// Anything shown as money to a proved driver has to have come from the authority
-    /// that owes it, and while there is no financial layer on the server the honest
-    /// answer is that the operation is unavailable — not an invented contract that a
-    /// settlement will happily subtract.
+    /// A demonstration session may: fabricating an income is the point of a flow with no
+    /// server behind it. A backend identity may not. Since 15G, proved drivers in TEST and
+    /// production use the same authoritative financial service; the amber environment
+    /// changes the clock and data set, never the authority that owns their money.
     ///
     /// This is the capability the writers ask. It lives here, not in the views: the
     /// session is the only thing that can answer it, and a screen that decided this for
     /// itself would be one refactor away from getting it wrong.
-    var canSimulateFinancialState: Bool { !runsAgainstStation }
+    var canSimulateFinancialState: Bool { !usesBackendFinancialCycle }
 
     /// Provenance every financial record this session produces is stamped with, and the
     /// one a settlement built from those records will accept.
@@ -549,7 +593,18 @@ final class FleetStore {
     /// demonstration with no unit has nothing to demonstrate. A proved identity gets what
     /// the server assigned, which today is nothing — and "todavía no tienes unidad" is a
     /// true sentence, while a borrowed TEV-014 is not.
-    var canSimulateUnitAssignment: Bool { !runsAgainstStation }
+    var canSimulateUnitAssignment: Bool {
+        !runsAgainstStation && !usesBackendAssignmentCycle
+    }
+
+    /// Assignments of a proved driver are written by the station, in TEST as in
+    /// production. The local flag only selects the shared logical clock; it must never
+    /// hand the demonstration catalogue to a person whose units live in Supabase.
+    /// Demonstration credentials carry no principal and keep the local book.
+    var usesBackendAssignmentCycle: Bool {
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
+    }
 
     /// The capability every read and write of the assignment book is judged against.
     var unitAssignmentCapability: UnitAssignmentCapability {
@@ -596,6 +651,14 @@ final class FleetStore {
     /// station service. TEST uses the same authoritative path as production while demo
     /// credentials retain the original local coverage engine.
     var usesBackendCoverageCycle: Bool {
+        guard isBackendSession, currentPrincipal?.role == .driver else { return false }
+        return runsAgainstStation || isBackendTestSession
+    }
+
+    /// 15G makes money authoritative for every proved driver, including TEST. Demo
+    /// credentials keep the original local wallet; real credentials read and write only
+    /// through the financial RPCs and RLS policies.
+    var usesBackendFinancialCycle: Bool {
         guard isBackendSession, currentPrincipal?.role == .driver else { return false }
         return runsAgainstStation || isBackendTestSession
     }

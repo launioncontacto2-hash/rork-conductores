@@ -32,6 +32,34 @@ struct HiringDocumentIntegrityTests {
     }
 }
 
+struct FinancialRPCEncodingTests {
+    @Test func registerIncomeIncludesEveryNullableSQLArgument() throws {
+        let parameters = SupabaseFinancialService.RegisterIncomeParameters(
+            p_shift_id: UUID(),
+            p_source: "uber",
+            p_amount_mxn: 123,
+            p_trips: 2,
+            p_external_reference: nil,
+            p_evidence_path: nil,
+            p_note: nil,
+            p_reversal_of: nil,
+            p_idempotency_key: "test-income-rpc-encoding",
+            p_install_id: "test-install"
+        )
+        let data = try JSONEncoder().encode(parameters)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(object.keys) == Set([
+            "p_shift_id", "p_source", "p_amount_mxn", "p_trips",
+            "p_external_reference", "p_evidence_path", "p_note", "p_reversal_of",
+            "p_idempotency_key", "p_install_id",
+        ]))
+        #expect(object["p_external_reference"] is NSNull)
+        #expect(object["p_evidence_path"] is NSNull)
+        #expect(object["p_note"] is NSNull)
+        #expect(object["p_reversal_of"] is NSNull)
+    }
+}
+
 /// 15B.10 · the credit instalment is a deduction only when the contract can be verified.
 ///
 /// These cover the rule itself, which is pure: given a contract and the week being
@@ -1698,20 +1726,102 @@ struct OperationalCycleBoundaryTests {
         #expect(bench.store.shiftCapability == .stationRequired)
         #expect(bench.store.usesBackendIncidentCycle)
         #expect(bench.store.usesBackendCoverageCycle)
+        #expect(bench.store.usesBackendFinancialCycle)
+        #expect(bench.store.usesBackendAssignmentCycle)
+        #expect(!bench.store.canSimulateUnitAssignment)
+        #expect(bench.store.unitAssignmentCapability == .stationRequired)
+        #expect(bench.store.vehicles.isEmpty)
+        #expect(!bench.store.canSimulateFinancialState)
         #expect(!bench.store.canSimulateOperationalCoordination)
         #expect(!bench.store.canReportIncident)
         #expect(bench.store.operationalCapability == .localWorkflow)
     }
 
+    /// 15G · the ledger is authoritative for both the wallet and the open shift.
+    /// Rows from older shifts remain visible in history but cannot inflate the totals
+    /// shown for the shift that is currently open.
+    @Test func backendFinancialSnapshotRefreshesOnlyTheOpenShiftTotals() throws {
+        let bench = try Self.bench(environmentId: LabEnvironment.sharedTestId)
+        defer { bench.discard() }
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        let openShiftId = UUID()
+        let olderShiftId = UUID()
+        let stationId = UUID()
+        let driverProfileId = UUID()
+        let reportedAt = Date(timeIntervalSince1970: 1_788_154_100)
+        bench.store.activeShift = ActiveShift(
+            id: openShiftId.uuidString,
+            driverId: bench.profileId,
+            vehicleId: "veh-backend-test",
+            group: .weekday,
+            slot: .morning,
+            scheduledStartAt: reportedAt,
+            startedAt: reportedAt,
+            lateMinutes: 0,
+            startOdometerKm: 96_000,
+            startBatteryPct: 90,
+            photos: [:],
+            trips: 99,
+            earningsMxn: 9_999,
+            origin: .backend
+        )
+
+        func income(shiftId: UUID, source: String, amount: Int, trips: Int) -> SupabaseFinancialService.IncomeRow {
+            SupabaseFinancialService.IncomeRow(
+                id: UUID(),
+                station_id: stationId,
+                shift_id: shiftId,
+                driver_profile_id: driverProfileId,
+                reversal_of: nil,
+                folio: "INC-\(UUID().uuidString.prefix(8))",
+                source: source,
+                amount_mxn: amount,
+                trips: trips,
+                external_reference: nil,
+                evidence_path: nil,
+                note: nil,
+                reported_at: reportedAt
+            )
+        }
+
+        let snapshot = SupabaseFinancialService.DriverSnapshot(
+            driverProfileId: driverProfileId,
+            incomes: [
+                income(shiftId: openShiftId, source: "uber", amount: 123, trips: 2),
+                income(shiftId: openShiftId, source: "didi", amount: 77, trips: 1),
+                income(shiftId: olderShiftId, source: "other", amount: 900, trips: 8),
+            ],
+            cashCharges: [],
+            bankAccounts: [],
+            settlements: [],
+            transfers: []
+        )
+
+        bench.store.adoptBackendFinancialSnapshot(snapshot)
+
+        #expect(bench.store.incomes.count == 3)
+        #expect(bench.store.incomes.allSatisfy { $0.origin == .backend })
+        #expect(bench.store.activeShift?.earningsMxn == 200)
+        #expect(bench.store.activeShift?.trips == 3)
+    }
+
     /// I · inside the laboratory the whole cycle runs exactly as before.
     @Test func theLaboratoryStillRunsTheCompleteCycle() throws {
-        let bench = try Self.bench()
+        let bench = try Self.demoBench()
         defer { bench.discard() }
 
         let unit = try Self.enterLaboratoryWithAUnit(bench)
 
         #expect(bench.store.canRunOperationalCycle)
         #expect(bench.store.operationalCapability == .localWorkflow)
+
+        // A demonstration credential opens on the seeded world, so what this case proves
+        // is the delta the cycle adds — not an empty ledger it never had.
+        let incidentBaseline = bench.store.incidents.count
+        let historyBaseline = bench.store.history.count
 
         let shift = try bench.store.startShift(
             vehicle: unit,
@@ -1731,7 +1841,7 @@ struct OperationalCycleBoundaryTests {
         #expect(taken.occupiedBy == bench.profileId)
 
         try bench.store.reportIncident(kind: .damage, description: "Rayón lateral en patio.", photos: [])
-        #expect(bench.store.incidents.count == 1)
+        #expect(bench.store.incidents.count == incidentBaseline + 1)
         #expect(bench.store.incidents.first?.origin == .simulated)
 
         let summary = try bench.store.finishShift(
@@ -1742,7 +1852,7 @@ struct OperationalCycleBoundaryTests {
 
         #expect(summary.kmDriven == 180)
         #expect(bench.store.activeShift == nil)
-        #expect(bench.store.history.count == 1)
+        #expect(bench.store.history.count == historyBaseline + 1)
         #expect(bench.store.history.first?.origin == .simulated)
 
         let released = try #require(bench.store.vehicles.first { $0.id == unit.id })
@@ -1750,54 +1860,52 @@ struct OperationalCycleBoundaryTests {
         #expect(released.occupiedBy == nil)
     }
 
-    /// J · a simulated shift left running does not follow the driver into production.
+    /// J · a proved driver cannot open a simulated shift, laboratory or not.
     ///
-    /// Not deleted, not closeable, not blocking — and waiting where it was left.
-    @Test func aSimulatedShiftDoesNotSurviveIntoProductionAndComesBack() throws {
+    /// This replaces the older case that carried a simulated shift across the environment
+    /// switch. That scenario no longer exists: a proved identity never reads the local
+    /// assignment book, and `startShift` refuses a unit the station did not hand over, so
+    /// no public path mints the shift it used to carry. What is worth pinning is the
+    /// refusal itself — and that the round trip leaves nothing behind to come back to.
+    @Test func backendDriverCannotStartASimulatedShiftInLaboratory() throws {
         let bench = try Self.bench()
         defer { bench.discard() }
-
-        let unit = try Self.enterLaboratoryWithAUnit(bench)
-        let shift = try bench.store.startShift(
-            vehicle: unit,
-            odometerKm: unit.odometerKm,
-            batteryPct: 90,
-            odometerPhoto: nil,
-            batteryPhoto: nil
-        )
-        #expect(bench.store.activeShift?.id == shift.id)
-
-        bench.environment.set(.production)
-        bench.store.adoptEnvironment()
-
-        // Gone from production, in every sense the interface can read.
-        #expect(bench.store.activeShift == nil)
-        #expect(bench.store.activeVehicle == nil)
-        #expect(bench.store.canActOnActiveShift == false)
-        #expect(bench.store.history.isEmpty)
-        #expect(bench.store.incidents.isEmpty)
-        // And it does not stand in the way of the real operation starting one day.
-        #expect(throws: OperationalMutationError.backendRequired) {
-            try bench.store.finishShift(endOdometerKm: unit.odometerKm + 40, endBatteryPct: 30, photo: nil)
-        }
 
         bench.environment.set(.test)
         bench.store.adoptEnvironment()
 
-        // Exactly where it was left, on the same identity, with no sign in.
-        #expect(bench.store.activeShift?.id == shift.id)
-        #expect(bench.store.activeShift?.origin == .simulated)
-        #expect(bench.store.canActOnActiveShift)
-        #expect(bench.store.isBackendSession)
+        // No row is written to the shared book: an assignment is the station's act, and
+        // this driver's units live in Supabase.
+        #expect(bench.store.unitAssignment == nil)
+        #expect(bench.store.hasAssignedUnit == false)
 
-        // And it closes there, which is where it belongs.
-        let summary = try bench.store.finishShift(
-            endOdometerKm: unit.odometerKm + 120,
-            endBatteryPct: 28,
-            photo: nil
-        )
-        #expect(summary.kmDriven == 120)
-        #expect(bench.store.history.first?.origin == .simulated)
+        let unit = try #require(bench.store.vehicles.first { $0.status == .available })
+
+        #expect(throws: UnitAssignmentError.unitNotAssigned) {
+            try bench.store.startShift(
+                vehicle: unit,
+                odometerKm: unit.odometerKm,
+                batteryPct: 90,
+                odometerPhoto: nil,
+                batteryPhoto: nil
+            )
+        }
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+
+        bench.environment.set(.production)
+        bench.store.adoptEnvironment()
+
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+
+        bench.environment.set(.test)
+        bench.store.adoptEnvironment()
+
+        // Same identity, no sign in, and still nothing to resume.
+        #expect(bench.store.activeShift == nil)
+        #expect(bench.store.unitAssignment == nil)
+        #expect(bench.store.isBackendSession)
     }
 
     // MARK: Bench
@@ -1849,6 +1957,28 @@ struct OperationalCycleBoundaryTests {
             environment: environment,
             store: store,
             profileId: profileId
+        )
+    }
+
+    /// A demonstration bench: the same storage isolation, without a proved identity.
+    ///
+    /// `reloadAssignment()` refuses to read the local book under a principal — the
+    /// station's rows reach a real driver through Supabase — so the two laboratory cycle
+    /// cases below run on the credential that is allowed to simulate one.
+    private static func demoBench() throws -> Bench {
+        let suiteName = "turnoev.tests.cycle.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let environment = RuntimeEnvironment(defaults: defaults)
+        let store = FleetStore(environment: environment, defaults: defaults)
+
+        store.signIn(account: StaffDirectory.demoDriverAccount, method: .credentials)
+
+        return Bench(
+            suiteName: suiteName,
+            defaults: defaults,
+            environment: environment,
+            store: store,
+            profileId: store.driver.id
         )
     }
 
@@ -2085,10 +2215,10 @@ struct EnvironmentTransitionTests {
         #expect(bench.store.environment == .test)
         #expect(bench.store.canSimulateUnitAssignment)
         #expect(bench.store.canSimulateFinancialState)
-        #expect(bench.store.usesBackendCoverageCycle)
-        #expect(bench.store.canSimulateOperationalCoordination == false)
+        #expect(bench.store.usesBackendCoverageCycle == false)
+        #expect(bench.store.canSimulateOperationalCoordination == true)
         #expect(bench.store.unitAssignmentCapability == .localSimulation)
-        #expect(bench.store.coordinationCapability == .stationRequired)
+        #expect(bench.store.coordinationCapability == .localWorkflow)
 
         // And the state follows: in the laboratory there is a fleet to work with.
         bench.store.adoptEnvironment()
@@ -2302,7 +2432,8 @@ struct EnvironmentTransitionTests {
         let relaunched = FleetStore(environment: relaunchedEnvironment, defaults: bench.defaults)
         #expect(relaunched.environment == .test)
         #expect(relaunched.isBackendSession == false)
-        #expect(relaunched.awaitsCredentialChoice)
+        #expect(relaunched.isAuthenticated == false)
+        #expect(relaunched.currentPrincipal == nil)
         // The laboratory's own blob is still there for the identity that comes back.
         #expect(bench.defaults.data(forKey: bench.laboratoryKey) != nil)
     }

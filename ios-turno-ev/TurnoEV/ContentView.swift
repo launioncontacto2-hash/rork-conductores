@@ -227,7 +227,11 @@ struct RootTabView: View {
                         BonusesView()
                     }
                     Tab("Cartera", systemImage: "banknote.fill", value: 4) {
-                        WalletView()
+                        if store.usesBackendFinancialCycle {
+                            BackendDriverFinanceView()
+                        } else {
+                            WalletView()
+                        }
                     }
                     Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
                         HistoryView()
