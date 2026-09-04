@@ -68,7 +68,8 @@ try {
         throw 'Docker no esta disponible. Abre Docker Desktop y vuelve a ejecutar el script.'
     }
     Invoke-Checked docker @('version', '--format', 'Docker Engine {{.Server.Version}}')
-
+,
+    'fix/15h-migration-history-alignment'
     Write-Step 'Verificando Supabase CLI'
     if (-not (Get-Command supabase -ErrorAction SilentlyContinue)) {
         throw 'Supabase CLI no esta disponible en PATH.'
