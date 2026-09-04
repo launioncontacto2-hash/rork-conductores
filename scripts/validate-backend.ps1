@@ -21,7 +21,8 @@ $allowedBranches = @(
     '15G-financial-lifecycle',
     '15G-financial-hardening',
     '15G-financial-hardening-v2',
-    '15H-backend-hiring'
+    '15H-backend-hiring',
+    'fix/15h-migration-history-alignment'
 )
 
 function Write-Step {
@@ -68,8 +69,7 @@ try {
         throw 'Docker no esta disponible. Abre Docker Desktop y vuelve a ejecutar el script.'
     }
     Invoke-Checked docker @('version', '--format', 'Docker Engine {{.Server.Version}}')
-,
-    'fix/15h-migration-history-alignment'
+
     Write-Step 'Verificando Supabase CLI'
     if (-not (Get-Command supabase -ErrorAction SilentlyContinue)) {
         throw 'Supabase CLI no esta disponible en PATH.'
