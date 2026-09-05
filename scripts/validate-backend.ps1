@@ -21,7 +21,8 @@ $allowedBranches = @(
     '15G-financial-lifecycle',
     '15G-financial-hardening',
     '15G-financial-hardening-v2',
-    '15H-backend-hiring'
+    '15H-backend-hiring',
+    'fix/15h-migration-history-alignment'
 )
 
 function Write-Step {
