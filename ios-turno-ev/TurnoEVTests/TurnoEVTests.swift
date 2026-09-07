@@ -14,6 +14,9 @@ struct BackendAuthenticationRoutingTests {
         #expect(BackendAuthenticationRouting.shouldUseBackend(
             identifier: "  TEST.RECRUITMENT@JORAMZA.TEST  "
         ))
+        #expect(BackendAuthenticationRouting.shouldUseBackend(
+            identifier: "test.hire.001@joramza.test"
+        ))
     }
 
     @Test func keepsUnknownAndDemoIdentitiesOutOfTheBackend() {
@@ -21,6 +24,9 @@ struct BackendAuthenticationRoutingTests {
             identifier: "reclutamiento@turnoev.mx"
         ))
         #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "REC-001"))
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(
+            identifier: "attacker@joramza.test.evil"
+        ))
     }
 }
 
