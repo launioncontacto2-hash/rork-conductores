@@ -12,7 +12,10 @@ nonisolated enum BackendAuthenticationRouting {
     ]
 
     static func shouldUseBackend(identifier: String) -> Bool {
-        testEmails.contains(
+        identifier
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+                .hasSuffix("@joramza.test") || testEmails.contains(
             identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         )
     }
