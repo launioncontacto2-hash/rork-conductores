@@ -1,6 +1,23 @@
 import LocalAuthentication
 import SwiftUI
 
+nonisolated enum BackendAuthenticationRouting {
+    static let testEmails: Set<String> = [
+        "test.001@joramza.test",
+        "test.002@joramza.test",
+        "test.driver@joramza.test",
+        "test.supervisor@joramza.test",
+        "test.maintenance@joramza.test",
+        "test.recruitment@joramza.test"
+    ]
+
+    static func shouldUseBackend(identifier: String) -> Bool {
+        testEmails.contains(
+            identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+}
+
 /// Access to the network. Credentials are validated against the staff directory and the
 /// resolved role is what opens an interface — a driver credential can never open the
 /// supervisor, manager, maintenance or national workspace.
@@ -662,18 +679,10 @@ struct LoginView: View {
         // StaffDirectory y no se rompen durante la transición.
         // ====================================================
 
-        let backendTestEmails: Set<String> = [
-            "test.001@joramza.test",
-            "test.002@joramza.test",
-            // Alias temporal mientras el usuario Auth existente se renombra a test.001.
-            "test.driver@joramza.test",
-            "test.supervisor@joramza.test",
-            "test.maintenance@joramza.test",
-            "test.recruitment@joramza.test"
-        ]
-
-        if credentialMode == .email,
-           backendTestEmails.contains(cleanedIdentifier.lowercased()) {
+        // A known backend identity must never fall through to the local demo
+        // directory just because the segmented control retained "Nº empleado".
+        // The allowlist is exact, so this does not redirect demonstration users.
+        if BackendAuthenticationRouting.shouldUseBackend(identifier: cleanedIdentifier) {
 
             guard !isSupabaseProbeRunning else {
                 return

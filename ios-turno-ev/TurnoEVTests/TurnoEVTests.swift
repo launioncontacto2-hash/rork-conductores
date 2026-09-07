@@ -9,6 +9,21 @@ import Foundation
 import Testing
 @testable import TurnoEV
 
+struct BackendAuthenticationRoutingTests {
+    @Test func routesRecruitmentEmailEvenWhenTheSelectorStateIsIrrelevant() {
+        #expect(BackendAuthenticationRouting.shouldUseBackend(
+            identifier: "  TEST.RECRUITMENT@JORAMZA.TEST  "
+        ))
+    }
+
+    @Test func keepsUnknownAndDemoIdentitiesOutOfTheBackend() {
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(
+            identifier: "reclutamiento@turnoev.mx"
+        ))
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "REC-001"))
+    }
+}
+
 struct BackendRoleMappingTests {
     @Test func mapsDatabaseRecruitmentRoleToRecruiterWorkspace() {
         #expect(StaffRole(backendValue: "recruitment") == .recruiter)
