@@ -82,8 +82,8 @@ jobs:
           set -euo pipefail
           python3 <<'PY'
           import json
-          import os
           import re
+          import shlex
           import subprocess
 
           inventory = json.loads(
@@ -110,11 +110,21 @@ jobs:
               "SIMULATOR_UDID": udid,
               "SIMULATOR_RUNTIME": runtime.rsplit(".", 1)[-1].replace("-", " "),
           }
-          for destination in (os.environ["GITHUB_ENV"], os.environ["GITHUB_OUTPUT"]):
-              with open(destination, "a", encoding="utf-8") as stream:
-                  for key, value in values.items():
-                      stream.write(f"{key.lower()}={value}\n" if destination == os.environ["GITHUB_OUTPUT"] else f"{key}={value}\n")
+          with open("selected-simulator.env", "w", encoding="utf-8") as stream:
+              for key, value in values.items():
+                  stream.write(f"{key}={shlex.quote(value)}\n")
           PY
+          source selected-simulator.env
+          {
+            echo "SIMULATOR_NAME=$SIMULATOR_NAME"
+            echo "SIMULATOR_UDID=$SIMULATOR_UDID"
+            echo "SIMULATOR_RUNTIME=$SIMULATOR_RUNTIME"
+          } >> "$GITHUB_ENV"
+          {
+            echo "simulator_name=$SIMULATOR_NAME"
+            echo "simulator_udid=$SIMULATOR_UDID"
+            echo "simulator_runtime=$SIMULATOR_RUNTIME"
+          } >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$SIMULATOR_UDID" || true
           xcrun simctl bootstatus "$SIMULATOR_UDID" -b
           {
