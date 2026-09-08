@@ -6,8 +6,6 @@ import SwiftUI
 /// No screen of another role is ever instantiated inside a session.
 struct ContentView: View {
     @Environment(FleetStore.self) private var store
-    @Environment(LabStore.self) private var lab
-    @Environment(VisualEditorStore.self) private var editor
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -27,21 +25,18 @@ struct ContentView: View {
                     AccessDeniedView()
                 }
             } else {
-                demonstrationWorkspace
+                // A local account left by an earlier demonstration build is never an
+                // authority in DORI. Without a principal proved by Supabase, the only
+                // reachable surface is the real sign-in door.
+                LoginView()
             }
         }
         .labModeBanner()
         .animation(.smooth(duration: 0.35), value: store.session?.accountId)
-        // The laboratory credential unlocks the editor and the simulation controls for
-        // this device. Both stay unlocked while the administrator reviews the interface of
-        // any other role through "Ver como…".
         .task(id: store.session?.accountId) {
-            editor.observe(account: store.currentAccount)
-            EnvironmentControl.observe(account: store.currentAccount)
             EnvironmentControl.observe(principal: store.currentPrincipal)
 
-            let usesSharedClock = lab.isTest || store.isBackendTestSession
-            SharedClockSync.shared.update(isTest: usesSharedClock)
+            SharedClockSync.shared.update(isTest: store.isBackendTestSession)
             if store.isBackendTestSession {
                 await SharedClockSync.shared.refresh()
                 store.syncSimulationClock()
@@ -105,52 +100,6 @@ struct ContentView: View {
         }
     }
 
-    /// The original router, untouched: every demonstration credential still opens exactly
-    /// the interface it opened before.
-    @ViewBuilder
-    private var demonstrationWorkspace: some View {
-        Group {
-            switch store.currentAccount {
-            case .none:
-                LoginView()
-            case .some(let account) where account.role == .driver:
-                if store.hasAccess(to: .driver) {
-                    // DIAGNÓSTICO TEMPORAL — `RootTabView` ya está restituido, pero el
-                    // acceso flotante del editor sigue fuera: monta GeometryReader más
-                    // tres stores y contaminaría la medición del contenedor. Original:
-                    //
-                    //     RootTabView()
-                    //         .editorFloatingAccess(.driverShift)
-                    RootTabView()
-                } else {
-                    AccessDeniedView()
-                }
-            case .some(let account) where account.role == .supervisor:
-                if store.hasAccess(to: .supervisor) {
-                    SupervisorRootView(account: account, store: store)
-                        .editorFloatingAccess(.supervisorHome)
-                } else {
-                    AccessDeniedView()
-                }
-            case .some(let account) where account.role == .manager:
-                AccessDeniedView()
-            case .some(let account) where account.role == .maintenance:
-                if store.hasAccess(to: .maintenance) {
-                    MaintenanceRootView(account: account, store: store)
-                } else {
-                    AccessDeniedView()
-                }
-            case .some(let account) where account.role == .recruiter:
-                AccessDeniedView()
-            case .some(let account) where account.role == .national:
-                AccessDeniedView()
-            case .some(let account) where account.role == .lab:
-                AccessDeniedView()
-            case .some(let account):
-                RoleWorkspaceView(account: account)
-            }
-        }
-    }
 }
 
 /// Driver interface. Station notices live behind the bell in the shift header, not in the

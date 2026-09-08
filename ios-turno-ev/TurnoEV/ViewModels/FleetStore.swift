@@ -1008,10 +1008,6 @@ final class FleetStore {
 
     /// Builds the driver profile of a backend session from the principal alone.
     ///
-    /// `password` is the empty string because `Driver` still declares that legacy field;
-    /// it is a placeholder for a model shape, never a stored credential, and the password
-    /// typed on the access screen never reaches this point.
-    ///
     /// `authorizedVehicleIds` is empty because no real assignment exists yet for this
     /// person. An invented unit would be worse than none: the driver would see a vehicle
     /// the station never gave them.
@@ -1036,7 +1032,6 @@ final class FleetStore {
             name: principal.name,
             employeeNumber: principal.employeeNumber,
             email: principal.email,
-            password: "",
             photoAsset: "rideshare_driver_portrait",
             stationId: stationId,
             station: stationName,

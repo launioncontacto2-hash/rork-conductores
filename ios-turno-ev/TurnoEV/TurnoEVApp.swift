@@ -43,7 +43,7 @@ struct TurnoEVApp: App {
                     SharedClockSync.shared.onRemoteChange = { store.syncSimulationClock() }
                     EnvironmentControl.observe(principal: store.currentPrincipal)
                     SharedClockSync.shared.update(
-                        isTest: lab.isTest || store.isBackendTestSession
+                        isTest: store.isBackendTestSession
                     )
 
                     // The single producer of logical time. Started here and only here:
@@ -73,7 +73,7 @@ struct TurnoEVApp: App {
                     if lab.mode == .production { visualEditor.deactivate() }
                     // Production has no shared clock: time there is real and untouchable.
                     SharedClockSync.shared.update(
-                        isTest: lab.isTest || store.isBackendTestSession
+                        isTest: store.isBackendTestSession
                     )
                 }
         }

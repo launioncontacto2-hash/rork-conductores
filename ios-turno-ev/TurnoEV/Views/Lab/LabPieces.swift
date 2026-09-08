@@ -112,11 +112,11 @@ struct LabHazardStripes: View {
 /// Permanent strip shown on top of every interface while the test environment is live.
 /// It is deliberately loud: it is the difference between a test and a real record.
 struct LabModeBanner: View {
-    @Environment(LabStore.self) private var lab
+    @Environment(FleetStore.self) private var store
     @State private var phase: CGFloat = 0
 
     var body: some View {
-        if lab.isTest {
+        if store.isBackendTestSession {
             HStack(spacing: 10) {
                 Image(systemName: "testtube.2")
                     .font(.system(.caption, weight: .black))
@@ -127,7 +127,7 @@ struct LabModeBanner: View {
                     .font(.system(.caption2, weight: .semibold))
                     .foregroundStyle(LabTone.canvas.opacity(0.7))
                 Spacer(minLength: 0)
-                if lab.world.clockOffsetMinutes != 0 {
+                if AppClock.offsetMinutes() != 0 {
                     // Only HH:mm is shown, so the banner hears from the clock once a minute
                     // instead of sixty times. The scope is the label alone: the strip, its
                     // hazard stripes and their endless animation stay untouched.
@@ -170,14 +170,14 @@ extension View {
 }
 
 private struct LabBannerModifier: ViewModifier {
-    @Environment(LabStore.self) private var lab
+    @Environment(FleetStore.self) private var store
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
             LabModeBanner()
             content
         }
-        .animation(.smooth(duration: 0.3), value: lab.isTest)
+        .animation(.smooth(duration: 0.3), value: store.isBackendTestSession)
     }
 }
 
