@@ -58,9 +58,10 @@ struct ContentView: View {
                 }
             }
         }
-        // A second phone can take control while this one remains in the foreground.
-        // Polling only this tiny lease endpoint keeps that window below 20 seconds; it
-        // does not reload the assignment or the shift on every beat.
+        // A second phone can take control while this one remains in the foreground. The
+        // same 20-second beat also adopts assignments, incidents, the open shift, finances
+        // and history written by supervision or Consola DORI. Supabase remains the only
+        // source of truth; this device never fabricates an intermediate state.
         .task(id: store.session?.startedAt) {
             guard store.currentPrincipal?.role == .driver else { return }
 
@@ -70,7 +71,7 @@ struct ContentView: View {
                 guard !Task.isCancelled else { return }
 
                 do {
-                    try await SupabaseDriverDeviceService.heartbeat()
+                    try await store.refreshBackendOperationalState()
                 } catch {
                     if SupabaseDriverDeviceService.isSessionReplacement(error) {
                         store.signOut()

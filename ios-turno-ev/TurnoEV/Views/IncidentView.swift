@@ -55,6 +55,12 @@ struct IncidentView: View {
                                     }
                                 }
                             }
+                            if store.usesBackendIncidentCycle {
+                                Text("Estas imágenes permanecen como borrador durante este formulario. El reporte actual envía descripción, conductor, turno y unidad; no registra las fotos como evidencia remota.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(Palette.amber)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
 
                         Text("Se registra automáticamente \(Fmt.dateShort(store.now)) · \(Fmt.clockSeconds(store.now)) · \(store.driver.name)\(store.activeVehicle.map { " · \($0.internalNumber)" } ?? "")")

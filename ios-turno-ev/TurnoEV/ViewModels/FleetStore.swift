@@ -1572,17 +1572,13 @@ final class FleetStore {
             idempotencyKey: idempotencyKey
         )
 
-        var photos: [String: Data] = [:]
-        if let odometerPhoto { photos[InspectionSlot.odometer.rawValue] = odometerPhoto }
-        if let batteryPhoto { photos[InspectionSlot.battery.rawValue] = batteryPhoto }
-        return try adoptBackendShift(row, photos: photos)
+        // The camera data has already crossed into the private shift-evidence bucket.
+        // Do not persist a parallel copy in UserDefaults: Supabase is the evidence store.
+        return try adoptBackendShift(row)
     }
 
     @discardableResult
-    private func adoptBackendShift(
-        _ row: SupabaseShiftService.ShiftRow,
-        photos: [String: Data]? = nil
-    ) throws -> ActiveShift {
+    private func adoptBackendShift(_ row: SupabaseShiftService.ShiftRow) throws -> ActiveShift {
         guard let principal = currentPrincipal,
               let assignment = unitAssignment,
               row.assignment_id.uuidString.lowercased() == assignment.id.lowercased(),
@@ -1596,9 +1592,6 @@ final class FleetStore {
             throw BackendShiftContractError.invalidSlot
         }
 
-        let cachedPhotos = activeShift?.id == row.id.uuidString
-            ? activeShift?.photos ?? [:]
-            : [:]
         let shift = ActiveShift(
             id: row.id.uuidString,
             driverId: principal.profileId,
@@ -1610,7 +1603,7 @@ final class FleetStore {
             lateMinutes: row.late_minutes,
             startOdometerKm: row.start_odometer_km,
             startBatteryPct: row.start_battery_pct,
-            photos: photos ?? cachedPhotos,
+            photos: [:],
             trips: activeShift?.id == row.id.uuidString ? activeShift?.trips ?? 0 : 0,
             earningsMxn: activeShift?.id == row.id.uuidString ? activeShift?.earningsMxn ?? 0 : 0,
             origin: .backend
@@ -2001,7 +1994,9 @@ final class FleetStore {
             kind: remoteKind,
             createdAt: row.reported_at,
             description: row.description,
-            photos: photos,
+            // Incident photographs are not authorized for a remote bucket yet. They
+            // remain only in the view's draft and are never persisted as server evidence.
+            photos: [],
             status: remoteStatus,
             origin: .backend
         )

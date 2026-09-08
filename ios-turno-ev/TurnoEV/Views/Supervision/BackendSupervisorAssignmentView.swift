@@ -389,7 +389,12 @@ struct BackendSupervisorAssignmentView: View {
                 }
             }
             .refreshable { await model.load() }
-            .task { await model.load() }
+            .task {
+                while !Task.isCancelled {
+                    await model.load()
+                    try? await Task.sleep(for: .seconds(15))
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { await model.load() }
