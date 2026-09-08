@@ -241,13 +241,17 @@ const OperationsConsole = () => {
         await signOut();
         throw new Error("La membresía de la consola dejó de estar vigente.");
       }
-      const stationId = identity.station_id;
+      // Use the membership just revalidated by the server. React may not have committed
+      // the refreshed identity state yet, so reading the captured value here could issue
+      // one stale station query before the next 15-second cycle. RLS would still refuse
+      // foreign data, but the console should never ask for the obsolete scope at all.
+      const stationId = currentIdentity.station_id;
       const [
         live, testClock, capacity, vehicles, drivers, assignments, shifts,
         closedShifts, shiftEvidence, devices, incidents, workOrders, absences, vacancies, auditEvents,
       ] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
-        supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", identity.environment_id).maybeSingle(),
+        supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", currentIdentity.environment_id).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
         supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
         supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
