@@ -307,9 +307,84 @@ FROM authenticated;
 REVOKE EXECUTE ON FUNCTION public.finish_shift_v2(uuid, bigint, bigint, integer, text, text)
 FROM authenticated;
 
+CREATE OR REPLACE FUNCTION public.console_audit_history(p_limit integer DEFAULT 100)
+RETURNS TABLE (
+    id uuid,
+    station_id uuid,
+    actor_profile_id uuid,
+    actor_name text,
+    actor_employee_number text,
+    event_type text,
+    entity_type text,
+    entity_id uuid,
+    metadata jsonb,
+    occurred_at timestamptz
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path TO 'pg_catalog', 'public', 'app', 'auth', 'pg_temp'
+AS $function$
+DECLARE
+    v_environment_id uuid;
+    v_actor_profile_id uuid;
+    v_limit integer;
+BEGIN
+    v_actor_profile_id := app.auth_profile_id();
+    IF v_actor_profile_id IS NULL THEN
+        RAISE EXCEPTION 'authentication_required' USING ERRCODE = '42501';
+    END IF;
+
+    v_environment_id := app.current_environment_id();
+    v_limit := least(greatest(coalesce(p_limit, 100), 1), 200);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.staff_memberships membership
+        WHERE membership.profile_id = v_actor_profile_id
+          AND membership.environment_id = v_environment_id
+          AND membership.role = 'supervisor'
+          AND membership.starts_at <= app.env_now(v_environment_id)
+          AND (
+              membership.ends_at IS NULL
+              OR membership.ends_at > app.env_now(v_environment_id)
+          )
+    ) THEN
+        RAISE EXCEPTION 'supervisor_role_required' USING ERRCODE = '42501';
+    END IF;
+
+    RETURN QUERY
+    SELECT
+        event.id,
+        event.station_id,
+        event.actor_profile_id,
+        coalesce(actor.display_name, 'Sistema') AS actor_name,
+        coalesce(actor.employee_number, '—') AS actor_employee_number,
+        event.event_type,
+        event.entity_type,
+        event.entity_id,
+        event.metadata,
+        event.occurred_at
+    FROM public.audit_log event
+    LEFT JOIN public.profiles actor ON actor.id = event.actor_profile_id
+    WHERE event.environment_id = v_environment_id
+      AND event.station_id IS NOT NULL
+      AND app.auth_has_role('supervisor', event.station_id)
+    ORDER BY event.occurred_at DESC, event.id DESC
+    LIMIT v_limit;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.console_audit_history(integer)
+FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.console_audit_history(integer)
+TO authenticated, service_role;
+
 COMMENT ON TABLE public.shift_evidence IS
     'Evidencia fotografica privada e inmutable del inicio y cierre de cada turno DORI.';
 COMMENT ON FUNCTION public.start_shift_v3(uuid, bigint, integer, text, text, text, text) IS
     'Abre un turno y registra sus dos fotografias propias en la misma transaccion.';
 COMMENT ON FUNCTION public.finish_shift_v3(uuid, bigint, bigint, integer, text, text, text) IS
     'Cierra un turno y registra la fotografia final propia en la misma transaccion.';
+COMMENT ON FUNCTION public.console_audit_history(integer) IS
+    'Devuelve a supervision el historial append-only de sus estaciones vigentes sin exponer command_log.';

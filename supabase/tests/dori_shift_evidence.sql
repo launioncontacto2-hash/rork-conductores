@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(16);
+SELECT plan(19);
 
 SELECT has_table('public', 'shift_evidence', 'existe la evidencia de turno');
 SELECT has_column('public', 'shift_evidence', 'object_path', 'la evidencia conserva su ruta privada');
@@ -83,6 +83,22 @@ SELECT is(
     ),
     true,
     'el deposito de evidencia es privado y acepta solo JPEG de hasta 5 MB'
+);
+SELECT has_function(
+    'public', 'console_audit_history', ARRAY['integer'],
+    'existe el lector protegido de auditoria para la consola'
+);
+SELECT ok(
+    has_function_privilege(
+        'authenticated', 'public.console_audit_history(integer)', 'EXECUTE'
+    ),
+    'authenticated puede invocar el lector que valida el rol internamente'
+);
+SELECT is(
+    has_function_privilege(
+        'anon', 'public.console_audit_history(integer)', 'EXECUTE'
+    ), false,
+    'anon no puede consultar la auditoria'
 );
 
 SELECT * FROM finish();

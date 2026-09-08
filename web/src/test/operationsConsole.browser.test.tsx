@@ -58,6 +58,7 @@ vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: (table: string) => queryFor(table),
     rpc: async (name: string, params: Record<string, unknown>) => {
+      if (name === "console_audit_history") return { data: [], error: null };
       rpcCalls.push({ name, params });
       return { data: null, error: null };
     },
@@ -83,6 +84,7 @@ test("shows every final operational area from one Supabase snapshot", async () =
   await expect.element(screen.getByRole("heading", { name: "Ausencias" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Vacantes de cobertura" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Historial de turnos" })).toBeInTheDocument();
+  await expect.element(screen.getByRole("heading", { name: "Auditoría operativa" })).toBeInTheDocument();
 });
 
 test("requires an audit reason before receiving an incident", async () => {

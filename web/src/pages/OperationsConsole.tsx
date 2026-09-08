@@ -134,6 +134,19 @@ interface CoverageVacancy {
   revision: number;
 }
 
+interface AuditEvent {
+  id: string;
+  station_id: string;
+  actor_profile_id: string | null;
+  actor_name: string;
+  actor_employee_number: string;
+  event_type: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown>;
+  occurred_at: string;
+}
+
 type PendingCommand =
   | { kind: "review-incident"; id: string; label: string }
   | { kind: "approve-guard"; id: string; label: string }
@@ -153,6 +166,7 @@ interface ConsoleSnapshot {
   workOrders: WorkOrder[];
   absences: Absence[];
   vacancies: CoverageVacancy[];
+  auditEvents: AuditEvent[];
 }
 
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
@@ -175,6 +189,18 @@ const platformLabel: Record<Device["platform"], string> = {
   ios: "iPhone",
   web: "Navegador",
   android: "Android",
+};
+
+const auditEventLabel: Record<string, string> = {
+  "assignment.created": "Unidad asignada",
+  "shift.started": "Turno iniciado",
+  "shift.finished": "Turno cerrado",
+  "incident.reported": "Incidencia reportada",
+  "incident.updated": "Incidencia actualizada",
+  "work_order.opened": "Orden de taller abierta",
+  "work_order.closed": "Orden de taller cerrada",
+  "absence.resolved": "Ausencia resuelta",
+  "coverage.guard_approved": "Guardia confirmada",
 };
 
 const OperationsConsole = () => {
@@ -201,7 +227,7 @@ const OperationsConsole = () => {
       const stationId = identity.station_id;
       const [
         live, testClock, capacity, vehicles, drivers, assignments, shifts,
-        closedShifts, devices, incidents, workOrders, absences, vacancies,
+        closedShifts, devices, incidents, workOrders, absences, vacancies, auditEvents,
       ] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", identity.environment_id).maybeSingle(),
@@ -216,6 +242,7 @@ const OperationsConsole = () => {
         supabase.from("work_orders").select("id,incident_id,vehicle_id,folio,problem,priority,status,estimated_minutes,opened_at,closed_at").eq("station_id", stationId).order("opened_at", { ascending: false }).limit(100),
         supabase.from("absences").select("id,driver_profile_id,folio,operating_date,shift_slot,kind,reason,status,revision").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
         supabase.from("coverage_vacancies").select("id,folio,operating_date,shift_slot,reason,status,is_critical,revision").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
+        supabase.rpc("console_audit_history", { p_limit: 100 }),
       ]);
       return {
         live: requireData(live) as StationLive | null,
@@ -231,6 +258,7 @@ const OperationsConsole = () => {
         workOrders: (requireData(workOrders) ?? []) as WorkOrder[],
         absences: (requireData(absences) ?? []) as Absence[],
         vacancies: (requireData(vacancies) ?? []) as CoverageVacancy[],
+        auditEvents: (requireData(auditEvents) ?? []) as AuditEvent[],
       };
     },
   });
@@ -368,6 +396,7 @@ const OperationsConsole = () => {
             ["#incidencias", "Incidencias y taller"],
             ["#cobertura", "Cobertura"],
             ["#historial", "Historial"],
+            ["#auditoria", "Auditoría"],
           ].map(([href, label]) => (
             <a key={href} href={href} className="whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold text-muted-foreground transition hover:bg-muted hover:text-foreground">
               {label}
@@ -668,6 +697,29 @@ const OperationsConsole = () => {
                   </TableRow>
                 ))}
                 {!data?.closedShifts.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay turnos cerrados.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card id="auditoria" className="panel scroll-mt-4">
+          <CardHeader>
+            <CardTitle className="text-lg">Auditoría operativa</CardTitle>
+            <CardDescription>Últimos 100 eventos inmutables autorizados para esta estación.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader><TableRow><TableHead>Momento</TableHead><TableHead>Acción</TableHead><TableHead>Responsable</TableHead><TableHead>Entidad</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {data?.auditEvents.map((event) => (
+                  <TableRow key={event.id}>
+                    <TableCell className="whitespace-nowrap">{formatTime(event.occurred_at, identity.station_timezone)}</TableCell>
+                    <TableCell className="font-bold">{auditEventLabel[event.event_type] ?? event.event_type}</TableCell>
+                    <TableCell><p>{event.actor_name}</p><p className="text-xs text-muted-foreground">{event.actor_employee_number}</p></TableCell>
+                    <TableCell><p>{event.entity_type ?? "Sistema"}</p><p className="max-w-56 truncate font-mono text-[0.65rem] text-muted-foreground">{event.entity_id ?? "—"}</p></TableCell>
+                  </TableRow>
+                ))}
+                {!data?.auditEvents.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay eventos auditados visibles.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>

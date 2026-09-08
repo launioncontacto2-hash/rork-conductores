@@ -31,7 +31,7 @@ struct LoginView: View {
 
     private static let maxAttempts = 3
 
-    @State private var mode: Mode = .biometric
+    @State private var mode: Mode = .credentials
     @State private var attempts: Int = 0
     @State private var isScanning: Bool = false
     @State private var lastFailed: Bool = false
@@ -57,8 +57,6 @@ struct LoginView: View {
 
     @State private var isRecoveryPresented: Bool = false
     @State private var isDirectoryPresented: Bool = false
-    @State private var recoveryTarget: String = ""
-    @State private var recoverySent: Bool = false
 
     /// Account already authenticated, shown during the role handoff before the interface opens.
     @State private var handoffAccount: StaffAccount?
@@ -830,44 +828,12 @@ struct LoginView: View {
                 spacing: 16
             ) {
                 Text(
-                    "Los conductores restablecen con el supervisor de su estación. " +
-                    "Supervisores, gerencia y mantenimiento lo hacen con dirección nacional."
+                    "DORI no crea contraseñas ni simula solicitudes desde el teléfono. " +
+                    "Pide al responsable autorizado que restablezca tu cuenta en Supabase Auth " +
+                    "y confirme que conservas una membresía vigente en tu estación."
                 )
                 .font(.footnote)
                 .foregroundStyle(Palette.textMuted)
-
-                TextField(
-                    "Correo o número de empleado",
-                    text: $recoveryTarget
-                )
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .padding(16)
-                .panelFlat()
-
-                if recoverySent {
-                    NoticeBanner(
-                        symbol: "checkmark.seal.fill",
-                        title: "Solicitud enviada",
-                        message:
-                            "Quien generó tu registro validará el restablecimiento.",
-                        tone: .volt
-                    )
-                }
-
-                BigButton(
-                    title: "Enviar solicitud",
-                    symbol: "paperplane.fill",
-                    isEnabled:
-                        recoveryTarget
-                            .trimmingCharacters(
-                                in: .whitespaces
-                            )
-                            .count > 3
-                ) {
-                    recoverySent = true
-                    recoveryTarget = ""
-                }
 
                 Spacer()
             }
@@ -882,7 +848,6 @@ struct LoginView: View {
                 ) {
                     Button("Cerrar") {
                         isRecoveryPresented = false
-                        recoverySent = false
                     }
                 }
             }

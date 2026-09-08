@@ -183,6 +183,13 @@ final class FleetStore {
         } else {
             seedDemoState()
         }
+        // DORI's final operational build keeps the former demonstration world frozen on
+        // disk for later review, but it never restores a local credential into the live
+        // router. Only a principal proved by Supabase may open an operational workspace.
+        if session?.principal == nil {
+            session = nil
+            awaitsCredentialChoice = true
+        }
         // A restored session carries only an account id: the driver profile is not
         // persisted, so it has to be resolved again from the credential. Without this the
         // app relaunches on `MockData.driver`, which is session-blind — in test mode that
@@ -1154,6 +1161,9 @@ final class FleetStore {
         if wasBackendSession {
             adoptDemoState()
             reloadAssignment()
+            Task { @MainActor in
+                try? await SupabaseBridge.client?.auth.signOut()
+            }
         }
         persist()
     }
@@ -1171,6 +1181,9 @@ final class FleetStore {
             adoptDemoState()
             enrolledAccountId = nil
             reloadAssignment()
+            Task { @MainActor in
+                try? await SupabaseBridge.client?.auth.signOut()
+            }
         }
         persist()
     }
