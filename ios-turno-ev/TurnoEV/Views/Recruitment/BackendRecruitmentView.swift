@@ -1,6 +1,8 @@
 import Observation
 import Foundation
+import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 /// Focused 15H workspace for a recruitment identity proved by Supabase. The rich
@@ -146,6 +148,8 @@ struct BackendRecruitmentView: View {
     @State private var hiringCandidate: SupabaseHiringService.CandidateRow?
     @State private var documentKind = "officialId"
     @State private var showsImporter = false
+    @State private var showsPhotoPicker = false
+    @State private var photoItem: PhotosPickerItem?
 
     init(principal: SessionPrincipal) {
         _model = State(initialValue: BackendRecruitmentStore(principal: principal))
@@ -196,6 +200,19 @@ struct BackendRecruitmentView: View {
                     model.errorMessage = error.localizedDescription
                 }
             }
+            .photosPicker(
+                isPresented: $showsPhotoPicker,
+                selection: $photoItem,
+                matching: .images,
+                photoLibrary: .shared()
+            )
+            .onChange(of: photoItem) { _, item in
+                guard let item, let candidate = uploadCandidate else { return }
+                Task {
+                    await attachPickedPhoto(item, candidate: candidate)
+                    photoItem = nil
+                }
+            }
             .sheet(item: $hiringCandidate) { candidate in
                 BackendHiringSheet(model: model, candidate: candidate)
             }
@@ -215,7 +232,7 @@ struct BackendRecruitmentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     @ViewBuilder
@@ -240,7 +257,7 @@ struct BackendRecruitmentView: View {
             metric("Altas", model.hirings.filter { $0.status == "completed" }.count)
         }
         .padding(14)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     private func metric(_ label: String, _ value: Int) -> some View {
@@ -249,6 +266,41 @@ struct BackendRecruitmentView: View {
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Reads a photo picked from the library, re-encodes it as JPEG on a temporary
+    /// file so the existing upload path can read it, and removes that file afterwards.
+    private func attachPickedPhoto(
+        _ item: PhotosPickerItem,
+        candidate: SupabaseHiringService.CandidateRow
+    ) async {
+        model.errorMessage = nil
+
+        let jpeg: Data
+        do {
+            guard let raw = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: raw),
+                  let encoded = image.jpegData(compressionQuality: 0.85) else {
+                model.errorMessage = "No se pudo leer la foto seleccionada. Intenta con otra imagen de la galería."
+                return
+            }
+            jpeg = encoded
+        } catch {
+            model.errorMessage = "No se pudo leer la foto seleccionada: \(error.localizedDescription)"
+            return
+        }
+
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("expediente-\(UUID().uuidString).jpg")
+        do {
+            try jpeg.write(to: url, options: .atomic)
+        } catch {
+            model.errorMessage = "No se pudo preparar la foto para enviarla: \(error.localizedDescription)"
+            return
+        }
+
+        await model.upload(url: url, kind: documentKind, candidate: candidate)
+        try? FileManager.default.removeItem(at: url)
     }
 
     private var candidatesCard: some View {
@@ -269,7 +321,7 @@ struct BackendRecruitmentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     private func candidateRow(_ candidate: SupabaseHiringService.CandidateRow) -> some View {
@@ -312,9 +364,16 @@ struct BackendRecruitmentView: View {
                 .pickerStyle(.menu)
 
                 HStack {
-                    Button("Adjuntar") {
+                    Button("Adjuntar archivo") {
                         uploadCandidate = candidate
                         showsImporter = true
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Adjuntar foto") {
+                        uploadCandidate = candidate
+                        photoItem = nil
+                        showsPhotoPicker = true
                     }
                     .buttonStyle(.bordered)
 

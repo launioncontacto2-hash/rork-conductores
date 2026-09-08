@@ -1,6 +1,23 @@
 import LocalAuthentication
 import SwiftUI
 
+nonisolated enum BackendAuthenticationRouting {
+    static let testEmails: Set<String> = [
+        "test.001@joramza.test",
+        "test.002@joramza.test",
+        "test.driver@joramza.test",
+        "test.supervisor@joramza.test",
+        "test.maintenance@joramza.test",
+        "test.recruitment@joramza.test"
+    ]
+
+    static func shouldUseBackend(identifier: String) -> Bool {
+        testEmails.contains(
+            identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+}
+
 /// Access to the network. Credentials are validated against the staff directory and the
 /// resolved role is what opens an interface — a driver credential can never open the
 /// supervisor, manager, maintenance or national workspace.
@@ -587,6 +604,16 @@ struct LoginView: View {
         guard credentialMode == .email,
               cleanedIdentifier.contains("@") else {
             errorMessage = "Ingresa tu correo institucional."
+            supabaseProbeMessage = nil
+            return
+        }
+
+        // Keep main's exact operational allowlist without restoring the local demo
+        // fallback: an unapproved identity remains outside the authenticated app.
+        guard BackendAuthenticationRouting.shouldUseBackend(
+            identifier: cleanedIdentifier
+        ) else {
+            errorMessage = "Esta cuenta no está habilitada para la operación actual."
             supabaseProbeMessage = nil
             return
         }
