@@ -97,12 +97,29 @@ test('connected economics includes pickup, wait, repositioning, energy and wear'
   assert.equal(r.connectedMinutes,minutes);
   assert.equal(r.netConnectedHourly,net*60/minutes);
   assert.equal(r.expectedRejectValue,p.alternativeNetHourly.normal*minutes/60);
-  assert.equal(r.opportunityCost,r.expectedRejectValue);
+  assert.equal(r.opportunityCost,r.expectedRejectValue-r.expectedAcceptValue);
   assert.equal(r.total,Object.keys(p.weights).reduce((sum,k)=>sum+p.weights[k]*r.scores[k],0));
   input.market.nextWaitMinutes+=10;
   assert.ok(engine.evaluate(input).netConnectedHourly<r.netConnectedHourly);
   input.trip.fare+=100;
   assert.ok(engine.evaluate(input).expectedAcceptValue>r.expectedAcceptValue);
+});
+
+test('opportunity cost preserves the signed reject-minus-accept difference', () => {
+  const favorableAccept=engine.evaluate(scenario('A'));
+  const favorableReject=engine.evaluate(scenario('D'));
+  assert.ok(favorableAccept.opportunityCost<0);
+  assert.ok(favorableReject.opportunityCost>0);
+
+  const equivalent=scenario('A');
+  const parameters=engine.defaultParameters();
+  parameters.parameterVersion='opportunity-cost-equivalence-test-1';
+  Object.assign(equivalent.trip,{fare:120,pickupMinutes:0,pickupKm:0,tripMinutes:30,tripKm:0});
+  Object.assign(equivalent.market,{nextWaitMinutes:30,repositionMinutes:0,repositionKm:0});
+  parameters.alternativeNetHourly.normal=120;
+  const result=engine.evaluate(equivalent,parameters);
+  assert.equal(result.opportunityCost,0);
+  assert.equal(result.expectedRejectValue,result.expectedAcceptValue);
 });
 
 test('station deadline and shift end each independently override remaining time', () => {

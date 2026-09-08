@@ -156,7 +156,7 @@
     // Compare net values over the SAME connected-time horizon. Reject prior includes waiting.
     const expectedAcceptValue = net;
     const expectedRejectValue = p.alternativeNetHourly[demand] * connectedMinutes / 60;
-    const opportunityCost = expectedRejectValue;
+    const opportunityCost = expectedRejectValue - expectedAcceptValue;
     const threshold = p.thresholds[demand];
     const recommended = blocks.length === 0 && total >= threshold && expectedAcceptValue >= expectedRejectValue;
     const reasons = blocks.slice();
