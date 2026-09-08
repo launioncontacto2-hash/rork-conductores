@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(22);
+SELECT plan(25);
 
 SELECT has_table('public', 'shift_evidence', 'existe la evidencia de turno');
 SELECT has_column('public', 'shift_evidence', 'object_path', 'la evidencia conserva su ruta privada');
@@ -118,6 +118,22 @@ SELECT throws_ok(
     $sql$,
     '22023', 'sensitive_command_reason_required',
     'la base rechaza una asignacion sin motivo suficiente'
+);
+SELECT has_function(
+    'public', 'revoke_driver_device', ARRAY['uuid', 'text', 'text'],
+    'existe el retiro auditado de dispositivos de conductor'
+);
+SELECT ok(
+    has_function_privilege(
+        'authenticated', 'public.revoke_driver_device(uuid,text,text)', 'EXECUTE'
+    ),
+    'authenticated puede invocar el retiro que valida supervision internamente'
+);
+SELECT is(
+    has_function_privilege(
+        'anon', 'public.revoke_driver_device(uuid,text,text)', 'EXECUTE'
+    ), false,
+    'anon no puede retirar dispositivos'
 );
 
 SELECT * FROM finish();

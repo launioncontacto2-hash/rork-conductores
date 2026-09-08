@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(15);
+SELECT plan(18);
 
 SELECT has_table(
     'app', 'driver_device_sessions',
@@ -203,6 +203,22 @@ SELECT lives_ok(
     'el supervisor registra tambien la consola'
 );
 
+SELECT lives_ok(
+    $sql$
+        SELECT public.revoke_driver_device(
+            (
+                SELECT d.id
+                FROM public.devices d
+                WHERE d.install_id = '16a-iphone-2'
+                  AND d.deleted_at IS NULL
+            ),
+            'Teléfono retirado por supervisión.',
+            '16a-revoke-driver-device'
+        )
+    $sql$,
+    'supervision retira el acceso operativo del iPhone conductor'
+);
+
 RESET ROLE;
 SELECT is(
     (
@@ -213,6 +229,32 @@ SELECT is(
     ),
     2::bigint,
     'el supervisor conserva dos dispositivos simultaneos'
+);
+SELECT is(
+    (
+        SELECT count(*)::bigint
+        FROM public.devices d
+        WHERE d.profile_id = '16a00000-0000-4000-8000-000000000001'::uuid
+          AND d.deleted_at IS NULL
+    ),
+    0::bigint,
+    'el retiro deja al conductor sin dispositivos operativos'
+);
+
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '16a00000-0000-4000-8000-000000000001', true
+);
+SELECT set_config(
+    'request.jwt.claims',
+    '{"session_id":"16a60000-0000-4000-8000-000000000002"}', true
+);
+SET LOCAL ROLE authenticated;
+
+SELECT throws_ok(
+    $sql$ SELECT public.heartbeat_driver_device('16a-iphone-2') $sql$,
+    '42501', 'driver_session_replaced',
+    'el teléfono retirado ya no puede mantener la sesión'
 );
 
 SELECT * FROM finish();

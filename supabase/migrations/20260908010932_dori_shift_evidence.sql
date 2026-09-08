@@ -387,7 +387,8 @@ SET search_path TO 'pg_catalog', 'public', 'app', 'pg_temp'
 AS $function$
 BEGIN
     IF NEW.command_name IN (
-        'assign_vehicle', 'update_incident', 'approve_guard', 'resolve_absence'
+        'assign_vehicle', 'update_incident', 'approve_guard', 'resolve_absence',
+        'revoke_driver_device'
     ) AND char_length(btrim(coalesce(NEW.request_payload ->> 'note', ''))) < 5 THEN
         RAISE EXCEPTION 'sensitive_command_reason_required'
             USING ERRCODE = '22023';
@@ -406,6 +407,196 @@ FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION app.enforce_sensitive_command_reason()
 TO postgres, service_role;
 
+CREATE OR REPLACE FUNCTION app.assert_driver_device_session(p_install_id text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public', 'app', 'auth', 'pg_temp'
+AS $function$
+DECLARE
+    v_profile_id uuid;
+    v_environment_id uuid;
+    v_session_id uuid;
+    v_now timestamptz;
+BEGIN
+    v_profile_id := app.auth_profile_id();
+    v_session_id := app.auth_session_id();
+    IF v_profile_id IS NULL OR v_session_id IS NULL THEN
+        RAISE EXCEPTION 'authentication_required' USING ERRCODE = '42501';
+    END IF;
+    IF p_install_id IS NULL OR btrim(p_install_id) = '' THEN
+        RAISE EXCEPTION 'install_id_required' USING ERRCODE = '22023';
+    END IF;
+
+    v_environment_id := app.current_environment_id();
+    v_now := app.env_now(v_environment_id);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM app.driver_device_sessions lease
+        JOIN public.devices device ON device.id = lease.device_id
+        JOIN public.staff_memberships membership
+          ON membership.id = device.active_membership_id
+         AND membership.profile_id = device.profile_id
+         AND membership.environment_id = device.environment_id
+        WHERE lease.profile_id = v_profile_id
+          AND lease.environment_id = v_environment_id
+          AND lease.auth_session_id = v_session_id
+          AND device.profile_id = v_profile_id
+          AND device.environment_id = v_environment_id
+          AND device.install_id = btrim(p_install_id)
+          AND device.deleted_at IS NULL
+          AND membership.role = 'driver'
+          AND membership.starts_at <= v_now
+          AND (membership.ends_at IS NULL OR membership.ends_at > v_now)
+    ) THEN
+        RAISE EXCEPTION 'driver_session_replaced' USING ERRCODE = '42501';
+    END IF;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION app.assert_driver_device_session(text)
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION app.assert_driver_device_session(text)
+TO postgres, service_role;
+
+CREATE OR REPLACE FUNCTION public.revoke_driver_device(
+    p_device_id uuid,
+    p_note text,
+    p_idempotency_key text
+)
+RETURNS public.devices
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public', 'app', 'auth', 'pg_temp'
+AS $function$
+DECLARE
+    v_actor_profile_id uuid;
+    v_environment_id uuid;
+    v_station_id uuid;
+    v_now timestamptz;
+    v_request jsonb;
+    v_device public.devices%ROWTYPE;
+    v_command public.command_log%ROWTYPE;
+BEGIN
+    v_actor_profile_id := app.auth_profile_id();
+    IF v_actor_profile_id IS NULL THEN
+        RAISE EXCEPTION 'authentication_required' USING ERRCODE = '42501';
+    END IF;
+    IF p_device_id IS NULL THEN
+        RAISE EXCEPTION 'device_id_required' USING ERRCODE = '22023';
+    END IF;
+    IF p_note IS NULL OR char_length(btrim(p_note)) NOT BETWEEN 5 AND 1000 THEN
+        RAISE EXCEPTION 'device_revocation_reason_required' USING ERRCODE = '22023';
+    END IF;
+    IF p_idempotency_key IS NULL OR btrim(p_idempotency_key) = '' THEN
+        RAISE EXCEPTION 'idempotency_key_required' USING ERRCODE = '22023';
+    END IF;
+
+    v_environment_id := app.current_environment_id();
+    v_now := app.env_now(v_environment_id);
+    v_request := jsonb_build_object(
+        'device_id', p_device_id,
+        'note', btrim(p_note)
+    );
+
+    SELECT command.*
+    INTO v_command
+    FROM public.command_log command
+    WHERE command.environment_id = v_environment_id
+      AND command.idempotency_key = btrim(p_idempotency_key);
+
+    IF FOUND THEN
+        IF v_command.command_name <> 'revoke_driver_device'
+           OR v_command.request_payload IS DISTINCT FROM v_request
+           OR v_command.status <> 'completed' THEN
+            RAISE EXCEPTION 'idempotency_key_reused' USING ERRCODE = '23505';
+        END IF;
+        SELECT device, membership.station_id
+        INTO STRICT v_device, v_station_id
+        FROM public.devices device
+        JOIN public.staff_memberships membership
+          ON membership.id = device.active_membership_id
+         AND membership.profile_id = device.profile_id
+         AND membership.environment_id = device.environment_id
+        WHERE device.id = p_device_id
+          AND device.environment_id = v_environment_id
+          AND membership.role = 'driver';
+        IF NOT app.auth_has_role('supervisor', v_station_id) THEN
+            RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
+        END IF;
+        RETURN v_device;
+    END IF;
+
+    SELECT device, membership.station_id
+    INTO v_device, v_station_id
+    FROM public.devices device
+    JOIN public.staff_memberships membership
+      ON membership.id = device.active_membership_id
+     AND membership.profile_id = device.profile_id
+     AND membership.environment_id = device.environment_id
+    WHERE device.id = p_device_id
+      AND device.environment_id = v_environment_id
+      AND device.deleted_at IS NULL
+      AND membership.role = 'driver'
+    FOR UPDATE OF device;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'active_driver_device_not_found' USING ERRCODE = 'P0002';
+    END IF;
+    IF NOT app.auth_has_role('supervisor', v_station_id) THEN
+        RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
+    END IF;
+
+    INSERT INTO public.command_log (
+        environment_id, actor_profile_id, command_name, idempotency_key,
+        status, request_payload, occurred_at
+    ) VALUES (
+        v_environment_id, v_actor_profile_id, 'revoke_driver_device',
+        btrim(p_idempotency_key), 'accepted', v_request, v_now
+    ) RETURNING * INTO v_command;
+
+    DELETE FROM app.driver_device_sessions
+    WHERE device_id = v_device.id;
+
+    UPDATE public.devices
+    SET deleted_at = v_now
+    WHERE id = v_device.id
+      AND deleted_at IS NULL
+    RETURNING * INTO STRICT v_device;
+
+    UPDATE public.command_log
+    SET status = 'completed',
+        result_payload = jsonb_build_object(
+            'device_id', v_device.id,
+            'profile_id', v_device.profile_id,
+            'revoked_at', v_device.deleted_at
+        )
+    WHERE id = v_command.id;
+
+    INSERT INTO public.audit_log (
+        environment_id, actor_profile_id, station_id, command_id,
+        event_type, entity_type, entity_id, metadata, occurred_at
+    ) VALUES (
+        v_environment_id, v_actor_profile_id, v_station_id, v_command.id,
+        'device.revoked', 'device', v_device.id,
+        jsonb_build_object(
+            'profile_id', v_device.profile_id,
+            'platform', v_device.platform,
+            'note', btrim(p_note)
+        ),
+        v_now
+    );
+
+    RETURN v_device;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.revoke_driver_device(uuid, text, text)
+FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.revoke_driver_device(uuid, text, text)
+TO authenticated, service_role;
+
 COMMENT ON TABLE public.shift_evidence IS
     'Evidencia fotografica privada e inmutable del inicio y cierre de cada turno DORI.';
 COMMENT ON FUNCTION public.start_shift_v3(uuid, bigint, integer, text, text, text, text) IS
@@ -416,3 +607,7 @@ COMMENT ON FUNCTION public.console_audit_history(integer) IS
     'Devuelve a supervision el historial append-only de sus estaciones vigentes sin exponer command_log.';
 COMMENT ON FUNCTION app.enforce_sensitive_command_reason() IS
     'Impide que un comando sensible se registre sin un motivo operativo suficiente.';
+COMMENT ON FUNCTION app.assert_driver_device_session(text) IS
+    'Exige que la sesion exclusiva del conductor, su dispositivo y su membresia sigan vigentes.';
+COMMENT ON FUNCTION public.revoke_driver_device(uuid, text, text) IS
+    'Permite a supervision retirar con motivo auditado el acceso operativo de un dispositivo conductor de su estacion.';

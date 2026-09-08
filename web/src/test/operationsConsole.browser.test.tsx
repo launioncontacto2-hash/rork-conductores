@@ -146,3 +146,53 @@ test("requires an audit reason before receiving an incident", async () => {
     tableData.incidents = [];
   }
 });
+
+test("revokes only a visible driver device with an audited reason", async () => {
+  rpcCalls.length = 0;
+  tableData.console_drivers = [{
+    id: "71000000-0000-4000-8000-000000000001",
+    profile_id: "72000000-0000-4000-8000-000000000001",
+    employee_number: "DRV-DORI-001",
+    status: "active",
+    shift_group: "weekday",
+    shift_slot: "morning",
+  }];
+  tableData.devices = [{
+    id: "73000000-0000-4000-8000-000000000001",
+    profile_id: "72000000-0000-4000-8000-000000000001",
+    platform: "ios",
+    app_version: "dori-1.0",
+    last_seen_at: new Date().toISOString(),
+  }];
+
+  try {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <OperationsConsole />
+      </QueryClientProvider>,
+    );
+
+    await screen.getByRole("button", { name: "Retirar acceso" }).click();
+    const confirm = screen.getByRole("button", { name: "Confirmar y auditar" });
+    await expect.element(confirm).toBeDisabled();
+    await screen.getByRole("textbox", { name: "Motivo obligatorio" }).fill("iPhone reportado como extraviado");
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+
+    await vi.waitFor(() => {
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0]).toMatchObject({
+        name: "revoke_driver_device",
+        params: {
+          p_device_id: "73000000-0000-4000-8000-000000000001",
+          p_note: "iPhone reportado como extraviado",
+        },
+      });
+      expect(String(rpcCalls[0].params.p_idempotency_key)).toMatch(/^console-revoke-driver-device-/);
+    });
+  } finally {
+    tableData.console_drivers = [];
+    tableData.devices = [];
+  }
+});

@@ -644,8 +644,8 @@ enum SupabaseFinancialService {
     nonisolated static func userMessage(for error: Error) -> String {
         let message = error.localizedDescription
         let lowered = message.lowercased()
-        if lowered.contains("driver_device_session_replaced") {
-            return "Esta sesión fue reemplazada por otro iPhone. Inicia sesión nuevamente."
+        if lowered.contains("driver_session_replaced") {
+            return "El acceso operativo de este teléfono fue retirado o reemplazado. Inicia sesión nuevamente."
         }
         if lowered.contains("owned_shift_required") {
             return "Abre tu turno antes de registrar ingresos."
@@ -1423,7 +1423,7 @@ enum SupabaseDriverDeviceService {
             case .notConfigured:
                 return "Supabase no está configurado."
             case .sessionReplaced:
-                return "Esta cuenta se abrió en otro teléfono. Vuelve a iniciar sesión para tomar el control."
+                return "El acceso operativo de este teléfono fue retirado o reemplazado. Vuelve a iniciar sesión si sigues autorizado."
             }
         }
     }

@@ -150,7 +150,8 @@ interface AuditEvent {
 type PendingCommand =
   | { kind: "review-incident"; id: string; label: string }
   | { kind: "approve-guard"; id: string; label: string }
-  | { kind: "approve-absence" | "reject-absence"; id: string; label: string };
+  | { kind: "approve-absence" | "reject-absence"; id: string; label: string }
+  | { kind: "revoke-driver-device"; id: string; label: string };
 
 interface ConsoleSnapshot {
   live: StationLive | null;
@@ -201,6 +202,7 @@ const auditEventLabel: Record<string, string> = {
   "work_order.closed": "Orden de taller cerrada",
   "absence.resolved": "Ausencia resuelta",
   "coverage.guard_approved": "Guardia confirmada",
+  "device.revoked": "Acceso de dispositivo retirado",
 };
 
 const OperationsConsole = () => {
@@ -319,13 +321,19 @@ const OperationsConsole = () => {
           p_note: reason.trim(),
           p_idempotency_key: idempotency,
         });
-      } else {
+      } else if (command.kind === "approve-absence" || command.kind === "reject-absence") {
         const absence = data?.absences.find((item) => item.id === command.id);
         if (!absence) throw new Error("La ausencia ya no está disponible.");
         response = await supabase.rpc("resolve_absence", {
           p_absence_id: absence.id,
           p_expected_revision: absence.revision,
           p_decision: command.kind === "approve-absence" ? "approved" : "rejected",
+          p_note: reason.trim(),
+          p_idempotency_key: idempotency,
+        });
+      } else {
+        response = await supabase.rpc("revoke_driver_device", {
+          p_device_id: command.id,
           p_note: reason.trim(),
           p_idempotency_key: idempotency,
         });
@@ -540,13 +548,14 @@ const OperationsConsole = () => {
           </CardHeader>
           <CardContent>
             <Table>
-              <TableHeader><TableRow><TableHead>Identidad</TableHead><TableHead>Plataforma</TableHead><TableHead>Versión</TableHead><TableHead>Última actividad</TableHead><TableHead>Conexión</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Identidad</TableHead><TableHead>Plataforma</TableHead><TableHead>Versión</TableHead><TableHead>Última actividad</TableHead><TableHead>Conexión</TableHead><TableHead>Acción</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data?.devices.map((device) => {
                   const connected = deviceIsConnected(device.last_seen_at);
+                  const driver = driverByProfileId.get(device.profile_id);
                   const owner = device.profile_id === identity.profile_id
                     ? identity.employee_number
-                    : driverByProfileId.get(device.profile_id)?.employee_number ?? "Personal de estación";
+                    : driver?.employee_number ?? "Personal de estación";
                   return (
                     <TableRow key={device.id}>
                       <TableCell className="font-bold">{owner}</TableCell>
@@ -558,10 +567,25 @@ const OperationsConsole = () => {
                           {connected ? "Conectado" : "Sin pulso reciente"}
                         </Badge>
                       </TableCell>
+                      <TableCell>
+                        {driver ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPendingCommand({
+                              kind: "revoke-driver-device",
+                              id: device.id,
+                              label: `El acceso de ${driver.employee_number} en este ${platformLabel[device.platform]}`,
+                            })}
+                          >
+                            Retirar acceso
+                          </Button>
+                        ) : "—"}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
-                {!data?.devices.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay dispositivos registrados en la estación.</TableCell></TableRow>}
+                {!data?.devices.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No hay dispositivos registrados en la estación.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>
