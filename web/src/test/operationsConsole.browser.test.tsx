@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+const rpcCalls = vi.hoisted(() => [] as Array<{ name: string; params: Record<string, unknown> }>);
+
 const identity = {
   profile_id: "10000000-0000-4000-8000-000000000001",
   environment_id: "00000000-0000-4000-8000-000000000001",
@@ -55,7 +57,10 @@ const queryFor = (table: string) => {
 vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: (table: string) => queryFor(table),
-    rpc: async () => ({ data: null, error: null }),
+    rpc: async (name: string, params: Record<string, unknown>) => {
+      rpcCalls.push({ name, params });
+      return { data: null, error: null };
+    },
   },
 }));
 
@@ -78,4 +83,51 @@ test("shows every final operational area from one Supabase snapshot", async () =
   await expect.element(screen.getByRole("heading", { name: "Ausencias" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Vacantes de cobertura" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Historial de turnos" })).toBeInTheDocument();
+});
+
+test("requires an audit reason before receiving an incident", async () => {
+  rpcCalls.length = 0;
+  tableData.incidents = [{
+    id: "40000000-0000-4000-8000-000000000001",
+    folio: "INC-DORI-001",
+    vehicle_id: "50000000-0000-4000-8000-000000000001",
+    kind: "mechanical",
+    severity: "high",
+    description: "La unidad perdió potencia durante el turno.",
+    status: "open",
+    revision: 1,
+    reported_at: "2026-09-07T12:00:00Z",
+  }];
+
+  try {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <OperationsConsole />
+      </QueryClientProvider>,
+    );
+
+    await screen.getByRole("button", { name: "Recibir" }).click();
+    const confirm = screen.getByRole("button", { name: "Confirmar y auditar" });
+    await expect.element(confirm).toBeDisabled();
+    await screen.getByRole("textbox", { name: "Motivo obligatorio" }).fill("Recepción confirmada por supervisión");
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+
+    await vi.waitFor(() => {
+      expect(rpcCalls).toHaveLength(1);
+      expect(rpcCalls[0]).toMatchObject({
+        name: "update_incident",
+        params: {
+          p_incident_id: "40000000-0000-4000-8000-000000000001",
+          p_expected_revision: 1,
+          p_status: "review",
+          p_note: "Recepción confirmada por supervisión",
+        },
+      });
+      expect(String(rpcCalls[0].params.p_idempotency_key)).toMatch(/^console-review-incident-/);
+    });
+  } finally {
+    tableData.incidents = [];
+  }
 });

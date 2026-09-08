@@ -1393,7 +1393,8 @@ enum SupabaseAssignmentService {
 /// phones that authenticate with the same Supabase user.
 @MainActor
 enum SupabaseDriverDeviceService {
-    private static let installIdKey = "turnoev.backend.install-id"
+    private static let installIdKey = "dori.backend.install-id"
+    private static let legacyInstallIdKey = "turnoev.backend.install-id"
 
     nonisolated struct ClaimParameters: Encodable, Sendable {
         let p_install_id: String
@@ -1432,6 +1433,11 @@ enum SupabaseDriverDeviceService {
         if let stored = defaults.string(forKey: installIdKey),
            !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return stored
+        }
+        if let legacy = defaults.string(forKey: legacyInstallIdKey),
+           !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            defaults.set(legacy, forKey: installIdKey)
+            return legacy
         }
 
         let generated = UUID().uuidString.lowercased()
