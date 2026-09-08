@@ -28,8 +28,8 @@ SELECT is(
         'authenticated',
         'public.start_shift_v2(uuid,bigint,integer,text,text)', 'EXECUTE'
     ),
-    true,
-    'authenticated puede ejecutar start_shift_v2'
+    false,
+    'authenticated no puede omitir la evidencia usando start_shift_v2'
 );
 
 INSERT INTO public.stations (

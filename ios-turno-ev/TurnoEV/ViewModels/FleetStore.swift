@@ -410,6 +410,43 @@ final class FleetStore {
         persist()
     }
 
+    /// Rebuilds the visible history from authoritative closed shifts. The phone does not
+    /// retain an independent backend ledger, so a new device renders the same operation.
+    func refreshBackendShiftHistory() async throws {
+        guard usesBackendShiftCycle, let stationId = currentPrincipal?.stationId else { return }
+        let snapshot = try await SupabaseShiftService.loadDriverHistory(stationId: stationId)
+
+        history = snapshot.shifts.compactMap { row in
+            guard let group = ShiftGroup(rawValue: row.shift_group),
+                  let slot = ShiftSlot(rawValue: row.shift_slot),
+                  let endedAt = row.finished_at,
+                  let endOdometerKm = row.end_odometer_km,
+                  let endBatteryPct = row.end_battery_pct else { return nil }
+            let relatedIncome = incomes.filter { $0.shiftId == row.id.uuidString }
+            return ShiftRecord(
+                id: row.id.uuidString,
+                driverId: driver.id,
+                vehicleId: row.vehicle_id.uuidString,
+                vehicleInternalNumber: snapshot.vehicleNumbers[row.vehicle_id] ?? "Unidad",
+                group: group,
+                slot: slot,
+                scheduledStartAt: row.scheduled_start_at,
+                startedAt: row.started_at,
+                endedAt: endedAt,
+                lateMinutes: row.late_minutes,
+                paidBackMinutes: 0,
+                startOdometerKm: row.start_odometer_km,
+                endOdometerKm: endOdometerKm,
+                startBatteryPct: row.start_battery_pct,
+                endBatteryPct: endBatteryPct,
+                trips: relatedIncome.reduce(0) { $0 + $1.trips },
+                earningsMxn: relatedIncome.reduce(0) { $0 + $1.amountMxn },
+                origin: .backend
+            )
+        }
+        persist()
+    }
+
     /// Refreshes the authoritative driver state in dependency order. An open shift is
     /// scoped by the active assignment, and its financial totals can only be projected
     /// after that shift has been reconstructed locally.
@@ -427,6 +464,7 @@ final class FleetStore {
             backendShiftRevision = nil
             persist()
             try await refreshBackendFinancialState()
+            try await refreshBackendShiftHistory()
             return
         }
 
@@ -440,6 +478,7 @@ final class FleetStore {
             persist()
         }
         try await refreshBackendFinancialState()
+        try await refreshBackendShiftHistory()
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
@@ -1477,16 +1516,23 @@ final class FleetStore {
             )
         }
 
-        guard let assignment = unitAssignment,
+        guard let principal = currentPrincipal,
+              let assignment = unitAssignment,
               assignment.origin == .backend,
               assignment.vehicleId == vehicle.id else {
             throw UnitAssignmentError.unitNotAssigned
+        }
+        guard let odometerPhoto, let batteryPhoto else {
+            throw SupabaseShiftService.ServiceError.evidenceRequired
         }
 
         let row = try await SupabaseShiftService.start(
             assignmentId: assignment.id,
             odometerKm: odometerKm,
             batteryPct: batteryPct,
+            odometerPhoto: odometerPhoto,
+            batteryPhoto: batteryPhoto,
+            principal: principal,
             idempotencyKey: idempotencyKey
         )
 
@@ -1960,11 +2006,15 @@ final class FleetStore {
             )
         }
 
-        guard let shift = activeShift, shift.origin == .backend else {
+        guard let principal = currentPrincipal,
+              let shift = activeShift, shift.origin == .backend else {
             throw OperationalMutationError.unauthoritativeShift
         }
         guard let revision = backendShiftRevision else {
             throw BackendShiftContractError.missingRevision
+        }
+        guard let photo else {
+            throw SupabaseShiftService.ServiceError.evidenceRequired
         }
 
         let row = try await SupabaseShiftService.finish(
@@ -1972,6 +2022,8 @@ final class FleetStore {
             expectedRevision: revision,
             odometerKm: endOdometerKm,
             batteryPct: endBatteryPct,
+            odometerPhoto: photo,
+            principal: principal,
             idempotencyKey: idempotencyKey
         )
         guard let endedAt = row.finished_at else {

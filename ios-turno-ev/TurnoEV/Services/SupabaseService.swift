@@ -1493,6 +1493,11 @@ enum SupabaseDriverDeviceService {
 /// to RLS; starts and finishes always cross the transactional server functions.
 @MainActor
 enum SupabaseShiftService {
+    nonisolated struct VehicleNumberRow: Decodable, Identifiable, Sendable {
+        let id: UUID
+        let internal_number: String
+    }
+
     nonisolated struct ShiftRow: Decodable, Identifiable, Sendable {
         let id: UUID
         let station_id: UUID
@@ -1519,6 +1524,8 @@ enum SupabaseShiftService {
         let p_assignment_id: UUID
         let p_odometer_km: Int64
         let p_battery_pct: Int
+        let p_odometer_path: String
+        let p_battery_path: String
         let p_idempotency_key: String
         let p_install_id: String
     }
@@ -1528,6 +1535,7 @@ enum SupabaseShiftService {
         let p_expected_revision: Int64
         let p_odometer_km: Int64
         let p_battery_pct: Int
+        let p_odometer_path: String
         let p_idempotency_key: String
         let p_install_id: String
     }
@@ -1535,11 +1543,17 @@ enum SupabaseShiftService {
     enum ServiceError: LocalizedError {
         case notConfigured
         case invalidIdentifier
+        case invalidScope
+        case evidenceRequired
+        case evidenceTooLarge
 
         var errorDescription: String? {
             switch self {
             case .notConfigured: "Supabase no está configurado."
             case .invalidIdentifier: "El turno o la asignación no tienen un identificador válido."
+            case .invalidScope: "La sesión no pertenece a una estación operativa válida."
+            case .evidenceRequired: "Las fotografías del turno son obligatorias."
+            case .evidenceTooLarge: "Una fotografía supera el límite permitido de 5 MB."
             }
         }
     }
@@ -1581,27 +1595,90 @@ enum SupabaseShiftService {
         return rows.sorted { $0.started_at > $1.started_at }
     }
 
+    /// RLS returns only this driver's rows. Vehicle labels are loaded separately so a
+    /// historical shift remains understandable after a substitute unit is returned.
+    static func loadDriverHistory(stationId: String) async throws -> (
+        shifts: [ShiftRow], vehicleNumbers: [UUID: String]
+    ) {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidIdentifier }
+
+        async let shiftsRequest: [ShiftRow] = client
+            .from("shifts")
+            .select(columns)
+            .eq("status", value: "closed")
+            .order("finished_at", ascending: false)
+            .execute()
+            .value
+        async let vehiclesRequest: [VehicleNumberRow] = client
+            .from("vehicles")
+            .select("id,internal_number")
+            .eq("station_id", value: stationId)
+            .execute()
+            .value
+
+        let (shifts, vehicles) = try await (shiftsRequest, vehiclesRequest)
+        return (Array(shifts.prefix(100)), Dictionary(uniqueKeysWithValues: vehicles.map {
+            ($0.id, $0.internal_number)
+        }))
+    }
+
     static func start(
         assignmentId: String,
         odometerKm: Int,
         batteryPct: Int,
+        odometerPhoto: Data,
+        batteryPhoto: Data,
+        principal: SessionPrincipal,
         idempotencyKey: String
     ) async throws -> ShiftRow {
         guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
         guard let assignmentUUID = UUID(uuidString: assignmentId) else {
             throw ServiceError.invalidIdentifier
         }
+        guard let environmentId = principal.environmentId,
+              let stationId = principal.stationId,
+              UUID(uuidString: environmentId) != nil,
+              UUID(uuidString: stationId) != nil,
+              UUID(uuidString: principal.profileId) != nil else {
+            throw ServiceError.invalidScope
+        }
+        guard !odometerPhoto.isEmpty, !batteryPhoto.isEmpty else {
+            throw ServiceError.evidenceRequired
+        }
+        guard odometerPhoto.count <= 5 * 1_024 * 1_024,
+              batteryPhoto.count <= 5 * 1_024 * 1_024 else {
+            throw ServiceError.evidenceTooLarge
+        }
+
+        let operationId = UUID().uuidString.lowercased()
+        let prefix = "\(environmentId.lowercased())/\(stationId.lowercased())/\(principal.profileId.lowercased())/\(operationId)"
+        let odometerPath = "\(prefix)/start-odometer.jpg"
+        let batteryPath = "\(prefix)/start-battery.jpg"
+
+        try await client.storage.from("shift-evidence").upload(
+            odometerPath,
+            data: odometerPhoto,
+            options: FileOptions(contentType: "image/jpeg", upsert: false)
+        )
+        try await client.storage.from("shift-evidence").upload(
+            batteryPath,
+            data: batteryPhoto,
+            options: FileOptions(contentType: "image/jpeg", upsert: false)
+        )
 
         let parameters = StartParameters(
             p_assignment_id: assignmentUUID,
             p_odometer_km: Int64(odometerKm),
             p_battery_pct: batteryPct,
+            p_odometer_path: odometerPath,
+            p_battery_path: batteryPath,
             p_idempotency_key: idempotencyKey,
             p_install_id: SupabaseDriverDeviceService.installId
         )
 
         return try await client
-            .rpc("start_shift_v2", params: parameters)
+            .rpc("start_shift_v3", params: parameters)
             .execute()
             .value
     }
@@ -1611,24 +1688,46 @@ enum SupabaseShiftService {
         expectedRevision: Int64,
         odometerKm: Int,
         batteryPct: Int,
+        odometerPhoto: Data,
+        principal: SessionPrincipal,
         idempotencyKey: String
     ) async throws -> ShiftRow {
         guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
         guard let shiftUUID = UUID(uuidString: shiftId) else {
             throw ServiceError.invalidIdentifier
         }
+        guard let environmentId = principal.environmentId,
+              let stationId = principal.stationId,
+              UUID(uuidString: environmentId) != nil,
+              UUID(uuidString: stationId) != nil,
+              UUID(uuidString: principal.profileId) != nil else {
+            throw ServiceError.invalidScope
+        }
+        guard !odometerPhoto.isEmpty else { throw ServiceError.evidenceRequired }
+        guard odometerPhoto.count <= 5 * 1_024 * 1_024 else {
+            throw ServiceError.evidenceTooLarge
+        }
+
+        let operationId = UUID().uuidString.lowercased()
+        let odometerPath = "\(environmentId.lowercased())/\(stationId.lowercased())/\(principal.profileId.lowercased())/\(operationId)/finish-odometer.jpg"
+        try await client.storage.from("shift-evidence").upload(
+            odometerPath,
+            data: odometerPhoto,
+            options: FileOptions(contentType: "image/jpeg", upsert: false)
+        )
 
         let parameters = FinishParameters(
             p_shift_id: shiftUUID,
             p_expected_revision: expectedRevision,
             p_odometer_km: Int64(odometerKm),
             p_battery_pct: batteryPct,
+            p_odometer_path: odometerPath,
             p_idempotency_key: idempotencyKey,
             p_install_id: SupabaseDriverDeviceService.installId
         )
 
         return try await client
-            .rpc("finish_shift_v2", params: parameters)
+            .rpc("finish_shift_v3", params: parameters)
             .execute()
             .value
     }
