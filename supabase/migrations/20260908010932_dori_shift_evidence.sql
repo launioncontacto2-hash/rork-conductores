@@ -227,6 +227,23 @@ BEGIN
         )
     ON CONFLICT (shift_id, kind) DO NOTHING;
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.shift_evidence evidence
+        WHERE evidence.shift_id = v_shift.id
+          AND evidence.kind = 'start_odometer'
+          AND evidence.object_path = btrim(p_odometer_path)
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.shift_evidence evidence
+        WHERE evidence.shift_id = v_shift.id
+          AND evidence.kind = 'start_battery'
+          AND evidence.object_path = btrim(p_battery_path)
+    ) THEN
+        RAISE EXCEPTION 'shift_evidence_idempotency_conflict'
+            USING ERRCODE = '23505';
+    END IF;
+
     RETURN v_shift;
 EXCEPTION
     WHEN no_data_found THEN
@@ -279,6 +296,17 @@ BEGIN
         v_shift.finished_at
     )
     ON CONFLICT (shift_id, kind) DO NOTHING;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.shift_evidence evidence
+        WHERE evidence.shift_id = v_shift.id
+          AND evidence.kind = 'finish_odometer'
+          AND evidence.object_path = btrim(p_odometer_path)
+    ) THEN
+        RAISE EXCEPTION 'shift_evidence_idempotency_conflict'
+            USING ERRCODE = '23505';
+    END IF;
 
     RETURN v_shift;
 EXCEPTION

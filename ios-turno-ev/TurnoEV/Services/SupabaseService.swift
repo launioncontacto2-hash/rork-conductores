@@ -1552,6 +1552,7 @@ enum SupabaseShiftService {
         case invalidScope
         case evidenceRequired
         case evidenceTooLarge
+        case evidenceConflict
 
         var errorDescription: String? {
             switch self {
@@ -1560,6 +1561,7 @@ enum SupabaseShiftService {
             case .invalidScope: "La sesión no pertenece a una estación operativa válida."
             case .evidenceRequired: "Las fotografías del turno son obligatorias."
             case .evidenceTooLarge: "Una fotografía supera el límite permitido de 5 MB."
+            case .evidenceConflict: "La evidencia ya existe con contenido distinto. Vuelve a capturarla."
             }
         }
     }
@@ -1570,6 +1572,30 @@ enum SupabaseShiftService {
         finished_at,late_minutes,start_odometer_km,start_battery_pct,
         end_odometer_km,end_battery_pct,revision
         """
+
+    private static func evidenceOperationId(for idempotencyKey: String) -> String {
+        SHA256.hash(data: Data(idempotencyKey.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    /// A retry keeps the same object path. If the first upload reached Storage but its
+    /// response did not reach the phone, the existing bytes must match exactly before the
+    /// transactional RPC is retried; a different photograph is never overwritten.
+    private static func uploadEvidence(_ data: Data, path: String) async throws {
+        guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
+        let bucket = client.storage.from("shift-evidence")
+        do {
+            try await bucket.upload(
+                path,
+                data: data,
+                options: FileOptions(contentType: "image/jpeg", upsert: false)
+            )
+        } catch {
+            let existing = try await bucket.download(path: path)
+            guard existing == data else { throw ServiceError.evidenceConflict }
+        }
+    }
 
     static func loadOpenShift(assignmentId: String) async throws -> ShiftRow? {
         guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
@@ -1657,21 +1683,13 @@ enum SupabaseShiftService {
             throw ServiceError.evidenceTooLarge
         }
 
-        let operationId = UUID().uuidString.lowercased()
+        let operationId = evidenceOperationId(for: idempotencyKey)
         let prefix = "\(environmentId.lowercased())/\(stationId.lowercased())/\(principal.profileId.lowercased())/\(operationId)"
         let odometerPath = "\(prefix)/start-odometer.jpg"
         let batteryPath = "\(prefix)/start-battery.jpg"
 
-        try await client.storage.from("shift-evidence").upload(
-            odometerPath,
-            data: odometerPhoto,
-            options: FileOptions(contentType: "image/jpeg", upsert: false)
-        )
-        try await client.storage.from("shift-evidence").upload(
-            batteryPath,
-            data: batteryPhoto,
-            options: FileOptions(contentType: "image/jpeg", upsert: false)
-        )
+        try await uploadEvidence(odometerPhoto, path: odometerPath)
+        try await uploadEvidence(batteryPhoto, path: batteryPath)
 
         let parameters = StartParameters(
             p_assignment_id: assignmentUUID,
@@ -1714,13 +1732,9 @@ enum SupabaseShiftService {
             throw ServiceError.evidenceTooLarge
         }
 
-        let operationId = UUID().uuidString.lowercased()
+        let operationId = evidenceOperationId(for: idempotencyKey)
         let odometerPath = "\(environmentId.lowercased())/\(stationId.lowercased())/\(principal.profileId.lowercased())/\(operationId)/finish-odometer.jpg"
-        try await client.storage.from("shift-evidence").upload(
-            odometerPath,
-            data: odometerPhoto,
-            options: FileOptions(contentType: "image/jpeg", upsert: false)
-        )
+        try await uploadEvidence(odometerPhoto, path: odometerPath)
 
         let parameters = FinishParameters(
             p_shift_id: shiftUUID,
