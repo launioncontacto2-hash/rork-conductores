@@ -43,6 +43,7 @@ ALTER TABLE public.shift_evidence ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.shift_evidence FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.shift_evidence TO authenticated, service_role;
 GRANT ALL ON TABLE public.shift_evidence TO postgres;
+GRANT EXECUTE ON FUNCTION app.current_environment_id() TO authenticated;
 
 CREATE POLICY shift_evidence_authorized_read
 ON public.shift_evidence FOR SELECT TO authenticated
@@ -525,6 +526,7 @@ DECLARE
     v_request jsonb;
     v_device public.devices%ROWTYPE;
     v_command public.command_log%ROWTYPE;
+    v_device_lookup record;
 BEGIN
     v_actor_profile_id := app.auth_profile_id();
     IF v_actor_profile_id IS NULL THEN
@@ -559,8 +561,8 @@ BEGIN
            OR v_command.status <> 'completed' THEN
             RAISE EXCEPTION 'idempotency_key_reused' USING ERRCODE = '23505';
         END IF;
-        SELECT device, membership.station_id
-        INTO STRICT v_device, v_station_id
+        SELECT device AS device, membership.station_id AS station_id
+        INTO STRICT v_device_lookup
         FROM public.devices device
         JOIN public.staff_memberships membership
           ON membership.id = device.active_membership_id
@@ -569,14 +571,16 @@ BEGIN
         WHERE device.id = p_device_id
           AND device.environment_id = v_environment_id
           AND membership.role = 'driver';
+        v_device := v_device_lookup.device;
+        v_station_id := v_device_lookup.station_id;
         IF NOT app.auth_has_role('supervisor', v_station_id) THEN
             RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
         END IF;
         RETURN v_device;
     END IF;
 
-    SELECT device, membership.station_id
-    INTO v_device, v_station_id
+    SELECT device AS device, membership.station_id AS station_id
+    INTO v_device_lookup
     FROM public.devices device
     JOIN public.staff_memberships membership
       ON membership.id = device.active_membership_id
@@ -591,6 +595,8 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'active_driver_device_not_found' USING ERRCODE = 'P0002';
     END IF;
+    v_device := v_device_lookup.device;
+    v_station_id := v_device_lookup.station_id;
     IF NOT app.auth_has_role('supervisor', v_station_id) THEN
         RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
     END IF;
