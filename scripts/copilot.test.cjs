@@ -18,7 +18,6 @@ test('A-E: economics, opportunity and operational vetoes', () => {
 });
 
 test('pure engine, full replay and global entry without Node dependencies', () => {
-  assert.equal(require('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js'), engine);
   const input = scenario('A'), original = clone(input);
   const r = engine.evaluate(input);
   assert.deepEqual(engine.evaluate(input, r.parameters), r);

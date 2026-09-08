@@ -52,6 +52,6 @@ evaluar la decision con esa evidencia.
 
 ## Alcance
 
-No se agrego interfaz SwiftUI, integracion con Uber, Learning Engine ni cambios
-de reglas o pesos. La migracion y la funcion quedan listas para despliegue
-posterior; este bloque solo las valida localmente.
+Este bloque no agrego interfaz SwiftUI, integracion con Uber, Learning Engine ni
+cambios de reglas o pesos. La migracion y la funcion quedaron listas para un
+despliegue posterior y se validaron localmente.

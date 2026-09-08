@@ -164,6 +164,9 @@ struct RootTabView: View {
                     Tab("Historial", systemImage: "list.clipboard.fill", value: 4) {
                         HistoryView()
                     }
+                    Tab("Copiloto", systemImage: "sparkles", value: 5) {
+                        DORICopilotView()
+                    }
                 }
                 .tint(Palette.volt)
                 .safeAreaInset(edge: .top) {
