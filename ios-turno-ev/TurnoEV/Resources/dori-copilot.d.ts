@@ -109,6 +109,7 @@ export interface DecisionResult {
   /** Net MXN for accept/reject, over the SAME connectedMinutes horizon. */
   expectedAcceptValue: number;
   expectedRejectValue: number;
+  /** Reject minus accept: positive favors rejecting, zero is equivalent, negative favors accepting. */
   opportunityCost: number;
   netConnectedHourly: number;
   connectedMinutes: number;
