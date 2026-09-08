@@ -1492,7 +1492,7 @@ final class LabStore {
             id: id,
             name: name,
             employeeNumber: "PRB-\(prefix)-\(String(format: "%04d", serial))",
-            email: "prueba.\(role.rawValue).\(serial)@turnoev.mx",
+            email: "prueba.\(role.rawValue).\(serial)@dori.invalid",
             phone: "55\(String(format: "%08d", (stamp + index * 37) % 99_999_999))",
             password: UUID().uuidString,
             role: role,
@@ -1660,7 +1660,7 @@ final class LabStore {
     /// Plain-text export of the whole trace, ready to be shared out of the device.
     func exportAudit() -> String {
         var lines: [String] = [
-            "TurnoEV · Laboratorio de pruebas",
+            "DORI · Laboratorio de pruebas",
             "Exportado: \(Fmt.dateLong(Date())) \(Fmt.clockSeconds(Date()))",
             "Entorno: \(world.mode.label)",
             "Registros en el mundo de pruebas: \(world.totalRecords)",

@@ -221,7 +221,7 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        "TURNO EV",
+                        "DORI",
                         style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Black, color = Palette.textPrimary),
                     )
                     CapsLabel("Acceso por rol y estación")
@@ -277,7 +277,7 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
                     PanelTextField(
                         value = identifier,
                         onValueChange = { identifier = it },
-                        placeholder = if (credentialMode == CredentialMode.EMAIL) "correo@turnoev.mx" else "EV-1042",
+                        placeholder = if (credentialMode == CredentialMode.EMAIL) "correo@empresa.com" else "Número de empleado",
                         icon = if (credentialMode == CredentialMode.EMAIL) {
                             Icons.Filled.AlternateEmail
                         } else {

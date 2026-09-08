@@ -1167,7 +1167,7 @@ nonisolated struct LabCapacityResult: Sendable {
 
 nonisolated enum LabRules {
     static let adminAccountId = "acc-lab-001"
-    static let adminEmail = "laboratorio@turnoev.mx"
+    static let adminEmail = "laboratorio@dori.invalid"
 
     /// Legacy laboratory identity retained only so the frozen model still decodes its
     /// historical fixtures. It is not an authentication credential or an app entry point.
