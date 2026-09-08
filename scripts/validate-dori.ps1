@@ -33,7 +33,63 @@ function Invoke-Checked {
     }
 }
 
+function Assert-NoTrackedSecrets {
+    $gitArguments = @('-c', "safe.directory=$repoRoot")
+    $forbiddenCredentials = @(
+        ('Kymyly' + '14'),
+        ('Direccion' + '14'),
+        ('Gerencia' + '14'),
+        ('Supervisor' + '14'),
+        ('Taller' + '14'),
+        ('Reclutamiento' + '14'),
+        ('Laboratorio' + '14'),
+        ('Prueba' + '14')
+    )
+
+    foreach ($credential in $forbiddenCredentials) {
+        $null = & git @gitArguments grep '-l' '-F' '--' $credential
+        if ($LASTEXITCODE -eq 0) {
+            throw 'El repositorio volvió a incluir una credencial de demostración retirada.'
+        }
+        if ($LASTEXITCODE -gt 1) {
+            throw 'No fue posible completar la revisión de credenciales incrustadas.'
+        }
+    }
+
+    $secretPatterns = @(
+        'sb_secret_[A-Za-z0-9_-]+',
+        '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    )
+    foreach ($pattern in $secretPatterns) {
+        $null = & git @gitArguments grep '-l' '-E' '--' $pattern
+        if ($LASTEXITCODE -eq 0) {
+            throw 'El repositorio contiene material secreto o una llave privada.'
+        }
+        if ($LASTEXITCODE -gt 1) {
+            throw 'No fue posible completar la revisión de secretos.'
+        }
+    }
+
+    $trackedFiles = @(& git @gitArguments ls-files)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'No fue posible revisar los archivos rastreados por Git.'
+    }
+    $sensitiveFiles = @(
+        $trackedFiles | Where-Object {
+            $leaf = Split-Path -Leaf $_
+            $leaf -eq '.env' -or
+            $leaf -match '\.(pem|p12|pfx|key)$'
+        }
+    )
+    if ($sensitiveFiles.Count -gt 0) {
+        throw 'Git rastrea un archivo de entorno, certificado o llave privada.'
+    }
+}
+
 try {
+    Write-Step 'Comprobando que Git no contenga credenciales ni secretos'
+    Assert-NoTrackedSecrets
+
     Write-Step 'Validando Supabase local, seguridad y pruebas SQL'
     $backendArguments = @()
     if ($IncludeDryRun) { $backendArguments += '-IncludeDryRun' }
