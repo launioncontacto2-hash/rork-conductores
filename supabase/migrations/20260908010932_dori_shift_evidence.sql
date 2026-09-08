@@ -126,6 +126,25 @@ USING (
     )
 );
 
+-- Una carga puede terminar antes que la transaccion del turno (red interrumpida,
+-- lectura invalida o conflicto de revision). El conductor puede limpiar solamente
+-- objetos propios que aun no sean evidencia formal. Una vez enlazados, esta politica
+-- deja de verlos para DELETE y la app no puede alterar el expediente del turno.
+CREATE POLICY shift_evidence_objects_delete_unreferenced
+ON storage.objects FOR DELETE TO authenticated
+USING (
+    bucket_id = 'shift-evidence'
+    AND owner_id = (SELECT auth.uid())::text
+    AND array_length(storage.foldername(name), 1) >= 4
+    AND (storage.foldername(name))[1] = app.current_environment_id()::text
+    AND (storage.foldername(name))[3] = app.auth_profile_id()::text
+    AND NOT EXISTS (
+        SELECT 1
+        FROM public.shift_evidence evidence
+        WHERE evidence.object_path = name
+    )
+);
+
 CREATE OR REPLACE FUNCTION app.assert_owned_shift_evidence(
     p_object_path text,
     p_environment_id uuid,

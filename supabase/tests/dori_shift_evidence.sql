@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(25);
+SELECT plan(26);
 
 SELECT has_table('public', 'shift_evidence', 'existe la evidencia de turno');
 SELECT has_column('public', 'shift_evidence', 'object_path', 'la evidencia conserva su ruta privada');
@@ -83,6 +83,18 @@ SELECT is(
     ),
     true,
     'el deposito de evidencia es privado y acepta solo JPEG de hasta 5 MB'
+);
+SELECT is(
+    (
+        SELECT count(*)::integer
+        FROM pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'shift_evidence_objects_delete_unreferenced'
+          AND cmd = 'DELETE'
+    ),
+    1,
+    'solo los archivos de turno aun no vinculados tienen una ruta de limpieza'
 );
 SELECT has_function(
     'public', 'console_audit_history', ARRAY['integer'],

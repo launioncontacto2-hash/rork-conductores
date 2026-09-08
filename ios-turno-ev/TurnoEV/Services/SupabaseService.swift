@@ -1597,6 +1597,14 @@ enum SupabaseShiftService {
         }
     }
 
+    /// Best-effort compensation for uploads that never became part of a shift. Storage
+    /// RLS accepts only this driver's unreferenced paths. If the RPC committed but its
+    /// response was lost, the linked evidence is invisible to DELETE and remains intact.
+    private static func discardUnreferencedEvidence(_ paths: [String]) async {
+        guard !paths.isEmpty, let client = SupabaseBridge.client else { return }
+        try? await client.storage.from("shift-evidence").remove(paths: paths)
+    }
+
     static func loadOpenShift(assignmentId: String) async throws -> ShiftRow? {
         guard let client = SupabaseBridge.client else { throw ServiceError.notConfigured }
         guard UUID(uuidString: assignmentId) != nil else { throw ServiceError.invalidIdentifier }
@@ -1688,23 +1696,28 @@ enum SupabaseShiftService {
         let odometerPath = "\(prefix)/start-odometer.jpg"
         let batteryPath = "\(prefix)/start-battery.jpg"
 
-        try await uploadEvidence(odometerPhoto, path: odometerPath)
-        try await uploadEvidence(batteryPhoto, path: batteryPath)
+        do {
+            try await uploadEvidence(odometerPhoto, path: odometerPath)
+            try await uploadEvidence(batteryPhoto, path: batteryPath)
 
-        let parameters = StartParameters(
-            p_assignment_id: assignmentUUID,
-            p_odometer_km: Int64(odometerKm),
-            p_battery_pct: batteryPct,
-            p_odometer_path: odometerPath,
-            p_battery_path: batteryPath,
-            p_idempotency_key: idempotencyKey,
-            p_install_id: SupabaseDriverDeviceService.installId
-        )
+            let parameters = StartParameters(
+                p_assignment_id: assignmentUUID,
+                p_odometer_km: Int64(odometerKm),
+                p_battery_pct: batteryPct,
+                p_odometer_path: odometerPath,
+                p_battery_path: batteryPath,
+                p_idempotency_key: idempotencyKey,
+                p_install_id: SupabaseDriverDeviceService.installId
+            )
 
-        return try await client
-            .rpc("start_shift_v3", params: parameters)
-            .execute()
-            .value
+            return try await client
+                .rpc("start_shift_v3", params: parameters)
+                .execute()
+                .value
+        } catch {
+            await discardUnreferencedEvidence([odometerPath, batteryPath])
+            throw error
+        }
     }
 
     static func finish(
@@ -1734,22 +1747,27 @@ enum SupabaseShiftService {
 
         let operationId = evidenceOperationId(for: idempotencyKey)
         let odometerPath = "\(environmentId.lowercased())/\(stationId.lowercased())/\(principal.profileId.lowercased())/\(operationId)/finish-odometer.jpg"
-        try await uploadEvidence(odometerPhoto, path: odometerPath)
+        do {
+            try await uploadEvidence(odometerPhoto, path: odometerPath)
 
-        let parameters = FinishParameters(
-            p_shift_id: shiftUUID,
-            p_expected_revision: expectedRevision,
-            p_odometer_km: Int64(odometerKm),
-            p_battery_pct: batteryPct,
-            p_odometer_path: odometerPath,
-            p_idempotency_key: idempotencyKey,
-            p_install_id: SupabaseDriverDeviceService.installId
-        )
+            let parameters = FinishParameters(
+                p_shift_id: shiftUUID,
+                p_expected_revision: expectedRevision,
+                p_odometer_km: Int64(odometerKm),
+                p_battery_pct: batteryPct,
+                p_odometer_path: odometerPath,
+                p_idempotency_key: idempotencyKey,
+                p_install_id: SupabaseDriverDeviceService.installId
+            )
 
-        return try await client
-            .rpc("finish_shift_v3", params: parameters)
-            .execute()
-            .value
+            return try await client
+                .rpc("finish_shift_v3", params: parameters)
+                .execute()
+                .value
+        } catch {
+            await discardUnreferencedEvidence([odometerPath])
+            throw error
+        }
     }
 }
 
