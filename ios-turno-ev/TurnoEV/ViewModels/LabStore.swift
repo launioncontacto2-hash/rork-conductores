@@ -1494,7 +1494,7 @@ final class LabStore {
             employeeNumber: "PRB-\(prefix)-\(String(format: "%04d", serial))",
             email: "prueba.\(role.rawValue).\(serial)@turnoev.mx",
             phone: "55\(String(format: "%08d", (stamp + index * 37) % 99_999_999))",
-            password: "Prueba14",
+            password: UUID().uuidString,
             role: role,
             stationId: stationId,
             regionId: regionId,

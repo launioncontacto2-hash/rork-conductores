@@ -18,7 +18,6 @@ export const MOCK_DRIVER: Driver = {
   name: "Carlos Méndez Rivas",
   employeeNumber: "EV-1042",
   email: "launion.contacto2@gmail.com",
-  password: "Kymyly14",
   photoUrl: "/driver-portrait.jpg",
   stationId: "est-nte-cdmx",
   station: "Estación Norte · CDMX",

@@ -14,7 +14,6 @@ export interface Driver {
   name: string;
   employeeNumber: string;
   email: string;
-  password: string;
   photoUrl: string;
   /** Station the driver belongs to; work can only start in this station. */
   stationId: string;

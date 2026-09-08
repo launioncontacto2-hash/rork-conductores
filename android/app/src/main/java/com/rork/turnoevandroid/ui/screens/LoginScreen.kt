@@ -383,7 +383,6 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
             onPick = { account ->
                 credentialMode = CredentialMode.EMAIL
                 identifier = account.email
-                password = account.password
                 mode = LoginMode.CREDENTIALS
                 errorMessage = null
                 isDirectoryOpen = false
@@ -594,7 +593,7 @@ private fun DirectorySheet(onDismiss: () -> Unit, onPick: (StaffAccount) -> Unit
                         style = TextStyle(fontSize = 12.sp, color = Palette.textMuted),
                     )
                     Text(
-                        "${account.email} · ${account.password}",
+                        account.email,
                         style = TextStyle(fontSize = 11.sp, color = Palette.textMuted),
                     )
                 }

@@ -450,9 +450,9 @@ struct LabPreviewSheet: View {
                     LabRow(title: station.displayName, subtitle: "Estación asignada", symbol: "building.2.fill", tint: LabTone.muted)
                 }
                 LabRow(
-                    title: "Contraseña de prueba",
-                    subtitle: user.password,
-                    symbol: "key.fill",
+                    title: "Acceso local retirado",
+                    subtitle: "Las cuentas finales se autentican en Supabase.",
+                    symbol: "lock.shield.fill",
                     tint: LabTone.muted
                 )
             }

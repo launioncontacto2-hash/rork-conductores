@@ -9,7 +9,7 @@ object MockData {
         name = "Carlos Méndez Rivas",
         employeeNumber = "EV-1042",
         email = "launion.contacto2@gmail.com",
-        password = "Kymyly14",
+        password = java.util.UUID.randomUUID().toString(),
         photoAsset = "driver_portrait",
         stationId = "est-nte-cdmx",
         station = "Estación Norte · CDMX",

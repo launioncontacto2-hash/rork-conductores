@@ -430,7 +430,6 @@ nonisolated struct LabUser: Codable, Identifiable, Sendable {
             name: name,
             employeeNumber: employeeNumber,
             email: email.lowercased(),
-            password: password,
             role: effectiveRole,
             stationId: stationId,
             regionId: regionId,
@@ -1169,16 +1168,14 @@ nonisolated struct LabCapacityResult: Sendable {
 nonisolated enum LabRules {
     static let adminAccountId = "acc-lab-001"
     static let adminEmail = "laboratorio@turnoev.mx"
-    static let adminPassword = "Laboratorio14"
 
-    /// The superadmin credential. It exists in both environments because it is the only
-    /// door into the console; no other role can ever open it.
+    /// Legacy laboratory identity retained only so the frozen model still decodes its
+    /// historical fixtures. It is not an authentication credential or an app entry point.
     static let adminAccount = StaffAccount(
         id: adminAccountId,
         name: "Administrador de Pruebas",
         employeeNumber: "EV-LAB-001",
         email: adminEmail,
-        password: adminPassword,
         role: .lab,
         stationId: nil,
         regionId: nil,

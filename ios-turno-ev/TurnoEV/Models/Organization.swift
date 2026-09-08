@@ -224,7 +224,6 @@ nonisolated struct StaffAccount: Codable, Identifiable, Sendable {
     let name: String
     let employeeNumber: String
     let email: String
-    let password: String
     let role: StaffRole
     /// Home station. Required for every operational role — drivers, supervisors,
     /// maintenance, the station manager and the station's recruitment desk. Only
@@ -258,25 +257,6 @@ nonisolated struct StaffAccount: Codable, Identifiable, Sendable {
     var initials: String {
         let parts = name.split(separator: " ").prefix(2)
         return parts.compactMap { $0.first }.map(String.init).joined().uppercased()
-    }
-}
-
-/// Result of validating credentials against the directory.
-nonisolated enum AuthOutcome: Sendable {
-    case granted(StaffAccount)
-    case unknownIdentity
-    case wrongPassword
-    case suspended(StaffAccount)
-    case missingAssignment(StaffAccount)
-
-    var message: String? {
-        switch self {
-        case .granted: nil
-        case .unknownIdentity: "No encontramos esa cuenta en la red de estaciones."
-        case .wrongPassword: "Contraseña incorrecta. Verifica e intenta de nuevo."
-        case .suspended: "Cuenta suspendida. Contacta al gerente de tu estación."
-        case .missingAssignment: "Tu cuenta no tiene estación asignada. Contacta a dirección."
-        }
     }
 }
 
@@ -485,7 +465,6 @@ nonisolated enum StaffDirectory {
         name: "Carlos Méndez Rivas",
         employeeNumber: "EV-1042",
         email: "launion.contacto2@gmail.com",
-        password: "Kymyly14",
         role: .driver,
         stationId: "est-nte-cdmx",
         regionId: "reg-vm",
@@ -535,7 +514,6 @@ nonisolated enum StaffDirectory {
             name: "Renata Salgado Aguirre",
             employeeNumber: "EV-DIR-001",
             email: "direccion.nacional@turnoev.mx",
-            password: "Direccion14",
             role: .national,
             stationId: nil,
             regionId: nil,
@@ -551,7 +529,6 @@ nonisolated enum StaffDirectory {
             name: "Mariana Ochoa Vela",
             employeeNumber: "EV-GER-045",
             email: "gerencia.norte@turnoev.mx",
-            password: "Gerencia14",
             role: .manager,
             stationId: "est-nte-cdmx",
             regionId: "reg-vm",
@@ -568,7 +545,6 @@ nonisolated enum StaffDirectory {
             name: "Gerardo Ponce Alcaráz",
             employeeNumber: "EV-GER-046",
             email: "gerencia.sur@turnoev.mx",
-            password: "Gerencia14",
             role: .manager,
             stationId: "est-sur-cdmx",
             regionId: "reg-vm",
@@ -585,7 +561,6 @@ nonisolated enum StaffDirectory {
             name: "Verónica Lamadrid Sosa",
             employeeNumber: "EV-GER-047",
             email: "gerencia.chapalita@turnoev.mx",
-            password: "Gerencia14",
             role: .manager,
             stationId: "est-gdl-chap",
             regionId: "reg-occ",
@@ -602,7 +577,6 @@ nonisolated enum StaffDirectory {
             name: "Ana Lucía Torres",
             employeeNumber: "EV-SUP-201",
             email: "supervision.norte.am@turnoev.mx",
-            password: "Supervisor14",
             role: .supervisor,
             stationId: "est-nte-cdmx",
             regionId: "reg-vm",
@@ -619,7 +593,6 @@ nonisolated enum StaffDirectory {
             name: "Iván Ramírez Cruz",
             employeeNumber: "EV-SUP-202",
             email: "supervision.norte.pm@turnoev.mx",
-            password: "Supervisor14",
             role: .supervisor,
             stationId: "est-nte-cdmx",
             regionId: "reg-vm",
@@ -636,7 +609,6 @@ nonisolated enum StaffDirectory {
             name: "Luis Ángel Pech",
             employeeNumber: "EV-MTO-118",
             email: "mantenimiento.norte@turnoev.mx",
-            password: "Taller14",
             role: .maintenance,
             stationId: "est-nte-cdmx",
             regionId: "reg-vm",
@@ -653,7 +625,6 @@ nonisolated enum StaffDirectory {
             name: "Paulina Vidal Cordero",
             employeeNumber: "EV-REC-301",
             email: "reclutamiento.norte@turnoev.mx",
-            password: "Reclutamiento14",
             role: .recruiter,
             stationId: "est-nte-cdmx",
             regionId: "reg-vm",
@@ -670,7 +641,6 @@ nonisolated enum StaffDirectory {
             name: "Emiliano Cuevas Ordaz",
             employeeNumber: "EV-REC-302",
             email: "reclutamiento.sur@turnoev.mx",
-            password: "Reclutamiento14",
             role: .recruiter,
             stationId: "est-sur-cdmx",
             regionId: "reg-vm",
@@ -687,7 +657,6 @@ nonisolated enum StaffDirectory {
             name: "Denisse Arriaga Fuentes",
             employeeNumber: "EV-REC-303",
             email: "reclutamiento.chapalita@turnoev.mx",
-            password: "Reclutamiento14",
             role: .recruiter,
             stationId: "est-gdl-chap",
             regionId: "reg-occ",
@@ -766,24 +735,4 @@ nonisolated enum StaffDirectory {
         }
     }
 
-    /// Validates an identifier (email or employee number) plus password.
-    static func authenticate(identifier: String, password: String) -> AuthOutcome {
-        let cleaned = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return .unknownIdentity }
-
-        let byEmail = cleaned.lowercased()
-        let byEmployee = cleaned.uppercased()
-        guard let account = accounts.first(where: { $0.email == byEmail || $0.employeeNumber == byEmployee }) else {
-            return .unknownIdentity
-        }
-        guard account.password == password else { return .wrongPassword }
-        guard account.status == .active else { return .suspended(account) }
-
-        if account.role == .lab { return .granted(account) }
-        // Managers and recruiters are station staff now: without a station there is
-        // nothing for them to open.
-        if account.role.isStationBound, account.stationId == nil { return .missingAssignment(account) }
-
-        return .granted(account)
-    }
 }

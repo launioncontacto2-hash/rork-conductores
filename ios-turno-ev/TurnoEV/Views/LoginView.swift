@@ -878,7 +878,6 @@ struct LoginView: View {
                         Button {
                             credentialMode = .email
                             identifier = account.email
-                            password = account.password
                             mode = .credentials
                             errorMessage = nil
                             supabaseProbeMessage = nil
@@ -935,9 +934,7 @@ struct LoginView: View {
                                     Palette.textMuted
                                 )
 
-                                Text(
-                                    "\(account.email) · \(account.password)"
-                                )
+                                Text(account.email)
                                 .font(.system(size: 11))
                                 .foregroundStyle(
                                     Palette.textMuted

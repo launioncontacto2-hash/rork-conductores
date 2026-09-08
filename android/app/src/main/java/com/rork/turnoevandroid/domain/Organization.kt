@@ -206,6 +206,8 @@ sealed interface AuthOutcome {
 
 /** Credential directory. Replace with the real identity provider when the backend lands. */
 object StaffDirectory {
+    private fun retiredDemoCredential(): String = java.util.UUID.randomUUID().toString()
+
     val regions: List<Region> = listOf(
         Region("reg-vm", "Valle de México", listOf("est-nte-cdmx", "est-sur-cdmx")),
         Region("reg-occ", "Occidente", listOf("est-gdl-chap")),
@@ -223,7 +225,7 @@ object StaffDirectory {
             name = "Renata Salgado Aguirre",
             employeeNumber = "EV-DIR-001",
             email = "direccion.nacional@turnoev.mx",
-            password = "Direccion14",
+            password = retiredDemoCredential(),
             role = StaffRole.NATIONAL,
         ),
         StaffAccount(
@@ -231,7 +233,7 @@ object StaffDirectory {
             name = "Mariana Ochoa Vela",
             employeeNumber = "EV-GER-045",
             email = "gerencia.valledemexico@turnoev.mx",
-            password = "Gerencia14",
+            password = retiredDemoCredential(),
             role = StaffRole.MANAGER,
             regionId = "reg-vm",
             createdById = "acc-dir-001",
@@ -241,7 +243,7 @@ object StaffDirectory {
             name = "Ana Lucía Torres",
             employeeNumber = "EV-SUP-201",
             email = "supervision.norte.am@turnoev.mx",
-            password = "Supervisor14",
+            password = retiredDemoCredential(),
             role = StaffRole.SUPERVISOR,
             stationId = "est-nte-cdmx",
             regionId = "reg-vm",
@@ -253,7 +255,7 @@ object StaffDirectory {
             name = "Iván Ramírez Cruz",
             employeeNumber = "EV-SUP-202",
             email = "supervision.norte.pm@turnoev.mx",
-            password = "Supervisor14",
+            password = retiredDemoCredential(),
             role = StaffRole.SUPERVISOR,
             stationId = "est-nte-cdmx",
             regionId = "reg-vm",
@@ -265,7 +267,7 @@ object StaffDirectory {
             name = "Luis Ángel Pech",
             employeeNumber = "EV-MTO-118",
             email = "mantenimiento.norte@turnoev.mx",
-            password = "Taller14",
+            password = retiredDemoCredential(),
             role = StaffRole.MAINTENANCE,
             stationId = "est-nte-cdmx",
             regionId = "reg-vm",
@@ -277,7 +279,7 @@ object StaffDirectory {
             name = "Carlos Méndez Rivas",
             employeeNumber = "EV-1042",
             email = "launion.contacto2@gmail.com",
-            password = "Kymyly14",
+            password = retiredDemoCredential(),
             role = StaffRole.DRIVER,
             stationId = "est-nte-cdmx",
             regionId = "reg-vm",

@@ -458,7 +458,7 @@ private struct LabUserEditor: View {
     @State private var employeeNumber: String = ""
     @State private var email: String = ""
     @State private var phone: String = ""
-    @State private var password: String = "Prueba14"
+    @State private var password: String = ""
     @State private var role: StaffRole = .driver
     @State private var stationId: String = ""
     @State private var regionId: String = ""
