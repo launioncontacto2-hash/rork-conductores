@@ -120,6 +120,7 @@ interface Absence {
   kind: string;
   reason: string;
   status: string;
+  revision: number;
 }
 
 interface CoverageVacancy {
@@ -130,7 +131,13 @@ interface CoverageVacancy {
   reason: string;
   status: string;
   is_critical: boolean;
+  revision: number;
 }
+
+type PendingCommand =
+  | { kind: "review-incident"; id: string; label: string }
+  | { kind: "approve-guard"; id: string; label: string }
+  | { kind: "approve-absence" | "reject-absence"; id: string; label: string };
 
 interface ConsoleSnapshot {
   live: StationLive | null;
@@ -176,6 +183,8 @@ const OperationsConsole = () => {
   const [assignmentVehicleId, setAssignmentVehicleId] = useState("");
   const [assignmentKind, setAssignmentKind] = useState<"titular" | "substitute">("titular");
   const [assignmentReason, setAssignmentReason] = useState("");
+  const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
+  const [commandReason, setCommandReason] = useState("");
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -205,8 +214,8 @@ const OperationsConsole = () => {
         supabase.from("devices").select("id,profile_id,platform,app_version,last_seen_at").order("last_seen_at", { ascending: false }),
         supabase.from("incidents").select("id,folio,vehicle_id,kind,severity,description,status,revision,reported_at").eq("station_id", stationId).order("reported_at", { ascending: false }).limit(100),
         supabase.from("work_orders").select("id,incident_id,vehicle_id,folio,problem,priority,status,estimated_minutes,opened_at,closed_at").eq("station_id", stationId).order("opened_at", { ascending: false }).limit(100),
-        supabase.from("absences").select("id,driver_profile_id,folio,operating_date,shift_slot,kind,reason,status").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
-        supabase.from("coverage_vacancies").select("id,folio,operating_date,shift_slot,reason,status,is_critical").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
+        supabase.from("absences").select("id,driver_profile_id,folio,operating_date,shift_slot,kind,reason,status,revision").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
+        supabase.from("coverage_vacancies").select("id,folio,operating_date,shift_slot,reason,status,is_critical,revision").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
       ]);
       return {
         live: requireData(live) as StationLive | null,
@@ -255,6 +264,49 @@ const OperationsConsole = () => {
     onSuccess: async () => {
       setAssignmentVehicleId("");
       setAssignmentReason("");
+      await snapshot.refetch();
+    },
+  });
+  const commandMutation = useMutation({
+    mutationFn: async ({ command, reason }: { command: PendingCommand; reason: string }) => {
+      if (!supabase || reason.trim().length < 5) throw new Error("El motivo debe tener al menos 5 caracteres.");
+      const idempotency = `console-${command.kind}-${crypto.randomUUID()}`;
+      let response: { error: { message: string } | null };
+      if (command.kind === "review-incident") {
+        const incident = data?.incidents.find((item) => item.id === command.id);
+        if (!incident) throw new Error("La incidencia ya no está disponible.");
+        response = await supabase.rpc("update_incident", {
+          p_incident_id: incident.id,
+          p_expected_revision: incident.revision,
+          p_status: "review",
+          p_note: reason.trim(),
+          p_idempotency_key: idempotency,
+        });
+      } else if (command.kind === "approve-guard") {
+        const vacancy = data?.vacancies.find((item) => item.id === command.id);
+        if (!vacancy) throw new Error("La cobertura ya no está disponible.");
+        response = await supabase.rpc("approve_guard", {
+          p_vacancy_id: vacancy.id,
+          p_expected_revision: vacancy.revision,
+          p_note: reason.trim(),
+          p_idempotency_key: idempotency,
+        });
+      } else {
+        const absence = data?.absences.find((item) => item.id === command.id);
+        if (!absence) throw new Error("La ausencia ya no está disponible.");
+        response = await supabase.rpc("resolve_absence", {
+          p_absence_id: absence.id,
+          p_expected_revision: absence.revision,
+          p_decision: command.kind === "approve-absence" ? "approved" : "rejected",
+          p_note: reason.trim(),
+          p_idempotency_key: idempotency,
+        });
+      }
+      if (response.error) throw new Error(response.error.message);
+    },
+    onSuccess: async () => {
+      setPendingCommand(null);
+      setCommandReason("");
       await snapshot.refetch();
     },
   });
@@ -501,7 +553,14 @@ const OperationsConsole = () => {
                       <TableCell className="font-bold">{incident.folio}</TableCell>
                       <TableCell>{vehicleById.get(incident.vehicle_id)?.internal_number ?? "—"}</TableCell>
                       <TableCell><p>{incident.description}</p><p className="text-xs text-muted-foreground">{incident.kind} · {incident.severity}</p></TableCell>
-                      <TableCell><Badge variant="outline">{incident.status}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-2">
+                          <Badge variant="outline">{incident.status}</Badge>
+                          {incident.status === "open" && (
+                            <Button size="sm" variant="outline" onClick={() => setPendingCommand({ kind: "review-incident", id: incident.id, label: incident.folio })}>Recibir</Button>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!data?.incidents.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay incidencias registradas.</TableCell></TableRow>}
@@ -546,7 +605,17 @@ const OperationsConsole = () => {
                       <TableCell><p className="font-bold">{absence.folio}</p><p className="text-xs text-muted-foreground">{absence.reason}</p></TableCell>
                       <TableCell>{driverById.get(absence.driver_profile_id)?.employee_number ?? "—"}</TableCell>
                       <TableCell>{absence.operating_date} · {absence.shift_slot}</TableCell>
-                      <TableCell><Badge variant="outline">{absence.status}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline">{absence.status}</Badge>
+                          {absence.status === "awaiting_authorization" && (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => setPendingCommand({ kind: "approve-absence", id: absence.id, label: absence.folio })}>Autorizar</Button>
+                              <Button size="sm" variant="ghost" onClick={() => setPendingCommand({ kind: "reject-absence", id: absence.id, label: absence.folio })}>Rechazar</Button>
+                            </>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!data?.absences.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay solicitudes de ausencia.</TableCell></TableRow>}
@@ -566,7 +635,14 @@ const OperationsConsole = () => {
                       <TableCell className="font-bold">{vacancy.folio}</TableCell>
                       <TableCell>{vacancy.operating_date} · {vacancy.shift_slot}</TableCell>
                       <TableCell>{vacancy.reason}</TableCell>
-                      <TableCell><Badge variant="outline" className={vacancy.is_critical ? "border-amber-400/40 text-amber-300" : ""}>{vacancy.status}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-2">
+                          <Badge variant="outline" className={vacancy.is_critical ? "border-amber-400/40 text-amber-300" : ""}>{vacancy.status}</Badge>
+                          {vacancy.status === "reserved" && (
+                            <Button size="sm" variant="outline" onClick={() => setPendingCommand({ kind: "approve-guard", id: vacancy.id, label: vacancy.folio })}>Confirmar guardia</Button>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {!data?.vacancies.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay vacantes de cobertura.</TableCell></TableRow>}
@@ -596,6 +672,39 @@ const OperationsConsole = () => {
             </Table>
           </CardContent>
         </Card>
+
+        <AlertDialog open={pendingCommand !== null} onOpenChange={(open) => {
+          if (!open && !commandMutation.isPending) {
+            setPendingCommand(null);
+            setCommandReason("");
+          }
+        }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar acción sensible</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingCommand?.label} se modificará mediante un comando transaccional. Escribe el motivo que deberá acompañar la auditoría.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <label className="grid gap-2 text-sm font-semibold">
+              Motivo obligatorio
+              <textarea className="min-h-24 rounded-md border border-border bg-background p-3 font-normal" value={commandReason} onChange={(event) => setCommandReason(event.target.value)} placeholder="Mínimo 5 caracteres" />
+            </label>
+            {commandMutation.isError && <p className="text-sm text-destructive">{commandMutation.error.message}</p>}
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={commandMutation.isPending}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!pendingCommand || commandReason.trim().length < 5 || commandMutation.isPending}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (pendingCommand) commandMutation.mutate({ command: pendingCommand, reason: commandReason });
+                }}
+              >
+                {commandMutation.isPending ? "Registrando…" : "Confirmar y auditar"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <footer className="flex flex-wrap items-center justify-between gap-2 px-2 pb-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5"><Clock3 className="size-3.5" /> Actualización automática cada 15 segundos</span>
