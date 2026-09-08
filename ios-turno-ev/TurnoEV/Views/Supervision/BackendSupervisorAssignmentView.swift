@@ -16,6 +16,7 @@ private final class BackendAssignmentStore {
     var assignments: [SupabaseAssignmentService.AssignmentRow] = []
     var activeShifts: [SupabaseShiftService.ShiftRow] = []
     var incidents: [SupabaseIncidentService.IncidentRow] = []
+    var workOrders: [SupabaseWorkshopService.WorkOrderRow] = []
     var absences: [SupabaseCoverageService.AbsenceRow] = []
     var coverageVacancies: [SupabaseCoverageService.VacancyRow] = []
     var coverageClaims: [SupabaseCoverageService.ClaimRow] = []
@@ -133,11 +134,15 @@ private final class BackendAssignmentStore {
             async let coverageRequest = SupabaseCoverageService.loadStationSnapshot(
                 stationId: stationId
             )
-            let (snapshot, shifts, stationIncidents, stationCoverage) = try await (
+            async let workOrdersRequest = SupabaseWorkshopService.loadStationOrders(
+                stationId: stationId
+            )
+            let (snapshot, shifts, stationIncidents, stationCoverage, stationWorkOrders) = try await (
                 snapshotRequest,
                 shiftsRequest,
                 incidentsRequest,
-                coverageRequest
+                coverageRequest,
+                workOrdersRequest
             )
             drivers = snapshot.drivers
             vehicles = snapshot.vehicles
@@ -147,6 +152,7 @@ private final class BackendAssignmentStore {
             absences = stationCoverage.absences
             coverageVacancies = stationCoverage.vacancies
             coverageClaims = stationCoverage.claims
+            workOrders = stationWorkOrders
 
             if selectedDriverId == nil || !drivers.contains(where: { $0.id == selectedDriverId }) {
                 selectedDriverId = drivers.first?.id
@@ -270,6 +276,7 @@ struct BackendSupervisorAssignmentView: View {
     @Environment(FleetStore.self) private var fleet
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: BackendAssignmentStore
+    @State private var section: Int = 0
 
     init(principal: SessionPrincipal) {
         _model = State(initialValue: BackendAssignmentStore(principal: principal))
@@ -277,28 +284,48 @@ struct BackendSupervisorAssignmentView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    identityCard
-                    statusCard
-                    activeShiftsCard
-                    incidentsCard
-                    coverageCard
-                    Text("ASIGNACIÓN DE UNIDAD")
-                        .font(.caption.weight(.black))
-                        .foregroundStyle(Palette.textMuted)
-                        .padding(.top, 4)
-                    driverPicker
-                    currentCard
-                    kindPicker
-                    vehiclePicker
-                    noteField
-                    assignButton
+            TabView(selection: $section) {
+                Tab("Operación", systemImage: "waveform.path.ecg", value: 0) {
+                    page {
+                        identityCard
+                        statusCard
+                        activeShiftsCard
+                    }
                 }
-                .padding(18)
+                Tab("Asignar", systemImage: "car.badge.gearshape", value: 1) {
+                    page {
+                        statusCard
+                        driverPicker
+                        currentCard
+                        kindPicker
+                        vehiclePicker
+                        noteField
+                        assignButton
+                    }
+                }
+                Tab("Incidencias", systemImage: "exclamationmark.triangle", value: 2) {
+                    page {
+                        statusCard
+                        incidentsCard
+                        workOrdersCard
+                    }
+                }
+                Tab("Cobertura", systemImage: "person.2.badge.gearshape", value: 3) {
+                    page {
+                        statusCard
+                        coverageCard
+                    }
+                }
+                Tab("Flota", systemImage: "person.2", value: 4) {
+                    page {
+                        statusCard
+                        fleetCard
+                    }
+                }
             }
+            .tint(Palette.volt)
             .background(Palette.canvas.ignoresSafeArea())
-            .navigationTitle("Supervisión TEST")
+            .navigationTitle(navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cerrar sesión") { fleet.signOut() }
@@ -325,6 +352,145 @@ struct BackendSupervisorAssignmentView: View {
                 model.selectedVehicleId = model.availableVehicles.first?.id
             }
         }
+    }
+
+    private var navigationTitle: String {
+        switch section {
+        case 1: "Asignar unidad"
+        case 2: "Incidencias"
+        case 3: "Cobertura"
+        case 4: "Conductores y flota"
+        default: "Supervisión"
+        }
+    }
+
+    private var fleetCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("CONDUCTORES")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Palette.textMuted)
+
+            if model.drivers.isEmpty {
+                Text("No hay conductores activos en esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.drivers) { driver in
+                    let assignment = model.assignments.first { $0.driver_profile_id == driver.id }
+                    let shift = model.activeShifts.first { $0.driver_profile_id == driver.id }
+                    HStack(spacing: 12) {
+                        Image(systemName: shift == nil ? "person.crop.circle" : "steeringwheel")
+                            .foregroundStyle(shift == nil ? Palette.textMuted : Palette.volt)
+                            .frame(width: 34, height: 34)
+                            .background(Palette.surfaceRaised, in: .circle)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(driver.employee_number)
+                                .font(.subheadline.weight(.bold))
+                            Text(assignment.flatMap {
+                                assignmentRow in model.vehicles.first { $0.id == assignmentRow.vehicle_id }?.internal_number
+                            } ?? "Sin unidad asignada")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer(minLength: 8)
+                        Text(shift == nil ? "SIN TURNO" : "EN TURNO")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(shift == nil ? Palette.textMuted : Palette.volt)
+                    }
+                }
+            }
+
+            Divider().overlay(Palette.hairline)
+            Text("VEHÍCULOS")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Palette.textMuted)
+
+            if model.vehicles.isEmpty {
+                Text("No hay vehículos visibles en esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.vehicles) { vehicle in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(vehicle.internal_number)
+                                .font(.subheadline.weight(.bold))
+                            Text(vehicle.plate ?? "Sin placa")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        Text(vehicleStatusLabel(vehicle.status))
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(vehicle.status == "available" ? Palette.volt : Palette.amber)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private var workOrdersCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("TALLER")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("\(model.workOrders.filter { $0.status != "closed" }.count) ABIERTAS")
+                    .font(.system(size: 9, weight: .black))
+                    .foregroundStyle(Palette.amber)
+            }
+
+            if model.workOrders.isEmpty {
+                Text("No hay órdenes de trabajo para esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(Array(model.workOrders.prefix(12))) { order in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "wrench.and.screwdriver.fill")
+                            .foregroundStyle(order.status == "closed" ? Palette.textMuted : Palette.amber)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(order.folio)
+                                .font(.subheadline.weight(.bold))
+                            Text("\(model.vehicles.first { $0.id == order.vehicle_id }?.internal_number ?? "Unidad") · \(order.problem)")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer(minLength: 8)
+                        Text(order.status.uppercased())
+                            .font(.system(size: 9, weight: .black))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private func vehicleStatusLabel(_ status: String) -> String {
+        switch status {
+        case "available": "DISPONIBLE"
+        case "occupied": "ASIGNADO"
+        case "maintenance": "TALLER"
+        default: status.uppercased()
+        }
+    }
+
+    private func page<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(18)
+            .padding(.bottom, 24)
+        }
+        .background(Palette.canvas.ignoresSafeArea())
+        .scrollIndicators(.hidden)
     }
 
     private var incidentsCard: some View {
