@@ -111,12 +111,42 @@ function Assert-NoDirectBackendWrites {
     }
 }
 
+function Assert-PgTapPlansMatch {
+    $testsRoot = Join-Path $repoRoot 'supabase\tests'
+    $assertions = @(
+        'ok', 'is', 'isnt', 'cmp_ok', 'pass', 'fail', 'throws_ok', 'lives_ok',
+        'results_eq', 'set_eq', 'bag_eq', 'row_eq',
+        'has_table', 'hasnt_table', 'has_view', 'hasnt_view',
+        'has_column', 'hasnt_column', 'col_type_is',
+        'has_function', 'hasnt_function', 'has_trigger', 'hasnt_trigger',
+        'has_index', 'hasnt_index', 'has_policy', 'hasnt_policy'
+    ) -join '|'
+    $assertionPattern = "(?im)^SELECT[\t ]+(?:extensions\.)?(?:$assertions)[\t ]*\("
+
+    foreach ($testFile in Get-ChildItem -LiteralPath $testsRoot -Filter '*.sql') {
+        $source = Get-Content -LiteralPath $testFile.FullName -Raw
+        $plans = [regex]::Matches($source, '(?im)^SELECT[\t ]+plan\(([0-9]+)\)')
+        if ($plans.Count -ne 1) {
+            throw "El archivo pgTAP debe declarar exactamente un plan: $($testFile.Name)."
+        }
+
+        $planned = [int]$plans[0].Groups[1].Value
+        $declaredAssertions = [regex]::Matches($source, $assertionPattern).Count
+        if ($planned -ne $declaredAssertions) {
+            throw "Plan pgTAP inconsistente en $($testFile.Name): planea $planned y declara $declaredAssertions pruebas."
+        }
+    }
+}
+
 try {
     Write-Step 'Comprobando que Git no contenga credenciales ni secretos'
     Assert-NoTrackedSecrets
 
     Write-Step 'Comprobando que las aplicaciones no escriban directamente en tablas'
     Assert-NoDirectBackendWrites
+
+    Write-Step 'Comprobando los planes de pruebas SQL'
+    Assert-PgTapPlansMatch
 
     Write-Step 'Validando Supabase local, seguridad y pruebas SQL'
     $backendArguments = @()
