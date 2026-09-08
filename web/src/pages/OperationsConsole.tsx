@@ -6,6 +6,7 @@ import {
   Car,
   CircleAlert,
   Clock3,
+  Images,
   LogOut,
   Radio,
   RefreshCw,
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 
@@ -84,6 +86,14 @@ interface ClosedShift extends OpenShift {
   finished_at: string;
   end_odometer_km: number;
   end_battery_pct: number;
+}
+
+interface ShiftEvidence {
+  id: string;
+  shift_id: string;
+  kind: "start_odometer" | "start_battery" | "finish_odometer";
+  object_path: string;
+  captured_at: string;
 }
 
 interface Incident {
@@ -162,6 +172,7 @@ interface ConsoleSnapshot {
   assignments: Assignment[];
   shifts: OpenShift[];
   closedShifts: ClosedShift[];
+  shiftEvidence: ShiftEvidence[];
   devices: Device[];
   incidents: Incident[];
   workOrders: WorkOrder[];
@@ -213,6 +224,10 @@ const OperationsConsole = () => {
   const [assignmentReason, setAssignmentReason] = useState("");
   const [pendingCommand, setPendingCommand] = useState<PendingCommand | null>(null);
   const [commandReason, setCommandReason] = useState("");
+  const [evidenceShift, setEvidenceShift] = useState<ClosedShift | null>(null);
+  const [evidenceURLs, setEvidenceURLs] = useState<Array<ShiftEvidence & { signedURL: string }>>([]);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -229,7 +244,7 @@ const OperationsConsole = () => {
       const stationId = identity.station_id;
       const [
         live, testClock, capacity, vehicles, drivers, assignments, shifts,
-        closedShifts, devices, incidents, workOrders, absences, vacancies, auditEvents,
+        closedShifts, shiftEvidence, devices, incidents, workOrders, absences, vacancies, auditEvents,
       ] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", identity.environment_id).maybeSingle(),
@@ -239,6 +254,7 @@ const OperationsConsole = () => {
         supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,titular_vehicle_id,assigned_at").eq("station_id", stationId),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at").eq("station_id", stationId).eq("status", "open").order("started_at"),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at,finished_at,end_odometer_km,end_battery_pct").eq("station_id", stationId).eq("status", "closed").order("finished_at", { ascending: false }).limit(100),
+        supabase.from("shift_evidence").select("id,shift_id,kind,object_path,captured_at").eq("station_id", stationId).order("captured_at", { ascending: false }).limit(300),
         supabase.from("devices").select("id,profile_id,platform,app_version,last_seen_at").order("last_seen_at", { ascending: false }),
         supabase.from("incidents").select("id,folio,vehicle_id,kind,severity,description,status,revision,reported_at").eq("station_id", stationId).order("reported_at", { ascending: false }).limit(100),
         supabase.from("work_orders").select("id,incident_id,vehicle_id,folio,problem,priority,status,estimated_minutes,opened_at,closed_at").eq("station_id", stationId).order("opened_at", { ascending: false }).limit(100),
@@ -255,6 +271,7 @@ const OperationsConsole = () => {
         assignments: (requireData(assignments) ?? []) as Assignment[],
         shifts: (requireData(shifts) ?? []) as OpenShift[],
         closedShifts: (requireData(closedShifts) ?? []) as ClosedShift[],
+        shiftEvidence: (requireData(shiftEvidence) ?? []) as ShiftEvidence[],
         devices: (requireData(devices) ?? []) as Device[],
         incidents: (requireData(incidents) ?? []) as Incident[],
         workOrders: (requireData(workOrders) ?? []) as WorkOrder[],
@@ -297,6 +314,32 @@ const OperationsConsole = () => {
       await snapshot.refetch();
     },
   });
+  const showShiftEvidence = async (shift: ClosedShift) => {
+    if (!supabase) return;
+    setEvidenceShift(shift);
+    setEvidenceURLs([]);
+    setEvidenceError(null);
+    setIsEvidenceLoading(true);
+    try {
+      const rows = data?.shiftEvidence.filter((evidence) => evidence.shift_id === shift.id) ?? [];
+      if (!rows.length) throw new Error("Este turno todavía no tiene fotografías registradas.");
+      const { data: links, error } = await supabase.storage
+        .from("shift-evidence")
+        .createSignedUrls(rows.map((evidence) => evidence.object_path), 120);
+      if (error) throw new Error(error.message);
+      const signedByPath = new Map((links ?? []).map((link) => [link.path, link.signedUrl]));
+      const resolved = rows.flatMap((evidence) => {
+        const signedURL = signedByPath.get(evidence.object_path);
+        return signedURL ? [{ ...evidence, signedURL }] : [];
+      });
+      if (resolved.length !== rows.length) throw new Error("No fue posible autorizar todas las fotografías.");
+      setEvidenceURLs(resolved);
+    } catch (error) {
+      setEvidenceError(error instanceof Error ? error.message : "No fue posible abrir la evidencia.");
+    } finally {
+      setIsEvidenceLoading(false);
+    }
+  };
   const commandMutation = useMutation({
     mutationFn: async ({ command, reason }: { command: PendingCommand; reason: string }) => {
       if (!supabase || reason.trim().length < 5) throw new Error("El motivo debe tener al menos 5 caracteres.");
@@ -709,7 +752,7 @@ const OperationsConsole = () => {
           <CardHeader><CardTitle className="text-lg">Historial de turnos</CardTitle><CardDescription>Últimos 100 cierres confirmados por Supabase.</CardDescription></CardHeader>
           <CardContent>
             <Table>
-              <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Conductor</TableHead><TableHead>Unidad</TableHead><TableHead>Cierre</TableHead><TableHead>Lecturas finales</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Conductor</TableHead><TableHead>Unidad</TableHead><TableHead>Cierre</TableHead><TableHead>Lecturas finales</TableHead><TableHead>Evidencia</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data?.closedShifts.map((shift) => (
                   <TableRow key={shift.id}>
@@ -718,9 +761,14 @@ const OperationsConsole = () => {
                     <TableCell>{vehicleById.get(shift.vehicle_id)?.internal_number ?? "—"}</TableCell>
                     <TableCell>{formatTime(shift.finished_at, identity.station_timezone)}</TableCell>
                     <TableCell>{shift.end_odometer_km.toLocaleString("es-MX")} km · {shift.end_battery_pct}%</TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" onClick={() => void showShiftEvidence(shift)}>
+                        <Images /> Ver fotos
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
-                {!data?.closedShifts.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay turnos cerrados.</TableCell></TableRow>}
+                {!data?.closedShifts.length && <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No hay turnos cerrados.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>
@@ -748,6 +796,39 @@ const OperationsConsole = () => {
             </Table>
           </CardContent>
         </Card>
+
+        <Dialog open={evidenceShift !== null} onOpenChange={(open) => {
+          if (!open) {
+            setEvidenceShift(null);
+            setEvidenceURLs([]);
+            setEvidenceError(null);
+          }
+        }}>
+          <DialogContent className="max-h-[90dvh] max-w-4xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Evidencia privada · {evidenceShift?.folio}</DialogTitle>
+              <DialogDescription>
+                Enlaces temporales por 2 minutos. Las fotografías permanecen en Supabase TEST y no se guardan en este navegador.
+              </DialogDescription>
+            </DialogHeader>
+            {isEvidenceLoading && <p className="py-10 text-center text-sm text-muted-foreground">Autorizando fotografías…</p>}
+            {evidenceError && <p className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive">{evidenceError}</p>}
+            <div className="grid gap-4 md:grid-cols-3">
+              {evidenceURLs.map((evidence) => (
+                <figure key={evidence.id} className="panel-flat overflow-hidden p-3">
+                  <img
+                    src={evidence.signedURL}
+                    alt={evidence.kind === "start_battery" ? "Batería al iniciar" : evidence.kind === "start_odometer" ? "Odómetro al iniciar" : "Odómetro al cerrar"}
+                    className="aspect-[3/4] w-full rounded-lg bg-black object-contain"
+                  />
+                  <figcaption className="mt-3 text-xs font-semibold">
+                    {evidence.kind === "start_battery" ? "Batería al iniciar" : evidence.kind === "start_odometer" ? "Odómetro al iniciar" : "Odómetro al cerrar"}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <AlertDialog open={pendingCommand !== null} onOpenChange={(open) => {
           if (!open && !commandMutation.isPending) {

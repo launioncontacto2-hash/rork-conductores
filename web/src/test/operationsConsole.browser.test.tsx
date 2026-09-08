@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 const rpcCalls = vi.hoisted(() => [] as Array<{ name: string; params: Record<string, unknown> }>);
+const signedURLCalls = vi.hoisted(() => [] as Array<{ paths: string[]; expiresIn: number }>);
 
 const identity = {
   profile_id: "10000000-0000-4000-8000-000000000001",
@@ -34,6 +35,7 @@ const tableData: Record<string, unknown> = {
   console_drivers: [],
   assignment_current: [],
   shifts: [],
+  shift_evidence: [],
   devices: [],
   incidents: [],
   work_orders: [],
@@ -73,6 +75,17 @@ vi.mock("@/lib/supabase", () => ({
       if (name === "console_audit_history") return { data: tableData.audit_history, error: null };
       rpcCalls.push({ name, params });
       return { data: null, error: null };
+    },
+    storage: {
+      from: () => ({
+        createSignedUrls: async (paths: string[], expiresIn: number) => {
+          signedURLCalls.push({ paths, expiresIn });
+          return {
+            data: paths.map((path) => ({ path, signedUrl: `https://evidence.test/${path}` })),
+            error: null,
+          };
+        },
+      }),
     },
   },
 }));
@@ -194,5 +207,60 @@ test("revokes only a visible driver device with an audited reason", async () => 
   } finally {
     tableData.console_drivers = [];
     tableData.devices = [];
+  }
+});
+
+test("opens private shift evidence through short-lived signed URLs", async () => {
+  signedURLCalls.length = 0;
+  tableData.shifts = [{
+    id: "81000000-0000-4000-8000-000000000001",
+    folio: "TUR-DORI-001",
+    driver_profile_id: "82000000-0000-4000-8000-000000000001",
+    vehicle_id: "83000000-0000-4000-8000-000000000001",
+    started_at: "2026-09-07T11:00:00Z",
+    scheduled_end_at: "2026-09-07T20:00:00Z",
+    finished_at: "2026-09-07T20:00:00Z",
+    end_odometer_km: 12345,
+    end_battery_pct: 40,
+  }];
+  tableData.shift_evidence = [
+    {
+      id: "84000000-0000-4000-8000-000000000001",
+      shift_id: "81000000-0000-4000-8000-000000000001",
+      kind: "start_odometer",
+      object_path: "test/station/driver/operation/start-odometer.jpg",
+      captured_at: "2026-09-07T11:00:00Z",
+    },
+    {
+      id: "84000000-0000-4000-8000-000000000002",
+      shift_id: "81000000-0000-4000-8000-000000000001",
+      kind: "finish_odometer",
+      object_path: "test/station/driver/operation/finish-odometer.jpg",
+      captured_at: "2026-09-07T20:00:00Z",
+    },
+  ];
+
+  try {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <OperationsConsole />
+      </QueryClientProvider>,
+    );
+
+    await screen.getByRole("button", { name: "Ver fotos" }).click();
+    await expect.element(screen.getByRole("heading", { name: "Evidencia privada · TUR-DORI-001" })).toBeInTheDocument();
+    await expect.element(screen.getByRole("img", { name: "Odómetro al iniciar" })).toBeInTheDocument();
+    await expect.element(screen.getByRole("img", { name: "Odómetro al cerrar" })).toBeInTheDocument();
+    expect(signedURLCalls).toEqual([{
+      paths: [
+        "test/station/driver/operation/start-odometer.jpg",
+        "test/station/driver/operation/finish-odometer.jpg",
+      ],
+      expiresIn: 120,
+    }]);
+  } finally {
+    tableData.shifts = [];
+    tableData.shift_evidence = [];
   }
 });
