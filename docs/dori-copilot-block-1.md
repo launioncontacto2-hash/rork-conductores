@@ -1,6 +1,6 @@
 # DORI Copiloto — Bloque 1
 
-Motor V0.1 determinista, sin red ni LLM. Una única implementación JavaScript pura queda como recurso del proyecto iOS, preparada para un adaptador JavaScriptCore en un bloque posterior. Los contratos tipados se declaran junto al recurso y se validan en ejecución. No se cambian navegación, autenticación, infraestructura ni tablas existentes.
+Motor V0.1 determinista, sin red ni LLM. La única fuente editable es JavaScript puro en `supabase/functions/_shared`; desde el Bloque 4 el recurso iOS se genera byte por byte desde ella y se ejecuta con JavaScriptCore. Los contratos tipados se declaran junto al motor y se validan en ejecución.
 
 ## Archivos y ejecución
 
