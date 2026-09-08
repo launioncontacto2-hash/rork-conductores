@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   Activity,
   BatteryCharging,
@@ -17,6 +18,11 @@ import { useConsoleAuth } from "@/console/ConsoleAuth";
 import { TestClockDialog } from "@/console/TestClockDialog";
 import { SHARED_TEST_ENVIRONMENT_ID, type TestClockRow } from "@/console/testClock";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -61,6 +67,7 @@ interface Assignment {
   driver_profile_id: string;
   vehicle_id: string;
   kind: string;
+  titular_vehicle_id: string | null;
   assigned_at: string;
 }
 
@@ -73,6 +80,58 @@ interface OpenShift {
   scheduled_end_at: string;
 }
 
+interface ClosedShift extends OpenShift {
+  finished_at: string;
+  end_odometer_km: number;
+  end_battery_pct: number;
+}
+
+interface Incident {
+  id: string;
+  folio: string;
+  vehicle_id: string;
+  kind: string;
+  severity: string;
+  description: string;
+  status: string;
+  revision: number;
+  reported_at: string;
+}
+
+interface WorkOrder {
+  id: string;
+  incident_id: string;
+  vehicle_id: string;
+  folio: string;
+  problem: string;
+  priority: string;
+  status: string;
+  estimated_minutes: number;
+  opened_at: string;
+  closed_at: string | null;
+}
+
+interface Absence {
+  id: string;
+  driver_profile_id: string;
+  folio: string;
+  operating_date: string;
+  shift_slot: string;
+  kind: string;
+  reason: string;
+  status: string;
+}
+
+interface CoverageVacancy {
+  id: string;
+  folio: string;
+  operating_date: string;
+  shift_slot: string;
+  reason: string;
+  status: string;
+  is_critical: boolean;
+}
+
 interface ConsoleSnapshot {
   live: StationLive | null;
   testClock: TestClockRow | null;
@@ -81,7 +140,12 @@ interface ConsoleSnapshot {
   drivers: Driver[];
   assignments: Assignment[];
   shifts: OpenShift[];
+  closedShifts: ClosedShift[];
   devices: Device[];
+  incidents: Incident[];
+  workOrders: WorkOrder[];
+  absences: Absence[];
+  vacancies: CoverageVacancy[];
 }
 
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
@@ -108,6 +172,10 @@ const platformLabel: Record<Device["platform"], string> = {
 
 const OperationsConsole = () => {
   const { identity, realtimeConnections, refreshIdentity, signOut } = useConsoleAuth();
+  const [assignmentDriverId, setAssignmentDriverId] = useState("");
+  const [assignmentVehicleId, setAssignmentVehicleId] = useState("");
+  const [assignmentKind, setAssignmentKind] = useState<"titular" | "substitute">("titular");
+  const [assignmentReason, setAssignmentReason] = useState("");
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -122,15 +190,23 @@ const OperationsConsole = () => {
         throw new Error("La membresía de la consola dejó de estar vigente.");
       }
       const stationId = identity.station_id;
-      const [live, testClock, capacity, vehicles, drivers, assignments, shifts, devices] = await Promise.all([
+      const [
+        live, testClock, capacity, vehicles, drivers, assignments, shifts,
+        closedShifts, devices, incidents, workOrders, absences, vacancies,
+      ] = await Promise.all([
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", identity.environment_id).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
         supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
         supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
-        supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,assigned_at").eq("station_id", stationId),
+        supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,titular_vehicle_id,assigned_at").eq("station_id", stationId),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at").eq("station_id", stationId).eq("status", "open").order("started_at"),
+        supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at,finished_at,end_odometer_km,end_battery_pct").eq("station_id", stationId).eq("status", "closed").order("finished_at", { ascending: false }).limit(100),
         supabase.from("devices").select("id,profile_id,platform,app_version,last_seen_at").order("last_seen_at", { ascending: false }),
+        supabase.from("incidents").select("id,folio,vehicle_id,kind,severity,description,status,revision,reported_at").eq("station_id", stationId).order("reported_at", { ascending: false }).limit(100),
+        supabase.from("work_orders").select("id,incident_id,vehicle_id,folio,problem,priority,status,estimated_minutes,opened_at,closed_at").eq("station_id", stationId).order("opened_at", { ascending: false }).limit(100),
+        supabase.from("absences").select("id,driver_profile_id,folio,operating_date,shift_slot,kind,reason,status").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
+        supabase.from("coverage_vacancies").select("id,folio,operating_date,shift_slot,reason,status,is_critical").eq("station_id", stationId).order("operating_date", { ascending: false }).limit(100),
       ]);
       return {
         live: requireData(live) as StationLive | null,
@@ -140,18 +216,51 @@ const OperationsConsole = () => {
         drivers: (requireData(drivers) ?? []) as Driver[],
         assignments: (requireData(assignments) ?? []) as Assignment[],
         shifts: (requireData(shifts) ?? []) as OpenShift[],
+        closedShifts: (requireData(closedShifts) ?? []) as ClosedShift[],
         devices: (requireData(devices) ?? []) as Device[],
+        incidents: (requireData(incidents) ?? []) as Incident[],
+        workOrders: (requireData(workOrders) ?? []) as WorkOrder[],
+        absences: (requireData(absences) ?? []) as Absence[],
+        vacancies: (requireData(vacancies) ?? []) as CoverageVacancy[],
       };
     },
   });
-
-  if (!identity) return null;
 
   const data = snapshot.data;
   const driverById = new Map(data?.drivers.map((driver) => [driver.id, driver]) ?? []);
   const driverByProfileId = new Map(data?.drivers.map((driver) => [driver.profile_id, driver]) ?? []);
   const vehicleById = new Map(data?.vehicles.map((vehicle) => [vehicle.id, vehicle]) ?? []);
   const connectedDevices = data?.devices.filter((device) => deviceIsConnected(device.last_seen_at)).length ?? 0;
+  const availableVehicles = data?.vehicles.filter((vehicle) => vehicle.status === "available") ?? [];
+  const selectedCurrentAssignment = data?.assignments.find((assignment) => assignment.driver_profile_id === assignmentDriverId);
+  const assignmentReady = Boolean(
+    assignmentDriverId && assignmentVehicleId && assignmentReason.trim().length >= 5 &&
+      (assignmentKind === "titular" || selectedCurrentAssignment),
+  );
+  const assignmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!supabase || !assignmentReady) throw new Error("Completa conductor, unidad y motivo.");
+      const { error } = await supabase.rpc("assign_vehicle", {
+        p_driver_profile_id: assignmentDriverId,
+        p_vehicle_id: assignmentVehicleId,
+        p_idempotency_key: `console-${crypto.randomUUID()}`,
+        p_kind: assignmentKind,
+        p_titular_vehicle_id: assignmentKind === "substitute"
+          ? selectedCurrentAssignment?.titular_vehicle_id ?? selectedCurrentAssignment?.vehicle_id
+          : null,
+        p_note: assignmentReason.trim(),
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: async () => {
+      setAssignmentVehicleId("");
+      setAssignmentReason("");
+      await snapshot.refetch();
+    },
+  });
+
+  if (!identity) return null;
+
   const cards = [
     { label: "Turnos activos", value: data?.live?.active_shifts ?? "—", icon: Activity, tone: "text-primary" },
     { label: "Conductores presentes", value: data?.live?.present_drivers ?? "—", icon: Users, tone: "text-cyan-300" },
@@ -167,7 +276,7 @@ const OperationsConsole = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="bg-amber-400 text-black hover:bg-amber-400">TEST</Badge>
               <Badge variant="outline" className="gap-1.5 border-primary/35 text-primary">
-                <ShieldCheck className="size-3" /> Solo lectura
+                <ShieldCheck className="size-3" /> Operación protegida
               </Badge>
               <Badge variant="outline" className={realtimeConnections === 2 ? "border-emerald-400/40 text-emerald-300" : "border-amber-400/40 text-amber-300"}>
                 <Radio className="mr-1 size-3" /> Realtime {realtimeConnections}/2
@@ -199,7 +308,22 @@ const OperationsConsole = () => {
           </div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <nav className="panel flex gap-2 overflow-x-auto p-2" aria-label="Secciones de Consola DORI">
+          {[
+            ["#operacion", "Operación"],
+            ["#asignaciones", "Asignaciones"],
+            ["#flota", "Flota"],
+            ["#incidencias", "Incidencias y taller"],
+            ["#cobertura", "Cobertura"],
+            ["#historial", "Historial"],
+          ].map(([href, label]) => (
+            <a key={href} href={href} className="whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <section id="operacion" className="scroll-mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map(({ label, value, icon: Icon, tone }) => (
             <Card key={label} className="panel">
               <CardContent className="flex items-center justify-between p-5">
@@ -209,6 +333,66 @@ const OperationsConsole = () => {
             </Card>
           ))}
         </section>
+
+        <Card id="asignaciones" className="panel scroll-mt-4">
+          <CardHeader>
+            <CardTitle className="text-lg">Asignar unidad</CardTitle>
+            <CardDescription>La consola envía el mismo comando transaccional y auditado que el iPhone del supervisor.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 lg:grid-cols-4">
+            <label className="grid gap-2 text-sm font-semibold">
+              Conductor
+              <select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentDriverId} onChange={(event) => setAssignmentDriverId(event.target.value)}>
+                <option value="">Seleccionar</option>
+                {data?.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.employee_number}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold">
+              Tipo
+              <select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentKind} onChange={(event) => setAssignmentKind(event.target.value as "titular" | "substitute")}>
+                <option value="titular">Titular</option>
+                <option value="substitute">Sustituta</option>
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold">
+              Unidad disponible
+              <select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentVehicleId} onChange={(event) => setAssignmentVehicleId(event.target.value)}>
+                <option value="">Seleccionar</option>
+                {availableVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.internal_number} · {vehicle.plate ?? "sin placa"}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold">
+              Motivo obligatorio
+              <input className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} placeholder="Mínimo 5 caracteres" />
+            </label>
+            <div className="lg:col-span-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {assignmentKind === "substitute" && !selectedCurrentAssignment
+                  ? "La sustituta requiere una asignación titular vigente."
+                  : `${availableVehicles.length} unidades disponibles.`}
+              </p>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button disabled={!assignmentReady || assignmentMutation.isPending}>Confirmar asignación</Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Confirmar cambio operativo?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se asignará {vehicleById.get(assignmentVehicleId)?.internal_number ?? "la unidad"} a {driverById.get(assignmentDriverId)?.employee_number ?? "el conductor"}. El motivo quedará en auditoría.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => assignmentMutation.mutate()}>Asignar y registrar</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+            {assignmentMutation.isError && <p className="lg:col-span-4 text-sm text-destructive">No se pudo asignar: {assignmentMutation.error.message}</p>}
+            {assignmentMutation.isSuccess && <p className="lg:col-span-4 text-sm text-emerald-300">La asignación quedó confirmada por Supabase.</p>}
+          </CardContent>
+        </Card>
 
         <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
           <Card className="panel">
@@ -244,7 +428,7 @@ const OperationsConsole = () => {
           </Card>
         </section>
 
-        <Card className="panel">
+        <Card id="flota" className="panel scroll-mt-4">
           <CardHeader><CardTitle className="text-lg">Flotilla</CardTitle><CardDescription>{data?.vehicles.length ?? 0} unidades visibles dentro de la membresía de estación.</CardDescription></CardHeader>
           <CardContent>
             <Table>
@@ -297,6 +481,117 @@ const OperationsConsole = () => {
                   );
                 })}
                 {!data?.devices.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay dispositivos registrados en la estación.</TableCell></TableRow>}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <section id="incidencias" className="scroll-mt-4 grid gap-5 xl:grid-cols-2">
+          <Card className="panel">
+            <CardHeader>
+              <CardTitle className="text-lg">Incidencias</CardTitle>
+              <CardDescription>Reportes recibidos desde los iPhone de esta estación.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Unidad</TableHead><TableHead>Detalle</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {data?.incidents.map((incident) => (
+                    <TableRow key={incident.id}>
+                      <TableCell className="font-bold">{incident.folio}</TableCell>
+                      <TableCell>{vehicleById.get(incident.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                      <TableCell><p>{incident.description}</p><p className="text-xs text-muted-foreground">{incident.kind} · {incident.severity}</p></TableCell>
+                      <TableCell><Badge variant="outline">{incident.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                  {!data?.incidents.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay incidencias registradas.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="panel">
+            <CardHeader>
+              <CardTitle className="text-lg">Taller</CardTitle>
+              <CardDescription>Órdenes y unidades retenidas por mantenimiento.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow><TableHead>Orden</TableHead><TableHead>Unidad</TableHead><TableHead>Prioridad</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {data?.workOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell><p className="font-bold">{order.folio}</p><p className="text-xs text-muted-foreground">{order.problem}</p></TableCell>
+                      <TableCell>{vehicleById.get(order.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                      <TableCell>{order.priority} · {order.estimated_minutes} min</TableCell>
+                      <TableCell><Badge variant="outline">{order.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                  {!data?.workOrders.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay órdenes de taller.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+
+        <section id="cobertura" className="scroll-mt-4 grid gap-5 xl:grid-cols-2">
+          <Card className="panel">
+            <CardHeader><CardTitle className="text-lg">Ausencias</CardTitle><CardDescription>Solicitudes que afectan la cobertura de turnos.</CardDescription></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Conductor</TableHead><TableHead>Fecha</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {data?.absences.map((absence) => (
+                    <TableRow key={absence.id}>
+                      <TableCell><p className="font-bold">{absence.folio}</p><p className="text-xs text-muted-foreground">{absence.reason}</p></TableCell>
+                      <TableCell>{driverById.get(absence.driver_profile_id)?.employee_number ?? "—"}</TableCell>
+                      <TableCell>{absence.operating_date} · {absence.shift_slot}</TableCell>
+                      <TableCell><Badge variant="outline">{absence.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                  {!data?.absences.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay solicitudes de ausencia.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="panel">
+            <CardHeader><CardTitle className="text-lg">Vacantes de cobertura</CardTitle><CardDescription>Búsquedas de sustitución y su estado oficial.</CardDescription></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Fecha</TableHead><TableHead>Motivo</TableHead><TableHead>Estado</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {data?.vacancies.map((vacancy) => (
+                    <TableRow key={vacancy.id}>
+                      <TableCell className="font-bold">{vacancy.folio}</TableCell>
+                      <TableCell>{vacancy.operating_date} · {vacancy.shift_slot}</TableCell>
+                      <TableCell>{vacancy.reason}</TableCell>
+                      <TableCell><Badge variant="outline" className={vacancy.is_critical ? "border-amber-400/40 text-amber-300" : ""}>{vacancy.status}</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                  {!data?.vacancies.length && <TableRow><TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No hay vacantes de cobertura.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </section>
+
+        <Card id="historial" className="panel scroll-mt-4">
+          <CardHeader><CardTitle className="text-lg">Historial de turnos</CardTitle><CardDescription>Últimos 100 cierres confirmados por Supabase.</CardDescription></CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader><TableRow><TableHead>Folio</TableHead><TableHead>Conductor</TableHead><TableHead>Unidad</TableHead><TableHead>Cierre</TableHead><TableHead>Lecturas finales</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {data?.closedShifts.map((shift) => (
+                  <TableRow key={shift.id}>
+                    <TableCell className="font-bold">{shift.folio}</TableCell>
+                    <TableCell>{driverById.get(shift.driver_profile_id)?.employee_number ?? "—"}</TableCell>
+                    <TableCell>{vehicleById.get(shift.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                    <TableCell>{formatTime(shift.finished_at, identity.station_timezone)}</TableCell>
+                    <TableCell>{shift.end_odometer_km.toLocaleString("es-MX")} km · {shift.end_battery_pct}%</TableCell>
+                  </TableRow>
+                ))}
+                {!data?.closedShifts.length && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No hay turnos cerrados.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </CardContent>

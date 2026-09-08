@@ -11,6 +11,7 @@ export default defineConfig({
   optimizeDeps: {
     include: [
       "@radix-ui/react-tooltip",
+      "@radix-ui/react-alert-dialog",
       "@tanstack/react-query",
       "next-themes",
       "react",
