@@ -1,0 +1,201 @@
+name: iOS Copilot validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/dori-copiloto
+    paths:
+      - .github/workflows/ios-copilot-validation.yml
+      - ios-turno-ev/**
+      - scripts/copilot*.cjs
+      - scripts/sync-copilot-ios-resource.cjs
+      - supabase/functions/_shared/dori-copilot.js
+  pull_request:
+    paths:
+      - .github/workflows/ios-copilot-validation.yml
+      - ios-turno-ev/**
+      - scripts/copilot*.cjs
+      - scripts/sync-copilot-ios-resource.cjs
+      - supabase/functions/_shared/dori-copilot.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-copilot-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and test TurnoEV
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PROJECT_PATH: ios-turno-ev/TurnoEV.xcodeproj
+      SCHEME: TurnoEV
+      DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData
+      SOURCE_PACKAGES_PATH: ${{ runner.temp }}/SourcePackages
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Record macOS, Xcode, and Node versions
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          node --version
+          {
+            echo "### Validation environment"
+            echo
+            echo "- macOS: $(sw_vers -productVersion)"
+            echo "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "- Node: $(node --version)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify canonical Copilot resource
+        run: node scripts/sync-copilot-ios-resource.cjs --check
+
+      - name: Run Copilot Node tests
+        run: >-
+          node --test
+          scripts/copilot.test.cjs
+          scripts/copilot-simulator.test.cjs
+          scripts/copilot-ios-resource.test.cjs
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH"
+
+      - name: Select and boot an available iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          inventory = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                  text=True,
+              )
+          )
+          candidates = []
+          for runtime, devices in inventory.get("devices", {}).items():
+              if ".iOS-" not in runtime:
+                  continue
+              version = tuple(int(part) for part in re.findall(r"\d+", runtime.split(".iOS-")[-1]))
+              for device in devices:
+                  if device.get("isAvailable", True) and device.get("name", "").startswith("iPhone"):
+                      candidates.append((version, device["name"], device["udid"], runtime))
+
+          if not candidates:
+              raise SystemExit("No available iPhone simulator was found")
+
+          version, name, udid, runtime = max(candidates, key=lambda item: item[0])
+          values = {
+              "SIMULATOR_NAME": name,
+              "SIMULATOR_UDID": udid,
+              "SIMULATOR_RUNTIME": runtime.rsplit(".", 1)[-1].replace("-", " "),
+          }
+          for destination in (os.environ["GITHUB_ENV"], os.environ["GITHUB_OUTPUT"]):
+              with open(destination, "a", encoding="utf-8") as stream:
+                  for key, value in values.items():
+                      stream.write(f"{key.lower()}={value}\n" if destination == os.environ["GITHUB_OUTPUT"] else f"{key}={value}\n")
+          PY
+          xcrun simctl boot "$SIMULATOR_UDID" || true
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          {
+            echo "- Simulator: $SIMULATOR_NAME ($SIMULATOR_RUNTIME)"
+            echo "- Simulator UDID: $SIMULATOR_UDID"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build TurnoEV and TurnoEVTests for iOS Simulator
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee ios-build.log
+
+      - name: Verify dori-copilot.js in the app bundle
+        run: |
+          set -euo pipefail
+          app_path="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/TurnoEV.app"
+          bundled_resource="$app_path/dori-copilot.js"
+          test -d "$app_path"
+          test -f "$bundled_resource"
+          cmp supabase/functions/_shared/dori-copilot.js "$bundled_resource"
+          echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
+          echo "- Copilot resource: present and byte-identical to the canonical engine" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run DORICopilotContractTests
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          mkdir -p TestResults
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVTests/DORICopilotContractTests \
+            -resultBundlePath TestResults/DORICopilotContractTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee dori-contract-tests.log
+
+      - name: Run TurnoEVTests
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVTests \
+            -resultBundlePath TestResults/TurnoEVTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee ios-tests.log
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-copilot-validation-diagnostics
+          path: |
+            ios-build.log
+            dori-contract-tests.log
+            ios-tests.log
+            TestResults/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Shut down simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        run: xcrun simctl shutdown "$SIMULATOR_UDID" || true
