@@ -10,6 +10,7 @@ struct GoalsView: View {
     @Environment(FleetStore.self) private var store
 
     @State private var isIncomePresented: Bool = false
+    @State private var isBonusesPresented: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -50,6 +51,14 @@ struct GoalsView: View {
             .navigationTitle("Metas")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isBonusesPresented = true
+                    } label: {
+                        Label("Bonos", systemImage: "rosette")
+                    }
+                    .accessibilityHint("Abre el seguimiento mensual de bonos")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SessionMenuButton()
                 }
@@ -65,6 +74,23 @@ struct GoalsView: View {
                 } else {
                     IncomeView()
                 }
+            }
+            .fullScreenCover(isPresented: $isBonusesPresented) {
+                BonusesView()
+                    .safeAreaInset(edge: .top, alignment: .leading) {
+                        Button {
+                            isBonusesPresented = false
+                        } label: {
+                            Label("Volver a metas", systemImage: "chevron.left")
+                                .font(.system(.subheadline, weight: .bold))
+                                .padding(.horizontal, 14)
+                                .frame(minHeight: 44)
+                                .background(.ultraThinMaterial, in: .capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 6)
+                    }
             }
         }
         .editorScreen(.driverGoals)

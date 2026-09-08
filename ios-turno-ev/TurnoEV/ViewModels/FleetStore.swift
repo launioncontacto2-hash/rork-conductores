@@ -144,6 +144,11 @@ final class FleetStore {
     var notifiedBonusWeeks: [String] = []
     /// Unit the station tied to this driver. Written by the supervisor, read here.
     var unitAssignment: VehicleAssignment?
+    /// Connectivity state for the authoritative driver snapshot. A failed refresh never
+    /// converts cached data into permission to write; protected RPCs still decide.
+    var backendOperationalError: String?
+    var isBackendRefreshing: Bool = false
+    var lastBackendRefreshAt: Date?
     /// Demo-only offset applied to the device clock so every shift rule can be reviewed.
     var clockOffsetMinutes: Int = 0
     /// Set right after an explicit sign out: the access screen then waits for a
@@ -453,32 +458,44 @@ final class FleetStore {
     func refreshBackendOperationalState() async throws {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
-        // This is both a heartbeat and the handoff detector. If the same credential was
-        // used on another phone, the server refuses before any operational row is read or
-        // mutated and the root router closes this local session.
-        try await SupabaseDriverDeviceService.heartbeat()
-        try await refreshBackendAssignment()
-        try await refreshBackendIncidents()
-        guard let assignment = unitAssignment else {
-            if activeShift?.origin == .backend { activeShift = nil }
-            backendShiftRevision = nil
-            persist()
+        isBackendRefreshing = true
+        defer { isBackendRefreshing = false }
+        do {
+
+            // This is both a heartbeat and the handoff detector. If the same credential was
+            // used on another phone, the server refuses before any operational row is read or
+            // mutated and the root router closes this local session.
+            try await SupabaseDriverDeviceService.heartbeat()
+            try await refreshBackendAssignment()
+            try await refreshBackendIncidents()
+            guard let assignment = unitAssignment else {
+                if activeShift?.origin == .backend { activeShift = nil }
+                backendShiftRevision = nil
+                persist()
+                try await refreshBackendFinancialState()
+                try await refreshBackendShiftHistory()
+                backendOperationalError = nil
+                lastBackendRefreshAt = Date()
+                return
+            }
+
+            if let row = try await SupabaseShiftService.loadOpenShift(
+                assignmentId: assignment.id
+            ) {
+                _ = try adoptBackendShift(row)
+            } else {
+                if activeShift?.origin == .backend { activeShift = nil }
+                backendShiftRevision = nil
+                persist()
+            }
             try await refreshBackendFinancialState()
             try await refreshBackendShiftHistory()
-            return
+            backendOperationalError = nil
+            lastBackendRefreshAt = Date()
+        } catch {
+            backendOperationalError = error.localizedDescription
+            throw error
         }
-
-        if let row = try await SupabaseShiftService.loadOpenShift(
-            assignmentId: assignment.id
-        ) {
-            _ = try adoptBackendShift(row)
-        } else {
-            if activeShift?.origin == .backend { activeShift = nil }
-            backendShiftRevision = nil
-            persist()
-        }
-        try await refreshBackendFinancialState()
-        try await refreshBackendShiftHistory()
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
@@ -1088,6 +1105,9 @@ final class FleetStore {
         vehicles = owned.vehicles
         activeShift = owned.activeShift
         backendShiftRevision = nil
+        backendOperationalError = nil
+        isBackendRefreshing = false
+        lastBackendRefreshAt = nil
         history = owned.history
         incomes = owned.incomes
         incidents = owned.incidents
@@ -1108,6 +1128,9 @@ final class FleetStore {
     private func adoptDemoState() {
         driver = MockData.driver
         backendShiftRevision = nil
+        backendOperationalError = nil
+        isBackendRefreshing = false
+        lastBackendRefreshAt = nil
         if let stored = Self.restore(key: Self.demoStorageKey, defaults: defaults) {
             enrolledAccountId = stored.enrolledAccountId
             applyOperational(stored)
@@ -1977,7 +2000,7 @@ final class FleetStore {
         pushNotice(
             kind: .station,
             title: "Incidencia recibida por la estación",
-            body: "El reporte (row.folio) quedó abierto para supervisión y taller."
+            body: "El reporte \(row.folio) quedó abierto para supervisión y taller."
         )
         persist()
         return incident

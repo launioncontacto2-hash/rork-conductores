@@ -204,21 +204,40 @@ struct RootTabView: View {
                     Tab("Metas", systemImage: "target", value: 2) {
                         GoalsView()
                     }
-                    Tab("Bonos", systemImage: "rosette", value: 3) {
-                        BonusesView()
-                    }
-                    Tab("Cartera", systemImage: "banknote.fill", value: 4) {
+                    Tab("Finanzas", systemImage: "banknote.fill", value: 3) {
                         if store.usesBackendFinancialCycle {
                             BackendDriverFinanceView()
                         } else {
                             WalletView()
                         }
                     }
-                    Tab("Historial", systemImage: "list.clipboard.fill", value: 5) {
+                    Tab("Historial", systemImage: "list.clipboard.fill", value: 4) {
                         HistoryView()
                     }
                 }
                 .tint(Palette.volt)
+                .safeAreaInset(edge: .top) {
+                    if store.backendOperationalError != nil {
+                        HStack(spacing: 10) {
+                            Image(systemName: "wifi.exclamationmark")
+                                .foregroundStyle(Palette.amber)
+                            Text("Sincronización pendiente. Las operaciones seguirán protegidas por el servidor.")
+                                .font(.caption)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button(store.isBackendRefreshing ? "Conectando…" : "Reintentar") {
+                                Task { try? await store.refreshBackendOperationalState() }
+                            }
+                            .font(.system(.caption, weight: .bold))
+                            .disabled(store.isBackendRefreshing)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Palette.surfaceRaised)
+                        .overlay(alignment: .bottom) {
+                            Divider().overlay(Palette.hairline)
+                        }
+                    }
+                }
             } else {
                 AccessDeniedView()
             }
