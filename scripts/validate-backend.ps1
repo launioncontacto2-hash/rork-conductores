@@ -23,7 +23,8 @@ $allowedBranches = @(
     '15G-financial-hardening-v2',
     '15H-backend-hiring',
     'fix/15h-migration-history-alignment',
-    'dori-01-foundation'
+    'dori-01-foundation',
+    'feature/dori-copiloto'
 )
 
 function Write-Step {

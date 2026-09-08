@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const engine = require('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js');
+const engine = require('../supabase/functions/_shared/dori-copilot.js');
 const { scenario } = require('./copilot-fixtures.cjs');
 const simulator = require('./copilot-simulator.cjs');
 

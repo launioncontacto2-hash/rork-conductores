@@ -1,7 +1,7 @@
 'use strict';
 
 // The simulator imports the production V0.1 engine. Decision logic must never live here.
-const engine = require('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js');
+const engine = require('../supabase/functions/_shared/dori-copilot.js');
 const { scenario } = require('./copilot-fixtures.cjs');
 
 const HOURS = Object.freeze([5, 7, 10, 14, 18, 22, 1]);

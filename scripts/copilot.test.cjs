@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const engine = require('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js');
+const engine = require('../supabase/functions/_shared/dori-copilot.js');
 const { scenario } = require('./copilot-fixtures.cjs');
 const clone = x => JSON.parse(JSON.stringify(x));
 
@@ -18,12 +18,13 @@ test('A-E: economics, opportunity and operational vetoes', () => {
 });
 
 test('pure engine, full replay and global entry without Node dependencies', () => {
+  assert.equal(require('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js'), engine);
   const input = scenario('A'), original = clone(input);
   const r = engine.evaluate(input);
   assert.deepEqual(engine.evaluate(input, r.parameters), r);
   assert.deepEqual(input, original);
   const context = vm.createContext({});
-  vm.runInContext(fs.readFileSync(require.resolve('../ios-turno-ev/TurnoEV/Resources/dori-copilot.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(require.resolve('../supabase/functions/_shared/dori-copilot.js'), 'utf8'), context);
   assert.deepEqual(JSON.parse(context.DoriCopilot.evaluateJSON(JSON.stringify(input))), r);
 });
 
