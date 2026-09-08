@@ -359,7 +359,7 @@ struct DocumentPaper: View {
                 Text("Archivo digital · \(document.kind.desk.label)")
                     .font(.system(size: 10, weight: .semibold))
                 Spacer()
-                Text("TURNO EV")
+                Text(DORIBrand.name)
                     .font(.system(size: 10, weight: .black))
                     .tracking(1.6)
             }

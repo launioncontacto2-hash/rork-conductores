@@ -9,6 +9,14 @@ import Foundation
 import Testing
 @testable import TurnoEV
 
+struct DORIBrandTests {
+    @Test func exposesTheFinalProductIdentity() {
+        #expect(DORIBrand.name == "DORI")
+        #expect(DORIBrand.productName == "DORI Operaciones")
+        #expect(DORIBrand.consoleName == "Consola DORI")
+    }
+}
+
 struct BackendRoleMappingTests {
     @Test func mapsDatabaseRecruitmentRoleToRecruiterWorkspace() {
         #expect(StaffRole(backendValue: "recruitment") == .recruiter)

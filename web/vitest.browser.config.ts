@@ -8,6 +8,17 @@ const localChromium = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      "@radix-ui/react-tooltip",
+      "@tanstack/react-query",
+      "next-themes",
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "sonner",
+    ],
+  },
   test: {
     globals: true,
     include: ["src/**/*.browser.{test,spec}.{ts,tsx}"],

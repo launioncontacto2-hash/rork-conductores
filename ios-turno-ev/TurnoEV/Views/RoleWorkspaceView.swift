@@ -88,7 +88,7 @@ struct RoleWorkspaceView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(role.workspaceTitle)
                         .font(.system(.title3, weight: .black))
-                    CapsLabel(text: "Turno EV · red nacional")
+                    CapsLabel(text: "DORI · red operativa")
                 }
                 Spacer(minLength: 0)
                 DemoClockButton()

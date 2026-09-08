@@ -173,7 +173,7 @@ const OperationsConsole = () => {
                 <Radio className="mr-1 size-3" /> Realtime {realtimeConnections}/2
               </Badge>
             </div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight md:text-3xl">Consola de operación</h1>
+            <h1 className="mt-3 text-2xl font-black tracking-tight md:text-3xl">Consola DORI</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {identity.station_name} · {identity.station_code} · {identity.display_name}
             </p>

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Root router. The session role is the only thing that decides which interface is
-/// built: driver, supervisor, regional manager, maintenance, recruitment or national
-/// direction.
+/// built. DORI currently exposes only the operational driver, supervisor and maintenance
+/// surfaces; later organizational modules remain compiled but frozen and unreachable.
 /// No screen of another role is ever instantiated inside a session.
 struct ContentView: View {
     @Environment(FleetStore.self) private var store
@@ -23,8 +23,6 @@ struct ContentView: View {
                     BackendSupervisorAssignmentView(principal: principal)
                 } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
                     BackendMaintenanceView(principal: principal)
-                } else if principal.role == .recruiter, store.hasAccess(to: .recruiter) {
-                    BackendRecruitmentView(principal: principal)
                 } else {
                     AccessDeniedView()
                 }
@@ -134,12 +132,7 @@ struct ContentView: View {
                     AccessDeniedView()
                 }
             case .some(let account) where account.role == .manager:
-                if store.hasAccess(to: .manager) {
-                    ManagerRootView(account: account, store: store)
-                        .editorFloatingAccess(.managerHome)
-                } else {
-                    AccessDeniedView()
-                }
+                AccessDeniedView()
             case .some(let account) where account.role == .maintenance:
                 if store.hasAccess(to: .maintenance) {
                     MaintenanceRootView(account: account, store: store)
@@ -147,23 +140,11 @@ struct ContentView: View {
                     AccessDeniedView()
                 }
             case .some(let account) where account.role == .recruiter:
-                if store.hasAccess(to: .recruiter) {
-                    RecruitmentRootView(account: account, store: store)
-                } else {
-                    AccessDeniedView()
-                }
+                AccessDeniedView()
             case .some(let account) where account.role == .national:
-                if store.hasAccess(to: .national) {
-                    NationalRootView(account: account, store: store)
-                } else {
-                    AccessDeniedView()
-                }
+                AccessDeniedView()
             case .some(let account) where account.role == .lab:
-                if store.hasAccess(to: .lab) {
-                    LabRootView(account: account)
-                } else {
-                    AccessDeniedView()
-                }
+                AccessDeniedView()
             case .some(let account):
                 RoleWorkspaceView(account: account)
             }

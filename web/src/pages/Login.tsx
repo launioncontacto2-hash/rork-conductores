@@ -98,7 +98,7 @@ const Login = () => {
   const { accessMessage, isResolving, signInSupervisor } = useConsoleAuth();
   const navigate = useNavigate();
 
-  const [mode, setMode] = useState<Mode>(() => (enrolledAccount ? "biometric" : "credentials"));
+  const [mode, setMode] = useState<Mode>("credentials");
   const [attempts, setAttempts] = useState<number>(0);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [lastFailed, setLastFailed] = useState<boolean>(false);
@@ -113,8 +113,8 @@ const Login = () => {
   const [recoveryTarget, setRecoveryTarget] = useState<string>("");
 
   useEffect(() => {
-    if (!enrolledAccount) setMode("credentials");
-  }, [enrolledAccount]);
+    setMode("credentials");
+  }, []);
 
   /** Shows the identified role for a beat, then opens that role's interface only. */
   const grantAccess = useCallback(
@@ -154,29 +154,18 @@ const Login = () => {
   }, [attempts]);
 
   const submitCredentials = async (): Promise<void> => {
-    if (identifier.trim().toLowerCase() === "test.supervisor@joramza.test") {
-      setError(null);
-      try {
-        await signInSupervisor(identifier.trim(), password);
-        setPassword("");
-        toast.success("Supervisor TEST autenticado", { description: "Abriendo la consola de estación." });
-        navigate("/console", { replace: true });
-      } catch (reason) {
-        const message = reason instanceof Error ? reason.message : "No fue posible abrir la consola TEST.";
-        setError(message);
-        toast.error("Acceso denegado", { description: message });
-      }
-      return;
-    }
-    const outcome = authenticateStaff(identifier, password);
-    if (outcome.status !== "granted") {
-      setError(outcome.message);
-      toast.error("Acceso denegado", { description: outcome.message });
-      return;
-    }
     setError(null);
-    setPassword("");
-    grantAccess(outcome.account, "credentials");
+    try {
+      await signInSupervisor(identifier.trim(), password);
+      setPassword("");
+      toast.success("Acceso autorizado", { description: "Abriendo tu estación en Consola DORI." });
+      navigate("/console", { replace: true });
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "No fue posible abrir Consola DORI.";
+      setPassword("");
+      setError(message);
+      toast.error("Acceso denegado", { description: message });
+    }
   };
 
   const accent = enrolledAccount ? ROLE[enrolledAccount.role].accent : "#C8FF3C";
@@ -189,8 +178,8 @@ const Login = () => {
             <Zap className="size-7" strokeWidth={2.6} />
           </span>
           <div>
-            <p className="text-xl font-black leading-none tracking-tight">TURNO EV</p>
-            <p className="label-caps mt-1">Acceso por rol y estación</p>
+            <p className="text-xl font-black leading-none tracking-tight">DORI</p>
+            <p className="label-caps mt-1">Consola de operación</p>
           </div>
         </div>
       </div>
@@ -299,7 +288,7 @@ const Login = () => {
             <Input
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              placeholder={credentialMode === "email" ? "correo@turnoev.mx" : "EV-1042"}
+              placeholder={credentialMode === "email" ? "correo institucional" : "N° empleado"}
               type={credentialMode === "email" ? "email" : "text"}
               autoComplete={credentialMode === "email" ? "email" : "username"}
               className="h-14 rounded-2xl text-base"
@@ -334,34 +323,13 @@ const Login = () => {
               <KeyRound className="size-4" />
               Recuperar contraseña
             </button>
-            {enrolledAccount && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMode("biometric");
-                  setAttempts(0);
-                  setLastFailed(false);
-                }}
-                className="press font-semibold text-muted-foreground"
-              >
-                Volver a Face ID
-              </button>
-            )}
           </div>
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-md space-y-2 text-center">
-        <button
-          type="button"
-          onClick={() => setIsDirectoryOpen(true)}
-          className="press inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground"
-        >
-          <Users className="size-4" />
-          Cuentas de demostración
-        </button>
+      <div className="mx-auto w-full max-w-md text-center">
         <p className="text-[0.7rem] text-muted-foreground">
-          {STATIONS.length} estaciones · {REGIONS.length} regiones · v1.0 datos simulados
+          DORI Operaciones · Acceso sujeto a permisos y auditoría
         </p>
       </div>
 

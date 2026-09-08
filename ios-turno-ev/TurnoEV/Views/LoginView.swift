@@ -67,9 +67,10 @@ struct LoginView: View {
         store.enrolledAccount
     }
 
-    /// One credential per role, so switching interfaces takes a single tap.
+    /// Kept for the dormant demonstration view while only current operational roles remain
+    /// eligible for future previews. The production access screen does not expose it.
     private var roleShortcuts: [StaffAccount] {
-        StaffRole.allCases.compactMap { role in
+        [.driver, .supervisor, .maintenance].compactMap { role in
             StaffDirectory.accounts.first { $0.role == role }
         }
     }
@@ -109,9 +110,6 @@ struct LoginView: View {
         .sheet(isPresented: $isRecoveryPresented) {
             recoverySheet
         }
-        .sheet(isPresented: $isDirectoryPresented) {
-            directorySheet
-        }
     }
 
     // MARK: - Header
@@ -128,10 +126,10 @@ struct LoginView: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("TURNO EV")
+                Text(DORIBrand.name)
                     .font(.system(.title3, weight: .black))
 
-                CapsLabel(text: "Acceso por rol y estación")
+                CapsLabel(text: DORIBrand.accessTagline)
             }
 
             Spacer()
@@ -142,22 +140,10 @@ struct LoginView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            Button {
-                isDirectoryPresented = true
-            } label: {
-                Label(
-                    "Cuentas de demostración",
-                    systemImage: "person.3.sequence.fill"
-                )
+            Text(DORIBrand.productName)
                 .font(.system(.footnote, weight: .semibold))
-                .foregroundStyle(Palette.textMuted)
-            }
 
-            Text(
-                "\(StaffDirectory.stations.count) estaciones · " +
-                "\(StaffDirectory.regions.count) regiones · " +
-                "v1.0 datos simulados"
-            )
+            Text("La sesión no inicia ni modifica un turno por sí sola.")
             .font(.caption2)
             .foregroundStyle(Palette.textMuted)
         }
@@ -265,8 +251,6 @@ struct LoginView: View {
                 ) {
                     authenticate()
                 }
-
-                roleSwitcher
 
                 Button("Entrar con otra credencial") {
                     mode = .credentials
@@ -384,33 +368,10 @@ struct LoginView: View {
         }
 
         didAutoStart = true
-
-        guard enrolled != nil else {
-            mode = .credentials
-            return
-        }
-
-        mode = .biometric
-
-        guard !store.awaitsCredentialChoice else {
-            return
-        }
-
-        Task { @MainActor in
-            try? await Task.sleep(
-                for: .milliseconds(420)
-            )
-
-            guard
-                store.session == nil,
-                handoffAccount == nil,
-                !isScanning
-            else {
-                return
-            }
-
-            authenticate()
-        }
+        // The historical biometric shortcut was linked to a local demonstration
+        // credential. DORI stays on the real Supabase door until a backend session can be
+        // restored through Keychain without storing or fabricating a password.
+        mode = .credentials
     }
 
     /// Opens a session, by the shortest route available on this device.
@@ -513,23 +474,9 @@ struct LoginView: View {
                 .foregroundStyle(Palette.textMuted)
             }
 
-            Picker(
-                "Método",
-                selection: $credentialMode
-            ) {
-                ForEach(
-                    CredentialMode.allCases,
-                    id: \.self
-                ) { option in
-                    Text(option.label)
-                        .tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-
             TextField(
                 credentialMode == .email
-                    ? "correo@turnoev.mx"
+                    ? "correo institucional"
                     : "EV-1042",
                 text: $identifier
             )
@@ -625,22 +572,6 @@ struct LoginView: View {
 
                 Spacer()
 
-                if enrolled != nil {
-                    Button("Volver a Face ID") {
-                        mode = .biometric
-                        attempts = 0
-                        lastFailed = false
-                        errorMessage = nil
-                        supabaseProbeMessage = nil
-                    }
-                    .font(
-                        .system(
-                            .subheadline,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(Palette.textMuted)
-                }
             }
         }
     }
@@ -653,27 +584,14 @@ struct LoginView: View {
                 in: .whitespacesAndNewlines
             )
 
-        // ====================================================
-        // 15B.5
-        // Primera prueba REAL de Supabase Auth.
-        //
-        // Sólo las cuentas operativas TEST usan Supabase por ahora.
-        // Las cuentas de demostración continúan usando
-        // StaffDirectory y no se rompen durante la transición.
-        // ====================================================
-
-        let backendTestEmails: Set<String> = [
-            "test.001@joramza.test",
-            "test.002@joramza.test",
-            // Alias temporal mientras el usuario Auth existente se renombra a test.001.
-            "test.driver@joramza.test",
-            "test.supervisor@joramza.test",
-            "test.maintenance@joramza.test",
-            "test.recruitment@joramza.test"
-        ]
-
-        if credentialMode == .email,
-           backendTestEmails.contains(cleanedIdentifier.lowercased()) {
+        // Every visible DORI access uses Supabase Auth. Demonstration identities remain
+        // in source for historical previews, but can no longer enter the operational app.
+        guard credentialMode == .email,
+              cleanedIdentifier.contains("@") else {
+            errorMessage = "Ingresa tu correo institucional."
+            supabaseProbeMessage = nil
+            return
+        }
 
             guard !isSupabaseProbeRunning else {
                 return
@@ -681,7 +599,7 @@ struct LoginView: View {
 
             guard !password.isEmpty else {
                 errorMessage =
-                    "Escribe la contraseña de la cuenta de prueba."
+                    "Escribe tu contraseña."
                 supabaseProbeMessage = nil
                 return
             }
@@ -832,39 +750,7 @@ struct LoginView: View {
                 }
             }
 
-            return
-        }
-
-        // ====================================================
-        // LOGIN DEMO ORIGINAL
-        // Permanece intacto durante 15B.5.
-        // ====================================================
-
-        let outcome =
-            StaffDirectory.authenticate(
-                identifier: identifier,
-                password: password
-            )
-
-        switch outcome {
-        case .granted(let account):
-            errorMessage = nil
-            supabaseProbeMessage = nil
-            password = ""
-
-            grantAccess(
-                to: account,
-                method: .credentials
-            )
-
-        case .unknownIdentity,
-             .wrongPassword,
-             .suspended,
-             .missingAssignment:
-
-            supabaseProbeMessage = nil
-            errorMessage = outcome.message
-        }
+        return
     }
 
     /// Shows the identified role for a beat, then opens that role's interface only.
