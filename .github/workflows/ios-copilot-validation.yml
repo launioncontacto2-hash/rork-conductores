@@ -35,7 +35,7 @@ jobs:
       PROJECT_PATH: ios-turno-ev/TurnoEV.xcodeproj
       SCHEME: TurnoEV
       DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData
-      SOURCE_PACKAGES_PATH: ${{ runner.temp }}/SourcePackages
+      SOURCE_PACKAGES_PATH: ${{ github.workspace }}/SourcePackages
     defaults:
       run:
         shell: bash
