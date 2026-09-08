@@ -1,6 +1,6 @@
 # DORI Copiloto — Bloque 2
 
-Simulador reproducible para el motor V0.1. `scripts/copilot-simulator.cjs` importa directamente `ios-turno-ev/TurnoEV/Resources/dori-copilot.js`; no contiene otra fórmula de puntuación o decisión. La suite sustituye temporalmente la función exportada del motor y comprueba que una ejecución individual pasa exactamente por ella.
+Simulador reproducible para el motor V0.1. `scripts/copilot-simulator.cjs` importa directamente `supabase/functions/_shared/dori-copilot.js`; no contiene otra fórmula de puntuación o decisión. La suite sustituye temporalmente la función exportada del motor y comprueba que una ejecución individual pasa exactamente por ella.
 
 ## Uso
 

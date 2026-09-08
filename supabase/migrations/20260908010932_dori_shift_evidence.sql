@@ -540,8 +540,8 @@ BEGIN
            OR v_command.status <> 'completed' THEN
             RAISE EXCEPTION 'idempotency_key_reused' USING ERRCODE = '23505';
         END IF;
-        SELECT device, membership.station_id
-        INTO STRICT v_device, v_station_id
+        SELECT device.*
+        INTO STRICT v_device
         FROM public.devices device
         JOIN public.staff_memberships membership
           ON membership.id = device.active_membership_id
@@ -550,14 +550,17 @@ BEGIN
         WHERE device.id = p_device_id
           AND device.environment_id = v_environment_id
           AND membership.role = 'driver';
+        SELECT membership.station_id INTO STRICT v_station_id
+        FROM public.staff_memberships membership
+        WHERE membership.id = v_device.active_membership_id;
         IF NOT app.auth_has_role('supervisor', v_station_id) THEN
             RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
         END IF;
         RETURN v_device;
     END IF;
 
-    SELECT device, membership.station_id
-    INTO v_device, v_station_id
+    SELECT device.*
+    INTO v_device
     FROM public.devices device
     JOIN public.staff_memberships membership
       ON membership.id = device.active_membership_id
@@ -572,6 +575,9 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'active_driver_device_not_found' USING ERRCODE = 'P0002';
     END IF;
+    SELECT membership.station_id INTO STRICT v_station_id
+    FROM public.staff_memberships membership
+    WHERE membership.id = v_device.active_membership_id;
     IF NOT app.auth_has_role('supervisor', v_station_id) THEN
         RAISE EXCEPTION 'supervisor_station_role_required' USING ERRCODE = '42501';
     END IF;

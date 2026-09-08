@@ -4,8 +4,8 @@ Motor V0.1 determinista, sin red ni LLM. Una única implementación JavaScript p
 
 ## Archivos y ejecución
 
-- `ios-turno-ev/TurnoEV/Resources/dori-copilot.js`: motor, configuración, validadores y fábricas de eventos.
-- `ios-turno-ev/TurnoEV/Resources/dori-copilot.d.ts`: contratos `TripCandidate`, `MarketContext`, `VehicleContext`, `DriverContext`, parámetros, resultados y eventos.
+- `supabase/functions/_shared/dori-copilot.js`: motor canónico, configuración, validadores y fábricas de eventos.
+- `supabase/functions/_shared/dori-copilot.d.ts`: contratos `TripCandidate`, `MarketContext`, `VehicleContext`, `DriverContext`, parámetros, resultados y eventos.
 - `scripts/copilot-fixtures.cjs`: cinco ofertas controladas para pruebas unitarias.
 - `scripts/copilot.test.cjs`: ejecutar desde la raíz con `node --test scripts/copilot.test.cjs` (Node 24, sin instalar dependencias).
 
