@@ -380,6 +380,32 @@ FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.console_audit_history(integer)
 TO authenticated, service_role;
 
+CREATE OR REPLACE FUNCTION app.enforce_sensitive_command_reason()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'pg_catalog', 'public', 'app', 'pg_temp'
+AS $function$
+BEGIN
+    IF NEW.command_name IN (
+        'assign_vehicle', 'update_incident', 'approve_guard', 'resolve_absence'
+    ) AND char_length(btrim(coalesce(NEW.request_payload ->> 'note', ''))) < 5 THEN
+        RAISE EXCEPTION 'sensitive_command_reason_required'
+            USING ERRCODE = '22023';
+    END IF;
+    RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS command_log_sensitive_reason_guard ON public.command_log;
+CREATE TRIGGER command_log_sensitive_reason_guard
+BEFORE INSERT ON public.command_log
+FOR EACH ROW EXECUTE FUNCTION app.enforce_sensitive_command_reason();
+
+REVOKE ALL ON FUNCTION app.enforce_sensitive_command_reason()
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION app.enforce_sensitive_command_reason()
+TO postgres, service_role;
+
 COMMENT ON TABLE public.shift_evidence IS
     'Evidencia fotografica privada e inmutable del inicio y cierre de cada turno DORI.';
 COMMENT ON FUNCTION public.start_shift_v3(uuid, bigint, integer, text, text, text, text) IS
@@ -388,3 +414,5 @@ COMMENT ON FUNCTION public.finish_shift_v3(uuid, bigint, bigint, integer, text, 
     'Cierra un turno y registra la fotografia final propia en la misma transaccion.';
 COMMENT ON FUNCTION public.console_audit_history(integer) IS
     'Devuelve a supervision el historial append-only de sus estaciones vigentes sin exponer command_log.';
+COMMENT ON FUNCTION app.enforce_sensitive_command_reason() IS
+    'Impide que un comando sensible se registre sin un motivo operativo suficiente.';

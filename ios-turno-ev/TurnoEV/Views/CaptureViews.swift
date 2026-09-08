@@ -51,7 +51,8 @@ struct EvidencePicker: UIViewControllerRepresentable {
             Task { @MainActor in self.onFinish() }
         }
 
-        /// Evidence is stored compact so a full shift fits in local storage.
+        /// Evidence is encoded compactly before its authorized private upload. The live
+        /// DORI flow does not retain a second copy in local operational storage.
         @MainActor
         private static func compress(_ image: UIImage, maxSide: CGFloat = 720) -> Data? {
             let longest = max(image.size.width, image.size.height)

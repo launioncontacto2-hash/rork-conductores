@@ -153,7 +153,8 @@ SELECT lives_ok(
         SELECT public.assign_vehicle(
             '15c26000-0000-4000-8000-000000000001'::uuid,
             '15c36000-0000-4000-8000-000000000001'::uuid,
-            '15c-rpc-titular-1'
+            '15c-rpc-titular-1',
+            p_note => 'Asignación titular autorizada.'
         )
     $sql$,
     'el supervisor crea la asignacion titular'
@@ -190,7 +191,8 @@ SELECT lives_ok(
         SELECT public.assign_vehicle(
             '15c26000-0000-4000-8000-000000000001'::uuid,
             '15c36000-0000-4000-8000-000000000001'::uuid,
-            '15c-rpc-titular-1'
+            '15c-rpc-titular-1',
+            p_note => 'Asignación titular autorizada.'
         )
     $sql$,
     'repetir la misma clave devuelve el resultado previo'
@@ -226,7 +228,8 @@ SELECT throws_ok(
         SELECT public.assign_vehicle(
             '15c26000-0000-4000-8000-000000000001'::uuid,
             '15c36000-0000-4000-8000-000000000002'::uuid,
-            '15c-rpc-titular-1'
+            '15c-rpc-titular-1',
+            p_note => 'Asignación titular autorizada.'
         )
     $sql$,
     '23505',

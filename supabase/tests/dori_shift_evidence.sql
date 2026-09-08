@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(19);
+SELECT plan(22);
 
 SELECT has_table('public', 'shift_evidence', 'existe la evidencia de turno');
 SELECT has_column('public', 'shift_evidence', 'object_path', 'la evidencia conserva su ruta privada');
@@ -99,6 +99,25 @@ SELECT is(
         'anon', 'public.console_audit_history(integer)', 'EXECUTE'
     ), false,
     'anon no puede consultar la auditoria'
+);
+SELECT has_function(
+    'app', 'enforce_sensitive_command_reason', ARRAY[]::text[],
+    'existe la barrera central de motivos sensibles'
+);
+SELECT has_trigger(
+    'public', 'command_log', 'command_log_sensitive_reason_guard',
+    'command_log aplica la barrera antes de insertar'
+);
+SELECT throws_ok(
+    $sql$
+        INSERT INTO public.command_log(
+            environment_id, command_name, idempotency_key, status, request_payload
+        ) VALUES (
+            NULL, 'assign_vehicle', 'dori-missing-reason', 'accepted', '{"note":null}'::jsonb
+        )
+    $sql$,
+    '22023', 'sensitive_command_reason_required',
+    'la base rechaza una asignacion sin motivo suficiente'
 );
 
 SELECT * FROM finish();
