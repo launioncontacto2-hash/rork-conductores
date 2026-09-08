@@ -34,7 +34,7 @@ function Invoke-Checked {
 }
 
 function Assert-NoTrackedSecrets {
-    $gitArguments = @('-c', "safe.directory=$repoRoot")
+    $gitArguments = @('-C', $repoRoot, '-c', "safe.directory=$repoRoot")
     $forbiddenCredentials = @(
         ('Kymyly' + '14'),
         ('Direccion' + '14'),
@@ -86,9 +86,37 @@ function Assert-NoTrackedSecrets {
     }
 }
 
+function Assert-NoDirectBackendWrites {
+    $gitArguments = @('-C', $repoRoot, '-c', "safe.directory=$repoRoot")
+    $runtimeRoots = @(
+        'ios-turno-ev/TurnoEV',
+        'android/app/src/main',
+        'web/src'
+    )
+    $runtimeFiles = @(
+        & git @gitArguments ls-files '--' @runtimeRoots |
+            Where-Object { $_ -match '\.(swift|kt|kts|js|jsx|ts|tsx)$' }
+    )
+    if ($LASTEXITCODE -ne 0) {
+        throw 'No fue posible enumerar el código de las aplicaciones.'
+    }
+
+    $directWritePattern = '(?s)\.from\s*\([^\)]*\)\s*\.(insert|update|upsert|delete)\s*\('
+    foreach ($relativePath in $runtimeFiles) {
+        $absolutePath = Join-Path $repoRoot $relativePath
+        $source = Get-Content -LiteralPath $absolutePath -Raw
+        if ($source -match $directWritePattern) {
+            throw "La aplicación intenta escribir directamente en una tabla: $relativePath. Usa un RPC transaccional y auditado."
+        }
+    }
+}
+
 try {
     Write-Step 'Comprobando que Git no contenga credenciales ni secretos'
     Assert-NoTrackedSecrets
+
+    Write-Step 'Comprobando que las aplicaciones no escriban directamente en tablas'
+    Assert-NoDirectBackendWrites
 
     Write-Step 'Validando Supabase local, seguridad y pruebas SQL'
     $backendArguments = @()
