@@ -39,6 +39,18 @@ const tableData: Record<string, unknown> = {
   work_orders: [],
   absences: [],
   coverage_vacancies: [],
+  audit_history: [{
+    id: "60000000-0000-4000-8000-000000000001",
+    station_id: identity.station_id,
+    actor_profile_id: identity.profile_id,
+    actor_name: "Supervisión DORI",
+    actor_employee_number: "SUP-001",
+    event_type: "assignment.created",
+    entity_type: "assignment",
+    entity_id: "70000000-0000-4000-8000-000000000001",
+    metadata: {},
+    occurred_at: "2026-09-07T12:00:00Z",
+  }],
 };
 
 const queryFor = (table: string) => {
@@ -58,7 +70,7 @@ vi.mock("@/lib/supabase", () => ({
   supabase: {
     from: (table: string) => queryFor(table),
     rpc: async (name: string, params: Record<string, unknown>) => {
-      if (name === "console_audit_history") return { data: [], error: null };
+      if (name === "console_audit_history") return { data: tableData.audit_history, error: null };
       rpcCalls.push({ name, params });
       return { data: null, error: null };
     },
@@ -85,6 +97,7 @@ test("shows every final operational area from one Supabase snapshot", async () =
   await expect.element(screen.getByRole("heading", { name: "Vacantes de cobertura" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Historial de turnos" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Auditoría operativa" })).toBeInTheDocument();
+  await expect.element(screen.getByText("Unidad asignada")).toBeInTheDocument();
 });
 
 test("requires an audit reason before receiving an incident", async () => {

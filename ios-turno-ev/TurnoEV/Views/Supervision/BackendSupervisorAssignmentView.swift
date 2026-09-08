@@ -68,6 +68,9 @@ private final class BackendAssignmentStore {
         guard kind == .titular || currentAssignment != nil else {
             return "La unidad sustituta requiere una asignación titular vigente."
         }
+        guard note.trimmingCharacters(in: .whitespacesAndNewlines).count >= 5 else {
+            return "Escribe un motivo de al menos 5 caracteres."
+        }
         return nil
     }
 
@@ -201,7 +204,10 @@ private final class BackendAssignmentStore {
         }
     }
 
-    func markReviewed(_ incident: SupabaseIncidentService.IncidentRow) async {
+    func markReviewed(
+        _ incident: SupabaseIncidentService.IncidentRow,
+        reason: String
+    ) async {
         guard updatingIncidentId == nil else { return }
         updatingIncidentId = incident.id
         errorMessage = nil
@@ -212,7 +218,7 @@ private final class BackendAssignmentStore {
             let updated = try await SupabaseIncidentService.update(
                 incident: incident,
                 status: "review",
-                note: "Recibida por supervisión",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-review-\(UUID().uuidString.lowercased())"
             )
             if let index = incidents.firstIndex(where: { $0.id == updated.id }) {
@@ -224,7 +230,10 @@ private final class BackendAssignmentStore {
         }
     }
 
-    func approveGuard(_ vacancy: SupabaseCoverageService.VacancyRow) async {
+    func approveGuard(
+        _ vacancy: SupabaseCoverageService.VacancyRow,
+        reason: String
+    ) async {
         guard updatingCoverageId == nil else { return }
         updatingCoverageId = vacancy.id
         errorMessage = nil
@@ -234,7 +243,7 @@ private final class BackendAssignmentStore {
         do {
             let updated = try await SupabaseCoverageService.approve(
                 vacancy: vacancy,
-                note: "Reemplazo confirmado por supervisión",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-guard-\(UUID().uuidString.lowercased())"
             )
             successMessage = "\(updated.folio) quedó confirmada."
@@ -246,7 +255,8 @@ private final class BackendAssignmentStore {
 
     func resolveAbsence(
         _ absence: SupabaseCoverageService.AbsenceRow,
-        approved: Bool
+        approved: Bool,
+        reason: String
     ) async {
         guard updatingCoverageId == nil else { return }
         updatingCoverageId = absence.id
@@ -258,9 +268,7 @@ private final class BackendAssignmentStore {
             let updated = try await SupabaseCoverageService.resolve(
                 absence: absence,
                 decision: approved ? "approved" : "rejected",
-                note: approved
-                    ? "Ausencia autorizada con cobertura confirmada."
-                    : "Ausencia no autorizada por supervisión.",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-absence-\(UUID().uuidString.lowercased())"
             )
             successMessage = "\(updated.folio) quedó \(approved ? "autorizada" : "rechazada")."
@@ -272,11 +280,50 @@ private final class BackendAssignmentStore {
 
 }
 
+private enum SupervisorPendingAction: Identifiable {
+    case assignment
+    case reviewIncident(SupabaseIncidentService.IncidentRow)
+    case approveGuard(SupabaseCoverageService.VacancyRow)
+    case approveAbsence(SupabaseCoverageService.AbsenceRow)
+    case rejectAbsence(SupabaseCoverageService.AbsenceRow)
+
+    var id: String {
+        switch self {
+        case .assignment: "assignment"
+        case .reviewIncident(let incident): "incident-\(incident.id)"
+        case .approveGuard(let vacancy): "guard-\(vacancy.id)"
+        case .approveAbsence(let absence): "approve-absence-\(absence.id)"
+        case .rejectAbsence(let absence): "reject-absence-\(absence.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .assignment: "Confirmar asignación"
+        case .reviewIncident: "Recibir incidencia"
+        case .approveGuard: "Confirmar reemplazo"
+        case .approveAbsence: "Autorizar ausencia"
+        case .rejectAbsence: "Rechazar ausencia"
+        }
+    }
+
+    var reference: String {
+        switch self {
+        case .assignment: "La asignación seleccionada"
+        case .reviewIncident(let incident): incident.folio
+        case .approveGuard(let vacancy): vacancy.folio
+        case .approveAbsence(let absence), .rejectAbsence(let absence): absence.folio
+        }
+    }
+}
+
 struct BackendSupervisorAssignmentView: View {
     @Environment(FleetStore.self) private var fleet
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: BackendAssignmentStore
     @State private var section: Int = 0
+    @State private var pendingAction: SupervisorPendingAction?
+    @State private var confirmationReason: String = ""
 
     init(principal: SessionPrincipal) {
         _model = State(initialValue: BackendAssignmentStore(principal: principal))
@@ -350,6 +397,9 @@ struct BackendSupervisorAssignmentView: View {
             .onChange(of: model.selectedDriverId) { _, _ in
                 model.kind = .titular
                 model.selectedVehicleId = model.availableVehicles.first?.id
+            }
+            .sheet(item: $pendingAction) { action in
+                confirmationSheet(for: action)
             }
         }
     }
@@ -528,7 +578,7 @@ struct BackendSupervisorAssignmentView: View {
 
                         if incident.status == "open" {
                             Button {
-                                Task { await model.markReviewed(incident) }
+                                requestConfirmation(.reviewIncident(incident))
                             } label: {
                                 Label(
                                     model.updatingIncidentId == incident.id ? "Registrando…" : "Marcar como recibida",
@@ -599,7 +649,7 @@ struct BackendSupervisorAssignmentView: View {
                                 symbol: "person.fill.checkmark",
                                 isEnabled: model.updatingCoverageId == nil
                             ) {
-                                Task { await model.approveGuard(vacancy) }
+                                requestConfirmation(.approveGuard(vacancy))
                             }
                         }
 
@@ -608,7 +658,7 @@ struct BackendSupervisorAssignmentView: View {
                            absence.status == "awaiting_authorization" {
                             HStack(spacing: 8) {
                                 Button {
-                                    Task { await model.resolveAbsence(absence, approved: true) }
+                                    requestConfirmation(.approveAbsence(absence))
                                 } label: {
                                     Label("Autorizar ausencia", systemImage: "checkmark.seal.fill")
                                         .font(.caption.weight(.bold))
@@ -620,7 +670,7 @@ struct BackendSupervisorAssignmentView: View {
                                 .disabled(model.updatingCoverageId != nil)
 
                                 Button {
-                                    Task { await model.resolveAbsence(absence, approved: false) }
+                                    requestConfirmation(.rejectAbsence(absence))
                                 } label: {
                                     Text("Rechazar")
                                         .font(.caption.weight(.bold))
@@ -831,7 +881,7 @@ struct BackendSupervisorAssignmentView: View {
     }
 
     private var noteField: some View {
-        TextField("Nota opcional", text: $model.note, axis: .vertical)
+        TextField("Motivo obligatorio", text: $model.note, axis: .vertical)
             .lineLimit(2...4)
             .padding(16)
             .panel()
@@ -844,7 +894,7 @@ struct BackendSupervisorAssignmentView: View {
                 symbol: model.isAssigning ? "hourglass" : "car.side.fill",
                 isEnabled: model.canAssign
             ) {
-                Task { await model.assign() }
+                requestConfirmation(.assignment, reason: model.note)
             }
 
             if let reason = model.assignmentBlockReason {
@@ -853,6 +903,103 @@ struct BackendSupervisorAssignmentView: View {
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
             }
+        }
+    }
+
+    private func requestConfirmation(
+        _ action: SupervisorPendingAction,
+        reason: String = ""
+    ) {
+        confirmationReason = reason
+        model.errorMessage = nil
+        model.successMessage = nil
+        pendingAction = action
+    }
+
+    private var isConfirmingAction: Bool {
+        model.isAssigning || model.updatingIncidentId != nil || model.updatingCoverageId != nil
+    }
+
+    private func confirmationSheet(for action: SupervisorPendingAction) -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("ACCIÓN SENSIBLE", systemImage: "shield.lefthalf.filled")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.amber)
+
+                Text(action.reference)
+                    .font(.title3.weight(.bold))
+
+                Text("Escribe el motivo operativo. Supabase lo conservará junto con la identidad, la estación y la clave única del comando.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+
+                TextField("Motivo obligatorio", text: $confirmationReason, axis: .vertical)
+                    .lineLimit(3...6)
+                    .padding(16)
+                    .panelFlat()
+
+                if confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines).count < 5 {
+                    Text("El motivo debe tener al menos 5 caracteres.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.amber)
+                }
+
+                if let error = model.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.danger)
+                }
+
+                BigButton(
+                    title: isConfirmingAction ? "Registrando…" : "Confirmar y auditar",
+                    symbol: isConfirmingAction ? "hourglass" : "checkmark.shield.fill",
+                    isEnabled: !isConfirmingAction
+                        && confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines).count >= 5
+                ) {
+                    Task { await execute(action) }
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .background(Palette.canvas.ignoresSafeArea())
+            .navigationTitle(action.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") {
+                        pendingAction = nil
+                        confirmationReason = ""
+                    }
+                    .disabled(isConfirmingAction)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isConfirmingAction)
+    }
+
+    private func execute(_ action: SupervisorPendingAction) async {
+        let reason = confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard reason.count >= 5 else { return }
+
+        switch action {
+        case .assignment:
+            model.note = reason
+            await model.assign()
+        case .reviewIncident(let incident):
+            await model.markReviewed(incident, reason: reason)
+        case .approveGuard(let vacancy):
+            await model.approveGuard(vacancy, reason: reason)
+        case .approveAbsence(let absence):
+            await model.resolveAbsence(absence, approved: true, reason: reason)
+        case .rejectAbsence(let absence):
+            await model.resolveAbsence(absence, approved: false, reason: reason)
+        }
+
+        if model.errorMessage == nil {
+            pendingAction = nil
+            confirmationReason = ""
         }
     }
 }
