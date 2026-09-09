@@ -16,6 +16,11 @@ nonisolated enum AcquisitionQueries {
 
 @MainActor
 final class SupabaseAcquisitionRepository: AcquisitionRepository {
+    /// The repository has no actor-owned state, so constructing it is safe from
+    /// SwiftUI's synchronous default-argument context. Database access remains
+    /// isolated to the main actor through the protocol methods below.
+    nonisolated init() {}
+
     nonisolated struct MembershipRow: Decodable, Sendable {
         let id: UUID
         let environment_id: UUID
