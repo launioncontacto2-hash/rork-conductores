@@ -62,7 +62,10 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("minimum_soh"))
         #expect(!exposed.contains("target_soh"))
         #expect(!exposed.contains("assessment"))
-        #expect(AcquisitionQueries.offerColumns == "id, request_id, status")
+        #expect(
+            AcquisitionQueries.offerColumns
+                == "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, submitted_at"
+        )
     }
 
     private static func request() -> AcquisitionRequest {
