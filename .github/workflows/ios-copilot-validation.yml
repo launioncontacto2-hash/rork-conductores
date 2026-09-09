@@ -92,17 +92,25 @@ jobs:
                   text=True,
               )
           )
+          xcode_version = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          xcode_major = int(re.search(r"Xcode (\d+)", xcode_version).group(1))
+          maximum_ios_major = xcode_major if xcode_major >= 20 else xcode_major + 2
           candidates = []
           for runtime, devices in inventory.get("devices", {}).items():
               if ".iOS-" not in runtime:
                   continue
               version = tuple(int(part) for part in re.findall(r"\d+", runtime.split(".iOS-")[-1]))
+              if not version or version[0] > maximum_ios_major:
+                  continue
               for device in devices:
                   if device.get("isAvailable", True) and device.get("name", "").startswith("iPhone"):
                       candidates.append((version, device["name"], device["udid"], runtime))
 
           if not candidates:
-              raise SystemExit("No available iPhone simulator was found")
+              raise SystemExit(
+                  f"No iPhone simulator compatible with Xcode {xcode_major} was found "
+                  f"(maximum supported iOS major: {maximum_ios_major})"
+              )
 
           version, name, udid, runtime = max(candidates, key=lambda item: item[0])
           values = {
