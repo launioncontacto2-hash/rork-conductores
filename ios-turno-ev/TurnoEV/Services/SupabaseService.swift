@@ -1023,7 +1023,6 @@ enum SupabaseAuthProbe {
         email: String,
         password: String
     ) async throws -> Result {
-
         guard let client = SupabaseBridge.client else {
             throw ProbeError.notConfigured
         }
@@ -1038,45 +1037,19 @@ enum SupabaseAuthProbe {
             password: password
         )
 
-        let authUserId = session.user.id
+        return try await resolve(authUserId: session.user.id)
+    }
 
-        // 2. Profile visible under RLS.
-        let profiles: [ProfileRow] = try await client
-            .from("profiles")
-            .select(
-                """
-                id,
-                auth_user_id,
-                employee_number,
-                display_name,
-                status
-                """
-            )
-            .execute()
-            .value
+    /// Resolves the already authenticated user without performing a second sign-in.
+    /// Acquisition uses this entry point so both membership systems share one Auth session.
+    static func resolve(authUserId: UUID) async throws -> Result {
+        let profile = try await loadProfile(authUserId: authUserId)
 
-        guard !profiles.isEmpty else {
-            throw ProbeError.noProfile
+        guard let client = SupabaseBridge.client else {
+            throw ProbeError.notConfigured
         }
 
-        guard profiles.count == 1 else {
-            throw ProbeError.multipleProfiles(profiles.count)
-        }
-
-        let profile = profiles[0]
-
-        guard profile.auth_user_id == authUserId else {
-            throw ProbeError.wrongAuthUser(
-                expected: authUserId,
-                received: profile.auth_user_id
-            )
-        }
-
-        guard profile.status == "active" else {
-            throw ProbeError.inactiveProfile(profile.status)
-        }
-
-        // 3. Active membership visible under RLS.
+        // Active operational membership visible under RLS.
         //
         // shift_group and shift_slot are intentionally read from this row.
         // They are operational assignments and must not come from MockData.
@@ -1146,7 +1119,7 @@ enum SupabaseAuthProbe {
             }
         }
 
-        // 4. Station visible under RLS.
+        // Station visible under RLS.
         let stations: [StationRow] = try await client
             .from("stations")
             .select(
@@ -1185,6 +1158,52 @@ enum SupabaseAuthProbe {
             membership: membership,
             station: station
         )
+    }
+
+    /// Reads and validates the one profile owned by the current Auth user.
+    /// Kept separate so acquisition-only identities can reuse it before reading their
+    /// dedicated membership table.
+    static func loadProfile(authUserId: UUID) async throws -> ProfileRow {
+        guard let client = SupabaseBridge.client else {
+            throw ProbeError.notConfigured
+        }
+
+        // Profile visible under RLS.
+        let profiles: [ProfileRow] = try await client
+            .from("profiles")
+            .select(
+                """
+                id,
+                auth_user_id,
+                employee_number,
+                display_name,
+                status
+                """
+            )
+            .execute()
+            .value
+
+        guard !profiles.isEmpty else {
+            throw ProbeError.noProfile
+        }
+
+        guard profiles.count == 1 else {
+            throw ProbeError.multipleProfiles(profiles.count)
+        }
+
+        let profile = profiles[0]
+
+        guard profile.auth_user_id == authUserId else {
+            throw ProbeError.wrongAuthUser(
+                expected: authUserId,
+                received: profile.auth_user_id
+            )
+        }
+
+        guard profile.status == "active" else {
+            throw ProbeError.inactiveProfile(profile.status)
+        }
+        return profile
     }
 }
 

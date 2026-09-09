@@ -612,8 +612,8 @@ struct LoginView: View {
                 }
 
                 do {
-                    let result =
-                        try await SupabaseAuthProbe.run(
+                    let resolution =
+                        try await SupabaseSessionResolver.run(
                             email: cleanedIdentifier,
                             password: password
                         )
@@ -622,65 +622,64 @@ struct LoginView: View {
                     // Supabase has authenticated it.
                     password = ""
 
-                    // La sonda ya exige que ambos valores existan y sean
-                    // válidos antes de devolver el resultado, así que aquí
-                    // sólo se muestran; el "—" nunca debería aparecer.
-                    let shiftGroup = result.shiftGroup ?? "—"
-                    let shiftSlot = result.shiftSlot ?? "—"
+                    let principal: SessionPrincipal
+                    switch resolution {
+                    case .staff(let result):
+                        guard let role = StaffRole(backendValue: result.membership.role) else {
+                            supabaseProbeMessage = nil
+                            errorMessage = "No pudimos abrir esta cuenta."
+                            return
+                        }
 
-                    supabaseProbeMessage = """
-                    AUTH OK
-                    \(result.profile.display_name)
-                    \(result.profile.employee_number)
-                    \(result.membership.role)
-                    \(result.station.code)
-                    \(shiftGroup)
-                    \(shiftSlot)
-                    """
+                        principal = SessionPrincipal(
+                            authUserId: result.authUserId.uuidString,
+                            profileId: result.profile.id.uuidString,
+                            name: result.profile.display_name,
+                            employeeNumber: result.profile.employee_number,
+                            email: cleanedIdentifier,
+                            role: role,
+                            environmentId: result.station.environment_id.uuidString,
+                            stationId: result.station.id.uuidString,
+                            stationCode: result.station.code,
+                            stationName: result.station.name,
+                            shiftGroup: result.shiftGroup.flatMap(ShiftGroup.init(rawValue:)),
+                            shiftSlot: result.shiftSlot.flatMap(ShiftSlot.init(rawValue:))
+                        )
 
-                    print(
-                        "[15B.5] AUTH OK · " +
-                        "\(result.profile.employee_number) · " +
-                        "\(result.membership.role) · " +
-                        "\(result.station.code) · " +
-                        "\(shiftGroup) · " +
-                        "\(shiftSlot)"
-                    )
+                        print(
+                            "[Sesión] Personal verificado · " +
+                            "\(result.profile.employee_number) · \(result.membership.role)"
+                        )
 
-                    // ============================================
-                    // 15B.7
-                    // El resultado deja de ser sólo diagnóstico:
-                    // abre la sesión real del conductor.
-                    // ============================================
+                    case .acquisition(let result):
+                        principal = SessionPrincipal(
+                            authUserId: result.authUserID.uuidString,
+                            profileId: result.profile.id.uuidString,
+                            name: result.profile.display_name,
+                            employeeNumber: result.profile.employee_number,
+                            email: cleanedIdentifier,
+                            role: result.membership.role.sessionRole,
+                            environmentId: result.membership.environmentID.uuidString,
+                            stationId: nil,
+                            stationCode: nil,
+                            stationName: nil,
+                            shiftGroup: nil,
+                            shiftSlot: nil
+                        )
 
-                    guard let role = StaffRole(
-                        backendValue: result.membership.role
-                    ) else {
-                        supabaseProbeMessage = nil
-                        errorMessage =
-                            "La membresía devolvió un rol que la app " +
-                            "no reconoce: \(result.membership.role)."
-                        return
+                        print(
+                            "[Adquisiciones] Membresía verificada · " +
+                            "\(result.profile.employee_number) · \(result.membership.role.rawValue)"
+                        )
                     }
 
-                    // Sin contraseña: el correo entra sólo como dato
-                    // identificador del principal.
-                    let principal = SessionPrincipal(
-                        authUserId: result.authUserId.uuidString,
-                        profileId: result.profile.id.uuidString,
-                        name: result.profile.display_name,
-                        employeeNumber: result.profile.employee_number,
-                        email: cleanedIdentifier,
-                        role: role,
-                        environmentId: result.station.environment_id.uuidString,
-                        stationId: result.station.id.uuidString,
-                        stationCode: result.station.code,
-                        stationName: result.station.name,
-                        shiftGroup: result.shiftGroup
-                            .flatMap(ShiftGroup.init(rawValue:)),
-                        shiftSlot: result.shiftSlot
-                            .flatMap(ShiftSlot.init(rawValue:))
-                    )
+                    supabaseProbeMessage = """
+                    Acceso verificado
+                    \(principal.name)
+                    \(principal.role.label)
+                    """
+
+                    let role = principal.role
 
                     do {
                         // Supabase Auth accepts simultaneous sessions by design. Drivers
@@ -719,7 +718,7 @@ struct LoginView: View {
                             store.signOut()
                         }
                         supabaseProbeMessage = nil
-                        errorMessage = error.localizedDescription
+                        errorMessage = "No pudimos abrir tu sesión. Intenta de nuevo."
 
                         print(
                             "[15B.7] sesión no abierta · " +
@@ -738,11 +737,10 @@ struct LoginView: View {
                 } catch {
                     password = ""
                     supabaseProbeMessage = nil
-                    errorMessage =
-                        error.localizedDescription
+                    errorMessage = "No pudimos iniciar sesión. Revisa tus datos e intenta de nuevo."
 
                     print(
-                        "[15B.5] Auth/RLS probe failed · " +
+                        "[Sesión] Auth/RLS no resolvió la cuenta · " +
                         error.localizedDescription
                     )
                 }

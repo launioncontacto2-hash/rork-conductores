@@ -1,0 +1,308 @@
+BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
+SELECT plan(30);
+
+SELECT has_function(
+    'public', 'publish_acquisition_request',
+    ARRAY['text','text','integer','text','text[]','integer','integer','integer','text','timestamp with time zone','numeric','numeric','numeric','text'],
+    'existe el RPC para publicar solicitudes'
+);
+SELECT has_function(
+    'public', 'submit_acquisition_offer',
+    ARRAY['uuid','uuid','text','text','text','integer','integer','numeric','text','numeric','boolean','jsonb','text'],
+    'existe el RPC para enviar ofertas'
+);
+SELECT has_function(
+    'public', 'respond_acquisition_offer', ARRAY['uuid','text','numeric','text','text'],
+    'existe el RPC para negociacion y adjudicacion'
+);
+SELECT has_function(
+    'public', 'complete_acquisition_delivery', ARRAY['uuid','text','jsonb','text','text','numeric','text'],
+    'existe el RPC para entrega, recepcion y retencion'
+);
+
+CREATE TEMP TABLE test_acquisition_rpc_scope AS
+SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+
+INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
+SELECT fixture.id, scope.environment_id, fixture.employee_number, fixture.display_name, 'active'
+FROM test_acquisition_rpc_scope scope
+CROSS JOIN (VALUES
+    ('ad200000-0000-4000-8000-000000000001'::uuid, 'ADQ-RPC-ADMIN', 'Administrador DORI RPC'),
+    ('ad200000-0000-4000-8000-000000000002'::uuid, 'ADQ-RPC-PROV-A', 'Proveedor A RPC'),
+    ('ad200000-0000-4000-8000-000000000003'::uuid, 'ADQ-RPC-PROV-B', 'Proveedor B RPC')
+) fixture(id, employee_number, display_name);
+
+INSERT INTO public.acquisition_suppliers(id, environment_id, code, name, city)
+SELECT fixture.id, scope.environment_id, fixture.code, fixture.name, 'Puebla'
+FROM test_acquisition_rpc_scope scope
+CROSS JOIN (VALUES
+    ('ad210000-0000-4000-8000-000000000001'::uuid, 'ADQ-RPC-A', 'Agencia A RPC'),
+    ('ad210000-0000-4000-8000-000000000002'::uuid, 'ADQ-RPC-B', 'Agencia B RPC')
+) fixture(id, code, name);
+
+INSERT INTO public.acquisition_memberships(
+    id, environment_id, profile_id, supplier_id, role, status, starts_at
+)
+SELECT fixture.id, scope.environment_id, fixture.profile_id, fixture.supplier_id,
+       fixture.role, 'active', app.env_now(scope.environment_id) - interval '1 day'
+FROM test_acquisition_rpc_scope scope
+CROSS JOIN (VALUES
+    ('ad220000-0000-4000-8000-000000000001'::uuid, 'ad200000-0000-4000-8000-000000000001'::uuid, NULL::uuid, 'dori_admin'),
+    ('ad220000-0000-4000-8000-000000000002'::uuid, 'ad200000-0000-4000-8000-000000000002'::uuid, 'ad210000-0000-4000-8000-000000000001'::uuid, 'provider'),
+    ('ad220000-0000-4000-8000-000000000003'::uuid, 'ad200000-0000-4000-8000-000000000003'::uuid, 'ad210000-0000-4000-8000-000000000002'::uuid, 'provider')
+) fixture(id, profile_id, supplier_id, role);
+
+CREATE OR REPLACE FUNCTION app.auth_profile_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER
+SET search_path = ''
+AS $function$
+    SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+$function$;
+
+-- Administrador DORI publica una solicitud. La repeticion es idempotente.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.publish_acquisition_request(
+        'ADQ-RPC-001', '15 autos requeridos', 15, 'Dolphin Mini', ARRAY['Plus'],
+        2024, 2026, 30000, 'Puebla', NULL, 95, 85, 280000, 'adq-rpc-publish-1'
+    ) $sql$,
+    'Administrador DORI publica la solicitud'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.publish_acquisition_request(
+        'ADQ-RPC-001', '15 autos requeridos', 15, 'Dolphin Mini', ARRAY['Plus'],
+        2024, 2026, 30000, 'Puebla', NULL, 95, 85, 280000, 'adq-rpc-publish-1'
+    ) $sql$,
+    'publicar la misma solicitud con la misma llave es idempotente'
+);
+RESET ROLE;
+
+SELECT is(
+    (SELECT count(*)::bigint FROM public.acquisition_requests WHERE code = 'ADQ-RPC-001'),
+    1::bigint,
+    'la repeticion no duplica la solicitud'
+);
+
+CREATE TEMP TABLE test_acquisition_rpc_entities AS
+SELECT request.id AS request_id,
+       'ad240000-0000-4000-8000-000000000001'::uuid AS offer_id,
+       scope.environment_id,
+       scope.environment_id::text || '/ad210000-0000-4000-8000-000000000001/ad240000-0000-4000-8000-000000000001/' AS path_prefix
+FROM public.acquisition_requests request
+JOIN test_acquisition_rpc_scope scope ON scope.environment_id = request.environment_id
+WHERE request.code = 'ADQ-RPC-001';
+GRANT SELECT ON test_acquisition_rpc_entities TO authenticated;
+
+INSERT INTO storage.objects(id, bucket_id, name, owner_id, metadata)
+SELECT gen_random_uuid(), 'acquisition-evidence', entity.path_prefix || fixture.file_name,
+       'ad200000-0000-4000-8000-000000000002',
+       jsonb_build_object('mimetype', 'image/jpeg')
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES ('vin.jpg'), ('front.jpg'), ('dashboard.jpg')) fixture(file_name);
+
+-- Proveedor A envia la unidad. Toda recomendacion se calcula dentro del RPC.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.submit_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001',
+        (SELECT request_id FROM test_acquisition_rpc_entities),
+        'LGXCE6CB1S0000011', 'Dolphin Mini', 'Plus', 2025, 8400, 96,
+        'Blanco', 274000, true,
+        jsonb_build_array(
+            jsonb_build_object('kind','vin','path',(SELECT path_prefix || 'vin.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','front','path',(SELECT path_prefix || 'front.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','dashboard','path',(SELECT path_prefix || 'dashboard.jpg' FROM test_acquisition_rpc_entities))
+        ),
+        'adq-rpc-submit-1'
+    ) $sql$,
+    'Proveedor A envia una oferta con tres evidencias propias'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.submit_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001',
+        (SELECT request_id FROM test_acquisition_rpc_entities),
+        'LGXCE6CB1S0000011', 'Dolphin Mini', 'Plus', 2025, 8400, 96,
+        'Blanco', 274000, true,
+        jsonb_build_array(
+            jsonb_build_object('kind','vin','path',(SELECT path_prefix || 'vin.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','front','path',(SELECT path_prefix || 'front.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','dashboard','path',(SELECT path_prefix || 'dashboard.jpg' FROM test_acquisition_rpc_entities))
+        ),
+        'adq-rpc-submit-1'
+    ) $sql$,
+    'reenviar con la misma llave es idempotente'
+);
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001', 'award', NULL, NULL, 'adq-provider-award-denied'
+    ) $sql$,
+    '42501', 'dori_award_not_allowed',
+    'el proveedor no puede adjudicarse su propia unidad'
+);
+RESET ROLE;
+
+SELECT is((SELECT count(*)::bigint FROM public.acquisition_offers WHERE id = 'ad240000-0000-4000-8000-000000000001'), 1::bigint, 'la oferta idempotente existe una sola vez');
+SELECT is((SELECT count(*)::bigint FROM public.acquisition_evidence WHERE offer_id = 'ad240000-0000-4000-8000-000000000001'), 3::bigint, 'la oferta conserva tres evidencias');
+SELECT is((SELECT recommendation FROM public.acquisition_offer_assessments WHERE offer_id = 'ad240000-0000-4000-8000-000000000001'), 'buy', 'el servidor recomienda comprar la unidad viable');
+
+-- Proveedor B no puede leer ni actuar sobre la oferta de A.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000003', true);
+SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001', 'counteroffer', 260000, 'Intento ajeno', 'adq-rpc-cross-provider'
+    ) $sql$,
+    '42501', 'acquisition_offer_access_denied',
+    'Proveedor B no puede negociar la oferta de Proveedor A'
+);
+RESET ROLE;
+
+-- DORI contraoferta y el proveedor acepta.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001', 'counteroffer', 268000,
+        'Podemos cerrar en este precio.', 'adq-rpc-counter-1'
+    ) $sql$,
+    'DORI envia una contraoferta'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001', 'accept', NULL,
+        'Aceptamos.', 'adq-rpc-accept-1'
+    ) $sql$,
+    'Proveedor A acepta la contraoferta de DORI'
+);
+RESET ROLE;
+
+SELECT results_eq(
+    $sql$ SELECT status, agreed_price_mxn FROM public.acquisition_offers WHERE id = 'ad240000-0000-4000-8000-000000000001' $sql$,
+    $sql$ VALUES ('price_agreed'::text, 268000::numeric) $sql$,
+    'la oferta conserva el precio acordado'
+);
+
+-- Solo DORI adjudica.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000001', 'award', NULL,
+        'Unidad adjudicada.', 'adq-rpc-award-1'
+    ) $sql$,
+    'DORI adjudica la unidad al precio acordado'
+);
+RESET ROLE;
+
+CREATE TEMP TABLE test_acquisition_order AS
+SELECT id AS order_id FROM public.acquisition_orders
+WHERE offer_id = 'ad240000-0000-4000-8000-000000000001';
+GRANT SELECT ON test_acquisition_order TO authenticated;
+
+SELECT results_eq(
+    $sql$ SELECT status, final_price_mxn, payment_status FROM public.acquisition_orders WHERE id = (SELECT order_id FROM test_acquisition_order) $sql$,
+    $sql$ VALUES ('awarded'::text, 268000::numeric, 'simulated'::text) $sql$,
+    'la orden nace adjudicada con pago simulado'
+);
+
+-- Proveedor prepara; DORI recibe con una segunda llave faltante.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'ready', NULL, NULL,
+        'Unidad lista para entregar.', NULL, 'adq-rpc-ready-1'
+    ) $sql$,
+    'Proveedor A marca la unidad lista para entregar'
+);
+SELECT throws_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":false,"new_damage":false}'::jsonb,
+        'accepted_with_condition', 'Falta segunda llave.', 6000, 'adq-provider-receive-denied'
+    ) $sql$,
+    '42501', 'dori_reception_not_allowed',
+    'el proveedor no puede recibir su propia unidad'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":false,"new_damage":false}'::jsonb,
+        'accepted_with_condition', 'Falta segunda llave.', 6000, 'adq-rpc-receive-1'
+    ) $sql$,
+    'DORI acepta con condicion y retencion'
+);
+RESET ROLE;
+
+SELECT results_eq(
+    $sql$ SELECT recommended_result, result, hold_amount_mxn FROM public.acquisition_receptions WHERE order_id = (SELECT order_id FROM test_acquisition_order) $sql$,
+    $sql$ VALUES ('accepted_with_condition'::text, 'accepted_with_condition'::text, 6000::numeric) $sql$,
+    'el servidor recomienda y registra la condicion por llave faltante'
+);
+SELECT results_eq(
+    $sql$ SELECT status, amount_mxn FROM public.acquisition_holds WHERE order_id = (SELECT order_id FROM test_acquisition_order) $sql$,
+    $sql$ VALUES ('pending_supplier'::text, 6000::numeric) $sql$,
+    'la retencion queda pendiente del proveedor'
+);
+
+-- El proveedor resuelve y DORI confirma el cierre.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'resolve_condition', NULL, NULL,
+        'Segunda llave entregada.', NULL, 'adq-rpc-resolve-1'
+    ) $sql$,
+    'Proveedor A informa que resolvio el faltante'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'close_condition', NULL, NULL,
+        'Llave recibida y verificada.', NULL, 'adq-rpc-close-1'
+    ) $sql$,
+    'DORI confirma el faltante y cierra la adquisicion'
+);
+RESET ROLE;
+
+SELECT results_eq(
+    $sql$ SELECT status, payment_status, closed_at IS NOT NULL FROM public.acquisition_orders WHERE id = (SELECT order_id FROM test_acquisition_order) $sql$,
+    $sql$ VALUES ('closed'::text, 'simulated'::text, true) $sql$,
+    'la orden termina cerrada y el pago sigue simulado'
+);
+SELECT results_eq(
+    $sql$ SELECT status, supplier_resolution_note, resolved_at IS NOT NULL FROM public.acquisition_holds WHERE order_id = (SELECT order_id FROM test_acquisition_order) $sql$,
+    $sql$ VALUES ('resolved'::text, 'Segunda llave entregada.'::text, true) $sql$,
+    'la retencion conserva la resolucion y confirmacion'
+);
+SELECT is(
+    (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-rpc-%'),
+    9::bigint,
+    'las nueve decisiones exitosas quedan en command_log sin duplicados'
+);
+SELECT is(
+    (SELECT count(*)::bigint FROM public.audit_log WHERE event_type LIKE 'acquisition.%' AND actor_profile_id IN (
+        'ad200000-0000-4000-8000-000000000001'::uuid,
+        'ad200000-0000-4000-8000-000000000002'::uuid
+    )),
+    9::bigint,
+    'las nueve decisiones exitosas reutilizan audit_log'
+);
+
+SELECT * FROM finish();
+ROLLBACK;

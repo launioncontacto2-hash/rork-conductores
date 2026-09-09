@@ -479,6 +479,7 @@ extension StaffRole {
         case .maintenance: Palette.textMuted
         case .driver: Palette.textMuted
         case .lab: Palette.amber
+        case .doriAdmin, .provider: Palette.volt
         }
     }
 }
