@@ -215,7 +215,7 @@ struct BackendRecruitmentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     @ViewBuilder
@@ -240,7 +240,7 @@ struct BackendRecruitmentView: View {
             metric("Altas", model.hirings.filter { $0.status == "completed" }.count)
         }
         .padding(14)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     private func metric(_ label: String, _ value: Int) -> some View {
@@ -269,7 +269,7 @@ struct BackendRecruitmentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Palette.panel, in: RoundedRectangle(cornerRadius: 22))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22))
     }
 
     private func candidateRow(_ candidate: SupabaseHiringService.CandidateRow) -> some View {
