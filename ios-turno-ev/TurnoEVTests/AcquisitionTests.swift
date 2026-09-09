@@ -186,5 +186,22 @@ struct AcquisitionViewModelTests {
             if let failure { throw failure }
             return []
         }
+
+        func submitOffer(
+            _ submission: AcquisitionOfferSubmission,
+            membership: AcquisitionMembership
+        ) async throws -> AcquisitionOfferSummary {
+            if let failure { throw failure }
+            return AcquisitionOfferSummary(
+                id: submission.offerID,
+                requestID: submission.requestID,
+                status: "submitted",
+                model: submission.model,
+                version: submission.version,
+                year: submission.year,
+                mileage: submission.mileage,
+                priceMxn: submission.priceMxn
+            )
+        }
     }
 }

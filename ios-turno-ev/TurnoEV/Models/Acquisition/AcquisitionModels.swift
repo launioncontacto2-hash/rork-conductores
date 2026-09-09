@@ -72,6 +72,59 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let requestID: UUID
     let status: String
+    let model: String
+    let version: String?
+    let year: Int
+    let mileage: Int
+    let priceMxn: Int
+    let transferIncluded: Bool
+    let submittedAt: Date?
+
+    init(
+        id: UUID,
+        requestID: UUID,
+        status: String,
+        model: String = "",
+        version: String? = nil,
+        year: Int = 0,
+        mileage: Int = 0,
+        priceMxn: Int = 0,
+        transferIncluded: Bool = false,
+        submittedAt: Date? = nil
+    ) {
+        self.id = id
+        self.requestID = requestID
+        self.status = status
+        self.model = model
+        self.version = version
+        self.year = year
+        self.mileage = mileage
+        self.priceMxn = priceMxn
+        self.transferIncluded = transferIncluded
+        self.submittedAt = submittedAt
+    }
+
+    var modelAndVersion: String {
+        guard let version, !version.isEmpty else { return model }
+        return "\(model) \(version)"
+    }
+
+    var mileageText: String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "es_MX")
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: mileage as NSNumber) ?? "\(mileage)"
+    }
+
+    var priceText: String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "es_MX")
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "MXN"
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: priceMxn as NSNumber) ?? "$\(priceMxn)"
+    }
 }
 
 nonisolated struct AcquisitionRequestSummary: Equatable, Sendable {

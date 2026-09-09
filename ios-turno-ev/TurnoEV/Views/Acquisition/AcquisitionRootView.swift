@@ -4,11 +4,13 @@ struct AcquisitionRootView: View {
     @Environment(FleetStore.self) private var fleet
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AcquisitionViewModel
+    private let repository: any AcquisitionRepository
 
     init(
         principal: SessionPrincipal,
         repository: any AcquisitionRepository = SupabaseAcquisitionRepository()
     ) {
+        self.repository = repository
         _model = State(
             initialValue: AcquisitionViewModel(principal: principal, repository: repository)
         )
@@ -32,6 +34,7 @@ struct AcquisitionRootView: View {
                 guard phase == .active else { return }
                 Task { await model.load() }
             }
+            .onDisappear { model.stopObserving() }
         }
     }
 
@@ -65,13 +68,24 @@ struct AcquisitionRootView: View {
                     Group {
                         switch model.destination {
                         case .administrator:
-                            AcquisitionAdministratorHome(summary: summary)
+                            AcquisitionAdministratorHome(summary: summary, offers: model.offers)
                         case .provider:
-                            AcquisitionProviderHome(
-                                summary: summary,
-                                requestCount: model.requests.count,
-                                offers: model.offers
-                            )
+                            if let membership = model.membership {
+                                AcquisitionProviderHome(
+                                    summary: summary,
+                                    requestCount: model.requests.count,
+                                    offers: model.offers,
+                                    membership: membership,
+                                    repository: repository,
+                                    onSubmitted: { _ in Task { await model.load() } }
+                                )
+                            } else {
+                                message(
+                                    symbol: "lock.shield.fill",
+                                    title: "Acceso no permitido.",
+                                    action: nil
+                                )
+                            }
                         case nil:
                             message(
                                 symbol: "lock.shield.fill",
@@ -113,6 +127,7 @@ struct AcquisitionRootView: View {
 
 private struct AcquisitionAdministratorHome: View {
     let summary: AcquisitionRequestSummary
+    let offers: [AcquisitionOfferSummary]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -138,6 +153,30 @@ private struct AcquisitionAdministratorHome: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Palette.volt)
+
+            if let offer = offers.first {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Nueva propuesta")
+                        .font(.headline)
+                    Text("\(offer.modelAndVersion) \(offer.year)")
+                        .font(.title3.weight(.bold))
+                    Text("\(offer.mileageText) km")
+                        .foregroundStyle(Palette.textMuted)
+                    Text(offer.priceText)
+                        .font(.title2.weight(.black))
+
+                    NavigationLink {
+                        AcquisitionOfferReviewView(offer: offer)
+                    } label: {
+                        Label("Revisar", systemImage: "arrow.right")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Palette.volt)
+                }
+                .padding(18)
+                .panel()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -157,7 +196,9 @@ private struct AcquisitionProviderHome: View {
     let summary: AcquisitionRequestSummary
     let requestCount: Int
     let offers: [AcquisitionOfferSummary]
-    @State private var isNextBlockNoticePresented = false
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    let onSubmitted: (AcquisitionOfferSummary) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -170,8 +211,13 @@ private struct AcquisitionProviderHome: View {
 
             requestCard(summary.request)
 
-            Button {
-                isNextBlockNoticePresented = true
+            NavigationLink {
+                AcquisitionOfferFormView(
+                    request: summary.request,
+                    membership: membership,
+                    repository: repository,
+                    onSubmitted: onSubmitted
+                )
             } label: {
                 Label("Tengo unidades", systemImage: "car.fill")
                     .font(.headline)
@@ -180,23 +226,60 @@ private struct AcquisitionProviderHome: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Palette.volt)
-            .alert("Próximamente", isPresented: $isNextBlockNoticePresented) {
-                Button("Entendido", role: .cancel) {}
-            } message: {
-                Text("El registro de unidades estará disponible en el siguiente bloque.")
-            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Mis operaciones")
                     .font(.headline)
-                Text(offers.isEmpty
-                     ? "Aún no tienes operaciones."
-                     : "Tienes \(offers.count) operaciones en curso.")
-                    .foregroundStyle(Palette.textMuted)
+                if offers.isEmpty {
+                    Text("Aún no tienes operaciones.")
+                        .foregroundStyle(Palette.textMuted)
+                } else {
+                    ForEach(offers.prefix(3)) { offer in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(offer.modelAndVersion) \(offer.year)")
+                                .font(.subheadline.weight(.bold))
+                            Text("\(offer.mileageText) km · \(offer.priceText)")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .panelFlat()
+                    }
+                }
             }
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AcquisitionOfferReviewView: View {
+    let offer: AcquisitionOfferSummary
+
+    var body: some View {
+        ZStack {
+            StationBackground()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Propuesta recibida")
+                    .font(.system(.title2, weight: .black))
+                Text("\(offer.modelAndVersion) \(offer.year)")
+                    .font(.title3.weight(.bold))
+                Text("\(offer.mileageText) km")
+                Text(offer.priceText)
+                    .font(.title.weight(.black))
+                Text(offer.transferIncluded
+                     ? "Incluye traslado a Puebla."
+                     : "No incluye traslado a Puebla.")
+                    .foregroundStyle(Palette.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .panel()
+            .padding(18)
+        }
+        .navigationTitle("Revisar propuesta")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

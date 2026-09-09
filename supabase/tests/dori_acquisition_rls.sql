@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(16);
+SELECT plan(17);
 
 CREATE TEMP TABLE test_acquisition_tables(table_name name PRIMARY KEY);
 INSERT INTO test_acquisition_tables(table_name) VALUES
@@ -52,6 +52,7 @@ SELECT is(
 
 CREATE TEMP TABLE test_acquisition_scope AS
 SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+GRANT SELECT ON test_acquisition_scope TO authenticated;
 
 INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
 SELECT fixture.id, scope.environment_id, fixture.employee_number, fixture.display_name, 'active'
@@ -139,6 +140,23 @@ SET search_path = ''
 AS $function$
     SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
 $function$;
+
+SELECT set_config('request.jwt.claim.sub', 'ad100000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$
+    INSERT INTO storage.objects(id, bucket_id, name, owner_id, metadata)
+    SELECT gen_random_uuid(), 'acquisition-evidence',
+           environment_id::text
+               || '/ad110000-0000-4000-8000-000000000001'
+               || '/ad150000-0000-4000-8000-000000000001/vin.jpg',
+           'ad100000-0000-4000-8000-000000000002',
+           jsonb_build_object('mimetype', 'image/jpeg')
+    FROM test_acquisition_scope
+    $sql$,
+    'el proveedor puede subir evidencia a la ruta contractual de tres carpetas'
+);
+RESET ROLE;
 
 CREATE TEMP TABLE test_acquisition_visibility(
     actor text PRIMARY KEY,

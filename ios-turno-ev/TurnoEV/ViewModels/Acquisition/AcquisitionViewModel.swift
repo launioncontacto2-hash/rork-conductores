@@ -14,6 +14,7 @@ nonisolated enum AcquisitionLoadState: Equatable, Sendable {
 final class AcquisitionViewModel {
     let principal: SessionPrincipal
     private let repository: any AcquisitionRepository
+    private let realtime = AcquisitionRealtimeObserver()
 
     var state: AcquisitionLoadState = .idle
     var membership: AcquisitionMembership?
@@ -59,6 +60,10 @@ final class AcquisitionViewModel {
             requests = loadedRequests
             offers = loadedOffers
             state = loadedRequests.isEmpty ? .empty : .content
+
+            realtime.start(environmentID: loadedMembership.environmentID) { [weak self] in
+                Task { await self?.load() }
+            }
         } catch {
             membership = nil
             requests = []
@@ -66,6 +71,10 @@ final class AcquisitionViewModel {
             state = .failed
             print("[Adquisiciones] No se pudo cargar el módulo: \(error.localizedDescription)")
         }
+    }
+
+    func stopObserving() {
+        realtime.stop()
     }
 
     nonisolated enum ViewModelError: LocalizedError {

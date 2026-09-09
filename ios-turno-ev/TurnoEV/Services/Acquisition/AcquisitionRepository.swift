@@ -6,12 +6,16 @@ protocol AcquisitionRepository {
     func loadMembership(profileID: UUID) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary
 }
 
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let offerColumns = "id, request_id, status"
+    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, submitted_at"
 }
 
 @MainActor
@@ -51,6 +55,34 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let id: UUID
         let request_id: UUID
         let status: String
+        let model: String
+        let version: String?
+        let year: Int
+        let mileage: Int
+        let price_mxn: Int
+        let transfer_included: Bool
+        let submitted_at: Date?
+    }
+
+    nonisolated struct EvidenceReference: Encodable, Sendable {
+        let kind: String
+        let path: String
+    }
+
+    nonisolated struct SubmitOfferParameters: Encodable, Sendable {
+        let p_offer_id: UUID
+        let p_request_id: UUID
+        let p_vin: String
+        let p_model: String
+        let p_version: String?
+        let p_year: Int
+        let p_mileage: Int
+        let p_declared_soh: Int?
+        let p_color: String
+        let p_price_mxn: Int
+        let p_transfer_included: Bool
+        let p_evidence: [EvidenceReference]
+        let p_idempotency_key: String
     }
 
     enum RepositoryError: LocalizedError {
@@ -59,6 +91,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         case multipleMemberships(Int)
         case invalidRole(String)
         case invalidScope(AcquisitionRole)
+        case evidenceRequired
+        case evidenceTooLarge
 
         var errorDescription: String? {
             switch self {
@@ -72,6 +106,10 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                 "La membresía de adquisición devolvió un rol no reconocido: \(role)."
             case .invalidScope(let role):
                 "La membresía de \(role.rawValue) tiene un alcance de proveedor inválido."
+            case .evidenceRequired:
+                "La propuesta requiere las tres fotografías."
+            case .evidenceTooLarge:
+                "Una fotografía supera el límite permitido de 10 MB."
             }
         }
     }
@@ -139,12 +177,72 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let rows: [OfferRow] = try await client
             .from("acquisition_offers")
             .select(AcquisitionQueries.offerColumns)
+            .order("submitted_at", ascending: false)
             .execute()
             .value
 
-        return rows.map {
-            AcquisitionOfferSummary(id: $0.id, requestID: $0.request_id, status: $0.status)
+        return rows.map { Self.offer(from: $0) }
+    }
+
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
         }
+        guard membership.role == .provider, let supplierID = membership.supplierID else {
+            throw RepositoryError.invalidScope(membership.role)
+        }
+        guard submission.evidence.count == AcquisitionEvidenceKind.allCases.count else {
+            throw RepositoryError.evidenceRequired
+        }
+
+        let bucket = client.storage.from("acquisition-evidence")
+        var references: [EvidenceReference] = []
+        for item in submission.evidence {
+            guard !item.data.isEmpty else { throw RepositoryError.evidenceRequired }
+            guard item.data.count <= 10 * 1_024 * 1_024 else {
+                throw RepositoryError.evidenceTooLarge
+            }
+
+            let path = AcquisitionEvidencePath.make(
+                environmentID: membership.environmentID,
+                supplierID: supplierID,
+                offerID: submission.offerID,
+                kind: item.kind
+            )
+            try await bucket.upload(
+                path,
+                data: item.data,
+                options: FileOptions(contentType: "image/jpeg", upsert: false)
+            )
+            references.append(EvidenceReference(kind: item.kind.rawValue, path: path))
+        }
+
+        let row: OfferRow = try await client
+            .rpc(
+                "submit_acquisition_offer",
+                params: SubmitOfferParameters(
+                    p_offer_id: submission.offerID,
+                    p_request_id: submission.requestID,
+                    p_vin: submission.vin,
+                    p_model: submission.model,
+                    p_version: submission.version,
+                    p_year: submission.year,
+                    p_mileage: submission.mileage,
+                    p_declared_soh: submission.declaredSoh,
+                    p_color: submission.color,
+                    p_price_mxn: submission.priceMxn,
+                    p_transfer_included: submission.transferIncluded,
+                    p_evidence: references,
+                    p_idempotency_key: submission.idempotencyKey
+                )
+            )
+            .execute()
+            .value
+
+        return Self.offer(from: row)
     }
 
     nonisolated static func request(from row: RequestRow) -> AcquisitionRequest {
@@ -160,6 +258,21 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             maximumMileage: row.maximum_mileage,
             deliveryCity: row.delivery_city,
             deadlineAt: row.deadline_at
+        )
+    }
+
+    nonisolated static func offer(from row: OfferRow) -> AcquisitionOfferSummary {
+        AcquisitionOfferSummary(
+            id: row.id,
+            requestID: row.request_id,
+            status: row.status,
+            model: row.model,
+            version: row.version,
+            year: row.year,
+            mileage: row.mileage,
+            priceMxn: row.price_mxn,
+            transferIncluded: row.transfer_included,
+            submittedAt: row.submitted_at
         )
     }
 }
@@ -254,4 +367,21 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
     }
     func loadRequests() async throws -> [AcquisitionRequest] { requests }
     func loadOffers() async throws -> [AcquisitionOfferSummary] { offers }
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary {
+        AcquisitionOfferSummary(
+            id: submission.offerID,
+            requestID: submission.requestID,
+            status: "submitted",
+            model: submission.model,
+            version: submission.version,
+            year: submission.year,
+            mileage: submission.mileage,
+            priceMxn: submission.priceMxn,
+            transferIncluded: submission.transferIncluded,
+            submittedAt: Date()
+        )
+    }
 }
