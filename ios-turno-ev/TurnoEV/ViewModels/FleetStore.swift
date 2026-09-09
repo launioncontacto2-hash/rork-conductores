@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Supabase
 
 /// Why a proved identity was still not allowed to open a session.
 ///
