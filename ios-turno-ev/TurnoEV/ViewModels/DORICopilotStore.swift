@@ -65,7 +65,7 @@ final class DORICopilotStore {
         do {
             switch mode {
             case .local:
-                state = .local(try DORILocalCopilotService().evaluate(input))
+                state = .local(try await DORILocalCopilotService().evaluate(input))
             case .remote:
                 state = .persisted(try await DORIRemoteCopilotService.evaluateAndPersist(input))
             }
