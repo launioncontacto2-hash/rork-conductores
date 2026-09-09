@@ -149,9 +149,10 @@ jobs:
             -scheme "$SCHEME" \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination "generic/platform=iOS Simulator" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            ASSETCATALOG_COMPILER_APPICON_NAME= \
             CODE_SIGNING_ALLOWED=NO \
             | tee ios-build.log
 
@@ -181,6 +182,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             -only-testing:TurnoEVTests/DORICopilotContractTests \
             -resultBundlePath TestResults/DORICopilotContractTests.xcresult \
+            ASSETCATALOG_COMPILER_APPICON_NAME= \
             CODE_SIGNING_ALLOWED=NO \
             | tee dori-contract-tests.log
 
@@ -198,6 +200,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             -only-testing:TurnoEVTests \
             -resultBundlePath TestResults/TurnoEVTests.xcresult \
+            ASSETCATALOG_COMPILER_APPICON_NAME= \
             CODE_SIGNING_ALLOWED=NO \
             | tee ios-tests.log
 
