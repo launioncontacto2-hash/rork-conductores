@@ -332,7 +332,7 @@ struct CredentialFormView: View {
             CapsLabel(text: "Identidad")
             field(title: "Nombre completo", text: $name, placeholder: "Nombre y apellidos")
             field(title: "Número de empleado", text: $employeeNumber, placeholder: "EV-SUP-000")
-            field(title: "Correo institucional", text: $email, placeholder: "nombre@turnoev.mx", isEmail: true)
+            field(title: "Correo institucional", text: $email, placeholder: "nombre@empresa.com", isEmail: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

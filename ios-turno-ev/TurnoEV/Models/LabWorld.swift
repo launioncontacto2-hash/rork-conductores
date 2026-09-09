@@ -135,7 +135,6 @@ nonisolated struct LabWorld: Codable, Sendable {
             name: user.name,
             employeeNumber: user.employeeNumber,
             email: user.email.lowercased(),
-            password: user.password,
             photoAsset: "rideshare_driver_portrait",
             stationId: stationId,
             station: station(id: stationId)?.displayName ?? "—",

@@ -2,21 +2,21 @@
   "$schema": "https://rork.com/schema/rork.json",
   "apps": [
     {
-      "name": "Turno EV",
+      "name": "DORI Operaciones",
       "path": "ios-turno-ev",
       "framework": "swift",
       "settings": {
         "iosBundleId": "com.turnoev.mobility",
-        "displayName": "TurnoEV"
+        "displayName": "DORI"
       }
     },
     {
-      "name": "Turno EV Web",
+      "name": "Consola DORI",
       "path": "web",
       "framework": "web"
     },
     {
-      "name": "Turno EV Android",
+      "name": "DORI Android",
       "path": "android",
       "framework": "kotlin"
     }

@@ -30,7 +30,6 @@ export interface StaffAccount {
   name: string;
   employeeNumber: string;
   email: string;
-  password: string;
   role: StaffRole;
   /** Home station; null for regional and national scopes. */
   stationId: string | null;
@@ -151,7 +150,6 @@ export const ROLE: Record<StaffRole, RoleDefinition> = {
     registrationNote: "Tú generas los registros de gerentes regionales y supervisores.",
   },
 };
-
 export const REGIONS: Region[] = [
   { id: "reg-vm", name: "Valle de México", stationIds: ["est-nte-cdmx", "est-sur-cdmx"] },
   { id: "reg-occ", name: "Occidente", stationIds: ["est-gdl-chap"] },
@@ -189,8 +187,7 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     id: "acc-dir-001",
     name: "Renata Salgado Aguirre",
     employeeNumber: "EV-DIR-001",
-    email: "direccion.nacional@turnoev.mx",
-    password: "Direccion14",
+    email: "direccion.nacional@dori.invalid",
     role: "national",
     stationId: null,
     regionId: null,
@@ -205,8 +202,7 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     id: "acc-ger-045",
     name: "Mariana Ochoa Vela",
     employeeNumber: "EV-GER-045",
-    email: "gerencia.valledemexico@turnoev.mx",
-    password: "Gerencia14",
+    email: "gerencia.valledemexico@dori.invalid",
     role: "manager",
     stationId: null,
     regionId: "reg-vm",
@@ -221,8 +217,7 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     id: "acc-sup-201",
     name: "Ana Lucía Torres",
     employeeNumber: "EV-SUP-201",
-    email: "supervision.norte.am@turnoev.mx",
-    password: "Supervisor14",
+    email: "supervision.norte.am@dori.invalid",
     role: "supervisor",
     stationId: "est-nte-cdmx",
     regionId: "reg-vm",
@@ -237,8 +232,7 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     id: "acc-sup-202",
     name: "Iván Ramírez Cruz",
     employeeNumber: "EV-SUP-202",
-    email: "supervision.norte.pm@turnoev.mx",
-    password: "Supervisor14",
+    email: "supervision.norte.pm@dori.invalid",
     role: "supervisor",
     stationId: "est-nte-cdmx",
     regionId: "reg-vm",
@@ -253,8 +247,7 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     id: "acc-mto-118",
     name: "Luis Ángel Pech",
     employeeNumber: "EV-MTO-118",
-    email: "mantenimiento.norte@turnoev.mx",
-    password: "Taller14",
+    email: "mantenimiento.norte@dori.invalid",
     role: "maintenance",
     stationId: "est-nte-cdmx",
     regionId: "reg-vm",
@@ -270,7 +263,6 @@ export const STAFF_ACCOUNTS: StaffAccount[] = [
     name: "Carlos Méndez Rivas",
     employeeNumber: "EV-1042",
     email: "launion.contacto2@gmail.com",
-    password: "Kymyly14",
     role: "driver",
     stationId: "est-nte-cdmx",
     regionId: "reg-vm",
@@ -321,42 +313,4 @@ export const scopeDescription = (account: StaffAccount): string => {
     case "national":
       return `${STATIONS.length} estaciones · ${REGIONS.length} regiones`;
   }
-};
-
-export type AuthOutcome =
-  | { status: "granted"; account: StaffAccount }
-  | { status: "unknown_identity"; message: string }
-  | { status: "wrong_password"; message: string }
-  | { status: "suspended"; message: string }
-  | { status: "missing_assignment"; message: string };
-
-/** Validates an identifier (email or employee number) plus password. */
-export const authenticateStaff = (identifier: string, password: string): AuthOutcome => {
-  const cleaned = identifier.trim();
-  const byEmail = cleaned.toLowerCase();
-  const byEmployee = cleaned.toUpperCase();
-  const account = STAFF_ACCOUNTS.find(
-    (item) => item.email === byEmail || item.employeeNumber === byEmployee,
-  );
-
-  if (!cleaned || !account) {
-    return { status: "unknown_identity", message: "No encontramos esa cuenta en la red de estaciones." };
-  }
-  if (account.password !== password) {
-    return { status: "wrong_password", message: "Contraseña incorrecta. Verifica e intenta de nuevo." };
-  }
-  if (account.status !== "active") {
-    return { status: "suspended", message: "Cuenta suspendida. Contacta a tu gerente regional." };
-  }
-
-  const needsStation =
-    account.role === "driver" || account.role === "supervisor" || account.role === "maintenance";
-  if ((needsStation && !account.stationId) || (account.role === "manager" && !account.regionId)) {
-    return {
-      status: "missing_assignment",
-      message: "Tu cuenta no tiene estación asignada. Contacta a dirección.",
-    };
-  }
-
-  return { status: "granted", account };
 };

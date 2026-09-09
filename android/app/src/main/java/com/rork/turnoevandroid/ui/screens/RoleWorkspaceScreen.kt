@@ -89,7 +89,7 @@ fun RoleWorkspaceScreen(
                     role.workspaceTitle,
                     style = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Black, color = Palette.textPrimary),
                 )
-                CapsLabel("Turno EV · red nacional")
+                CapsLabel("DORI · red operativa")
             }
             Spacer(Modifier.weight(1f))
             DemoClockButton(viewModel, now, state.clockOffsetMinutes)

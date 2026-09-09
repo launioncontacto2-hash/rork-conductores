@@ -221,7 +221,7 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
-                        "TURNO EV",
+                        "DORI",
                         style = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Black, color = Palette.textPrimary),
                     )
                     CapsLabel("Acceso por rol y estación")
@@ -277,7 +277,7 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
                     PanelTextField(
                         value = identifier,
                         onValueChange = { identifier = it },
-                        placeholder = if (credentialMode == CredentialMode.EMAIL) "correo@turnoev.mx" else "EV-1042",
+                        placeholder = if (credentialMode == CredentialMode.EMAIL) "correo@empresa.com" else "Número de empleado",
                         icon = if (credentialMode == CredentialMode.EMAIL) {
                             Icons.Filled.AlternateEmail
                         } else {
@@ -383,7 +383,6 @@ fun LoginScreen(viewModel: FleetViewModel, state: FleetState) {
             onPick = { account ->
                 credentialMode = CredentialMode.EMAIL
                 identifier = account.email
-                password = account.password
                 mode = LoginMode.CREDENTIALS
                 errorMessage = null
                 isDirectoryOpen = false
@@ -594,7 +593,7 @@ private fun DirectorySheet(onDismiss: () -> Unit, onPick: (StaffAccount) -> Unit
                         style = TextStyle(fontSize = 12.sp, color = Palette.textMuted),
                     )
                     Text(
-                        "${account.email} · ${account.password}",
+                        account.email,
                         style = TextStyle(fontSize = 11.sp, color = Palette.textMuted),
                     )
                 }

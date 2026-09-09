@@ -40,9 +40,14 @@ const sameIdentity = (left: ConsoleIdentity | null, right: ConsoleIdentity) =>
   );
 
 const getInstallId = (): string => {
-  const key = "turnoev.console.install-id";
+  const key = "dori.console.install-id";
   const existing = window.sessionStorage.getItem(key);
   if (existing) return existing;
+  const legacy = window.sessionStorage.getItem("turnoev.console.install-id");
+  if (legacy) {
+    window.sessionStorage.setItem(key, legacy);
+    return legacy;
+  }
   const created = crypto.randomUUID();
   window.sessionStorage.setItem(key, created);
   return created;
@@ -105,7 +110,7 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
           p_install_id: getInstallId(),
           p_active_membership_id: resolved.membership_id,
           p_platform: "web",
-          p_app_version: "console-0.1",
+          p_app_version: "dori-console-1.0",
         });
         if (heartbeatError) {
           await revokeAccess("La membresía dejó de estar vigente durante el acceso.");
@@ -126,13 +131,30 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
       statuses.set(name, status === "SUBSCRIBED");
       setRealtimeConnections([...statuses.values()].filter(Boolean).length);
     };
+    const refreshStationSnapshot = () =>
+      queryClient.invalidateQueries({ queryKey: [CONSOLE_QUERY_PREFIX] });
 
     const stationChannel = supabase
       .channel(`station:${identity.station_id}:ops`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "station_live", filter: `station_id=eq.${identity.station_id}` },
-        () => queryClient.invalidateQueries({ queryKey: [CONSOLE_QUERY_PREFIX] }),
+        refreshStationSnapshot,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "incidents", filter: `station_id=eq.${identity.station_id}` },
+        refreshStationSnapshot,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "work_orders", filter: `station_id=eq.${identity.station_id}` },
+        refreshStationSnapshot,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coverage_vacancies", filter: `station_id=eq.${identity.station_id}` },
+        refreshStationSnapshot,
       )
       .subscribe((status) => updateCount("station", status));
 
@@ -157,7 +179,7 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
           p_install_id: getInstallId(),
           p_active_membership_id: identity.membership_id,
           p_platform: "web",
-          p_app_version: "console-0.1",
+          p_app_version: "dori-console-1.0",
         })
         .then(({ error }) => {
           if (error) void revokeAccess("Tu membresía ya no autoriza esta consola.");

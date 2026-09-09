@@ -46,7 +46,6 @@ nonisolated struct Driver: Codable, Identifiable, Sendable {
     let name: String
     let employeeNumber: String
     let email: String
-    let password: String
     let photoAsset: String
     /// Station the driver belongs to; work can only start in this station.
     let stationId: String

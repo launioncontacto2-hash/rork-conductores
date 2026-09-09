@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(24);
+SELECT plan(26);
 
 SELECT has_table('public', 'shifts', 'existe la tabla shifts');
 SELECT has_table('public', 'shift_readings', 'existe la tabla shift_readings');
@@ -185,6 +185,39 @@ SELECT set_config(
     'request.jwt.claims',
     '{"session_id":"15d60000-0000-4000-8000-000000000003"}', true
 );
+CREATE TEMP TABLE test_15d_evidence AS
+SELECT
+    scope.environment_id::text || '/' || scope.station_id::text ||
+        '/15d00000-0000-4000-8000-000000000003/other/start-odometer.jpg'
+        AS other_start_odometer,
+    scope.environment_id::text || '/' || scope.station_id::text ||
+        '/15d00000-0000-4000-8000-000000000003/other/start-battery.jpg'
+        AS other_start_battery,
+    scope.environment_id::text || '/' || scope.station_id::text ||
+        '/15d00000-0000-4000-8000-000000000002/driver/start-odometer.jpg'
+        AS driver_start_odometer,
+    scope.environment_id::text || '/' || scope.station_id::text ||
+        '/15d00000-0000-4000-8000-000000000002/driver/start-battery.jpg'
+        AS driver_start_battery,
+    scope.environment_id::text || '/' || scope.station_id::text ||
+        '/15d00000-0000-4000-8000-000000000002/driver/finish-odometer.jpg'
+        AS driver_finish_odometer
+FROM test_15d_scope scope;
+
+GRANT SELECT ON test_15d_evidence TO authenticated;
+
+INSERT INTO storage.objects(bucket_id, name, owner_id, metadata)
+SELECT 'shift-evidence', evidence_path, owner_id, '{"mimetype":"image/jpeg","size":100}'::jsonb
+FROM test_15d_evidence evidence
+CROSS JOIN LATERAL (
+    VALUES
+        (evidence.other_start_odometer, '15d00000-0000-4000-8000-000000000003'::text),
+        (evidence.other_start_battery, '15d00000-0000-4000-8000-000000000003'::text),
+        (evidence.driver_start_odometer, '15d00000-0000-4000-8000-000000000002'::text),
+        (evidence.driver_start_battery, '15d00000-0000-4000-8000-000000000002'::text),
+        (evidence.driver_finish_odometer, '15d00000-0000-4000-8000-000000000002'::text)
+) AS object_fixture(evidence_path, owner_id);
+
 SET LOCAL ROLE authenticated;
 
 DO $block$
@@ -195,9 +228,12 @@ $block$;
 
 SELECT throws_ok(
     $sql$
-        SELECT public.start_shift_v2(
+        SELECT public.start_shift_v3(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-denied', '15d-install-other'
+            1001, 79,
+            (SELECT other_start_odometer FROM test_15d_evidence),
+            (SELECT other_start_battery FROM test_15d_evidence),
+            '15d-start-denied', '15d-install-other'
         )
     $sql$,
     '42501',
@@ -224,9 +260,12 @@ $block$;
 
 SELECT lives_ok(
     $sql$
-        SELECT public.start_shift_v2(
+        SELECT public.start_shift_v3(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-1', '15d-install-driver'
+            1001, 79,
+            (SELECT driver_start_odometer FROM test_15d_evidence),
+            (SELECT driver_start_battery FROM test_15d_evidence),
+            '15d-start-1', '15d-install-driver'
         )
     $sql$,
     'el conductor abre su turno dentro de la ventana'
@@ -259,6 +298,12 @@ SELECT is(
     'la apertura registra una lectura inicial'
 );
 
+SELECT is(
+    (SELECT count(*)::bigint FROM public.shift_evidence WHERE kind LIKE 'start_%'),
+    2::bigint,
+    'la apertura registra las dos fotografias privadas'
+);
+
 SELECT results_eq(
     $sql$
         SELECT odometer_km, battery_pct, status
@@ -272,9 +317,12 @@ SELECT results_eq(
 SET LOCAL ROLE authenticated;
 SELECT lives_ok(
     $sql$
-        SELECT public.start_shift_v2(
+        SELECT public.start_shift_v3(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1001, 79, '15d-start-1', '15d-install-driver'
+            1001, 79,
+            (SELECT driver_start_odometer FROM test_15d_evidence),
+            (SELECT driver_start_battery FROM test_15d_evidence),
+            '15d-start-1', '15d-install-driver'
         )
     $sql$,
     'repetir la clave de apertura devuelve el mismo turno'
@@ -290,9 +338,12 @@ SELECT is(
 SET LOCAL ROLE authenticated;
 SELECT throws_ok(
     $sql$
-        SELECT public.start_shift_v2(
+        SELECT public.start_shift_v3(
             '15d50000-0000-4000-8000-000000000001'::uuid,
-            1002, 79, '15d-start-1', '15d-install-driver'
+            1002, 79,
+            (SELECT driver_start_odometer FROM test_15d_evidence),
+            (SELECT driver_start_battery FROM test_15d_evidence),
+            '15d-start-1', '15d-install-driver'
         )
     $sql$,
     '23505', 'idempotency_key_conflict',
@@ -301,9 +352,11 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $sql$
-        SELECT public.finish_shift_v2(
+        SELECT public.finish_shift_v3(
             (SELECT id FROM public.shifts LIMIT 1),
-            9, 1010, 60, '15d-finish-wrong-revision', '15d-install-driver'
+            9, 1010, 60,
+            (SELECT driver_finish_odometer FROM test_15d_evidence),
+            '15d-finish-wrong-revision', '15d-install-driver'
         )
     $sql$,
     '40001', 'shift_revision_conflict',
@@ -312,9 +365,11 @@ SELECT throws_ok(
 
 SELECT lives_ok(
     $sql$
-        SELECT public.finish_shift_v2(
+        SELECT public.finish_shift_v3(
             (SELECT id FROM public.shifts LIMIT 1),
-            1, 1010, 60, '15d-finish-1', '15d-install-driver'
+            1, 1010, 60,
+            (SELECT driver_finish_odometer FROM test_15d_evidence),
+            '15d-finish-1', '15d-install-driver'
         )
     $sql$,
     'el conductor cierra su turno con la revision vigente'
@@ -328,6 +383,12 @@ SELECT results_eq(
     $sql$,
     $sql$ VALUES ('closed'::text, 2::bigint, 1010::bigint, 60::integer) $sql$,
     'el turno queda cerrado y avanza su revision'
+);
+
+SELECT is(
+    (SELECT count(*)::bigint FROM public.shift_evidence),
+    3::bigint,
+    'el cierre agrega la fotografia final sin duplicar la apertura'
 );
 
 SELECT is(

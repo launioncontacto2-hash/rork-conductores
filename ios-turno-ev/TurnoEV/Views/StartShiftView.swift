@@ -223,31 +223,34 @@ struct StartShiftView: View {
                 .buttonStyle(.plain)
             }
 
-            // Demo shortcut: reading any sticker of the station proves the cross-check.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(store.vehicles.filter { $0.stationId == store.driver.stationId }) { item in
-                        Button {
-                            handleDetected(code: item.qrCode)
-                        } label: {
-                            Text(item.qrCode)
-                                .font(.system(.caption, weight: .semibold))
-                                .foregroundStyle(item.id == vehicle.id ? Palette.volt : Palette.textMuted)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Palette.surfaceRaised, in: .capsule)
-                                .overlay {
-                                    Capsule().stroke(
-                                        item.id == vehicle.id ? Palette.volt.opacity(0.6) : Palette.hairline,
-                                        lineWidth: 1
-                                    )
-                                }
+            if !store.usesBackendShiftCycle {
+                // The in-memory demonstration keeps its tap shortcuts. Authenticated
+                // drivers must prove physical possession with the vehicle sticker.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(store.vehicles.filter { $0.stationId == store.driver.stationId }) { item in
+                            Button {
+                                handleDetected(code: item.qrCode)
+                            } label: {
+                                Text(item.qrCode)
+                                    .font(.system(.caption, weight: .semibold))
+                                    .foregroundStyle(item.id == vehicle.id ? Palette.volt : Palette.textMuted)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Palette.surfaceRaised, in: .capsule)
+                                    .overlay {
+                                        Capsule().stroke(
+                                            item.id == vehicle.id ? Palette.volt.opacity(0.6) : Palette.hairline,
+                                            lineWidth: 1
+                                        )
+                                    }
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
+                .contentMargins(.horizontal, 2)
             }
-            .contentMargins(.horizontal, 2)
 
             Text("El sistema compara el QR leído contra la unidad que tu supervisor te asignó. Si no coinciden, el turno no inicia.")
                 .font(.caption2)

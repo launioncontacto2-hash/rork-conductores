@@ -60,7 +60,7 @@ const RoleWorkspace = () => {
             </span>
             <div>
               <p className="text-xl font-black leading-none tracking-tight">{role.workspaceTitle}</p>
-              <p className="label-caps mt-1">Turno EV · red nacional</p>
+              <p className="label-caps mt-1">DORI · red operativa</p>
             </div>
           </div>
           <DemoClock />

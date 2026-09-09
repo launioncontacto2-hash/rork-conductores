@@ -16,6 +16,7 @@ private final class BackendAssignmentStore {
     var assignments: [SupabaseAssignmentService.AssignmentRow] = []
     var activeShifts: [SupabaseShiftService.ShiftRow] = []
     var incidents: [SupabaseIncidentService.IncidentRow] = []
+    var workOrders: [SupabaseWorkshopService.WorkOrderRow] = []
     var absences: [SupabaseCoverageService.AbsenceRow] = []
     var coverageVacancies: [SupabaseCoverageService.VacancyRow] = []
     var coverageClaims: [SupabaseCoverageService.ClaimRow] = []
@@ -66,6 +67,9 @@ private final class BackendAssignmentStore {
         }
         guard kind == .titular || currentAssignment != nil else {
             return "La unidad sustituta requiere una asignación titular vigente."
+        }
+        guard note.trimmingCharacters(in: .whitespacesAndNewlines).count >= 5 else {
+            return "Escribe un motivo de al menos 5 caracteres."
         }
         return nil
     }
@@ -133,11 +137,15 @@ private final class BackendAssignmentStore {
             async let coverageRequest = SupabaseCoverageService.loadStationSnapshot(
                 stationId: stationId
             )
-            let (snapshot, shifts, stationIncidents, stationCoverage) = try await (
+            async let workOrdersRequest = SupabaseWorkshopService.loadStationOrders(
+                stationId: stationId
+            )
+            let (snapshot, shifts, stationIncidents, stationCoverage, stationWorkOrders) = try await (
                 snapshotRequest,
                 shiftsRequest,
                 incidentsRequest,
-                coverageRequest
+                coverageRequest,
+                workOrdersRequest
             )
             drivers = snapshot.drivers
             vehicles = snapshot.vehicles
@@ -147,6 +155,7 @@ private final class BackendAssignmentStore {
             absences = stationCoverage.absences
             coverageVacancies = stationCoverage.vacancies
             coverageClaims = stationCoverage.claims
+            workOrders = stationWorkOrders
 
             if selectedDriverId == nil || !drivers.contains(where: { $0.id == selectedDriverId }) {
                 selectedDriverId = drivers.first?.id
@@ -195,7 +204,10 @@ private final class BackendAssignmentStore {
         }
     }
 
-    func markReviewed(_ incident: SupabaseIncidentService.IncidentRow) async {
+    func markReviewed(
+        _ incident: SupabaseIncidentService.IncidentRow,
+        reason: String
+    ) async {
         guard updatingIncidentId == nil else { return }
         updatingIncidentId = incident.id
         errorMessage = nil
@@ -206,7 +218,7 @@ private final class BackendAssignmentStore {
             let updated = try await SupabaseIncidentService.update(
                 incident: incident,
                 status: "review",
-                note: "Recibida por supervisión",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-review-\(UUID().uuidString.lowercased())"
             )
             if let index = incidents.firstIndex(where: { $0.id == updated.id }) {
@@ -218,7 +230,10 @@ private final class BackendAssignmentStore {
         }
     }
 
-    func approveGuard(_ vacancy: SupabaseCoverageService.VacancyRow) async {
+    func approveGuard(
+        _ vacancy: SupabaseCoverageService.VacancyRow,
+        reason: String
+    ) async {
         guard updatingCoverageId == nil else { return }
         updatingCoverageId = vacancy.id
         errorMessage = nil
@@ -228,7 +243,7 @@ private final class BackendAssignmentStore {
         do {
             let updated = try await SupabaseCoverageService.approve(
                 vacancy: vacancy,
-                note: "Reemplazo confirmado por supervisión",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-guard-\(UUID().uuidString.lowercased())"
             )
             successMessage = "\(updated.folio) quedó confirmada."
@@ -240,7 +255,8 @@ private final class BackendAssignmentStore {
 
     func resolveAbsence(
         _ absence: SupabaseCoverageService.AbsenceRow,
-        approved: Bool
+        approved: Bool,
+        reason: String
     ) async {
         guard updatingCoverageId == nil else { return }
         updatingCoverageId = absence.id
@@ -252,9 +268,7 @@ private final class BackendAssignmentStore {
             let updated = try await SupabaseCoverageService.resolve(
                 absence: absence,
                 decision: approved ? "approved" : "rejected",
-                note: approved
-                    ? "Ausencia autorizada con cobertura confirmada."
-                    : "Ausencia no autorizada por supervisión.",
+                note: reason.trimmingCharacters(in: .whitespacesAndNewlines),
                 idempotencyKey: "ios-supervisor-absence-\(UUID().uuidString.lowercased())"
             )
             successMessage = "\(updated.folio) quedó \(approved ? "autorizada" : "rechazada")."
@@ -266,10 +280,50 @@ private final class BackendAssignmentStore {
 
 }
 
+private enum SupervisorPendingAction: Identifiable {
+    case assignment
+    case reviewIncident(SupabaseIncidentService.IncidentRow)
+    case approveGuard(SupabaseCoverageService.VacancyRow)
+    case approveAbsence(SupabaseCoverageService.AbsenceRow)
+    case rejectAbsence(SupabaseCoverageService.AbsenceRow)
+
+    var id: String {
+        switch self {
+        case .assignment: "assignment"
+        case .reviewIncident(let incident): "incident-\(incident.id)"
+        case .approveGuard(let vacancy): "guard-\(vacancy.id)"
+        case .approveAbsence(let absence): "approve-absence-\(absence.id)"
+        case .rejectAbsence(let absence): "reject-absence-\(absence.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .assignment: "Confirmar asignación"
+        case .reviewIncident: "Recibir incidencia"
+        case .approveGuard: "Confirmar reemplazo"
+        case .approveAbsence: "Autorizar ausencia"
+        case .rejectAbsence: "Rechazar ausencia"
+        }
+    }
+
+    var reference: String {
+        switch self {
+        case .assignment: "La asignación seleccionada"
+        case .reviewIncident(let incident): incident.folio
+        case .approveGuard(let vacancy): vacancy.folio
+        case .approveAbsence(let absence), .rejectAbsence(let absence): absence.folio
+        }
+    }
+}
+
 struct BackendSupervisorAssignmentView: View {
     @Environment(FleetStore.self) private var fleet
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: BackendAssignmentStore
+    @State private var section: Int = 0
+    @State private var pendingAction: SupervisorPendingAction?
+    @State private var confirmationReason: String = ""
 
     init(principal: SessionPrincipal) {
         _model = State(initialValue: BackendAssignmentStore(principal: principal))
@@ -277,28 +331,48 @@ struct BackendSupervisorAssignmentView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    identityCard
-                    statusCard
-                    activeShiftsCard
-                    incidentsCard
-                    coverageCard
-                    Text("ASIGNACIÓN DE UNIDAD")
-                        .font(.caption.weight(.black))
-                        .foregroundStyle(Palette.textMuted)
-                        .padding(.top, 4)
-                    driverPicker
-                    currentCard
-                    kindPicker
-                    vehiclePicker
-                    noteField
-                    assignButton
+            TabView(selection: $section) {
+                Tab("Operación", systemImage: "waveform.path.ecg", value: 0) {
+                    page {
+                        identityCard
+                        statusCard
+                        activeShiftsCard
+                    }
                 }
-                .padding(18)
+                Tab("Asignar", systemImage: "car.badge.gearshape", value: 1) {
+                    page {
+                        statusCard
+                        driverPicker
+                        currentCard
+                        kindPicker
+                        vehiclePicker
+                        noteField
+                        assignButton
+                    }
+                }
+                Tab("Incidencias", systemImage: "exclamationmark.triangle", value: 2) {
+                    page {
+                        statusCard
+                        incidentsCard
+                        workOrdersCard
+                    }
+                }
+                Tab("Cobertura", systemImage: "person.2.badge.gearshape", value: 3) {
+                    page {
+                        statusCard
+                        coverageCard
+                    }
+                }
+                Tab("Flota", systemImage: "person.2", value: 4) {
+                    page {
+                        statusCard
+                        fleetCard
+                    }
+                }
             }
+            .tint(Palette.volt)
             .background(Palette.canvas.ignoresSafeArea())
-            .navigationTitle("Supervisión TEST")
+            .navigationTitle(navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cerrar sesión") { fleet.signOut() }
@@ -315,7 +389,12 @@ struct BackendSupervisorAssignmentView: View {
                 }
             }
             .refreshable { await model.load() }
-            .task { await model.load() }
+            .task {
+                while !Task.isCancelled {
+                    await model.load()
+                    try? await Task.sleep(for: .seconds(15))
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 Task { await model.load() }
@@ -324,7 +403,149 @@ struct BackendSupervisorAssignmentView: View {
                 model.kind = .titular
                 model.selectedVehicleId = model.availableVehicles.first?.id
             }
+            .sheet(item: $pendingAction) { action in
+                confirmationSheet(for: action)
+            }
         }
+    }
+
+    private var navigationTitle: String {
+        switch section {
+        case 1: "Asignar unidad"
+        case 2: "Incidencias"
+        case 3: "Cobertura"
+        case 4: "Conductores y flota"
+        default: "Supervisión"
+        }
+    }
+
+    private var fleetCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("CONDUCTORES")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Palette.textMuted)
+
+            if model.drivers.isEmpty {
+                Text("No hay conductores activos en esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.drivers) { driver in
+                    let assignment = model.assignments.first { $0.driver_profile_id == driver.id }
+                    let shift = model.activeShifts.first { $0.driver_profile_id == driver.id }
+                    HStack(spacing: 12) {
+                        Image(systemName: shift == nil ? "person.crop.circle" : "steeringwheel")
+                            .foregroundStyle(shift == nil ? Palette.textMuted : Palette.volt)
+                            .frame(width: 34, height: 34)
+                            .background(Palette.surfaceRaised, in: .circle)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(driver.employee_number)
+                                .font(.subheadline.weight(.bold))
+                            Text(assignment.flatMap {
+                                assignmentRow in model.vehicles.first { $0.id == assignmentRow.vehicle_id }?.internal_number
+                            } ?? "Sin unidad asignada")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer(minLength: 8)
+                        Text(shift == nil ? "SIN TURNO" : "EN TURNO")
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(shift == nil ? Palette.textMuted : Palette.volt)
+                    }
+                }
+            }
+
+            Divider().overlay(Palette.hairline)
+            Text("VEHÍCULOS")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Palette.textMuted)
+
+            if model.vehicles.isEmpty {
+                Text("No hay vehículos visibles en esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(model.vehicles) { vehicle in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(vehicle.internal_number)
+                                .font(.subheadline.weight(.bold))
+                            Text(vehicle.plate ?? "Sin placa")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        Text(vehicleStatusLabel(vehicle.status))
+                            .font(.system(size: 9, weight: .black))
+                            .foregroundStyle(vehicle.status == "available" ? Palette.volt : Palette.amber)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private var workOrdersCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("TALLER")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("\(model.workOrders.filter { $0.status != "closed" }.count) ABIERTAS")
+                    .font(.system(size: 9, weight: .black))
+                    .foregroundStyle(Palette.amber)
+            }
+
+            if model.workOrders.isEmpty {
+                Text("No hay órdenes de trabajo para esta estación.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+            } else {
+                ForEach(Array(model.workOrders.prefix(12))) { order in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "wrench.and.screwdriver.fill")
+                            .foregroundStyle(order.status == "closed" ? Palette.textMuted : Palette.amber)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(order.folio)
+                                .font(.subheadline.weight(.bold))
+                            Text("\(model.vehicles.first { $0.id == order.vehicle_id }?.internal_number ?? "Unidad") · \(order.problem)")
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer(minLength: 8)
+                        Text(order.status.uppercased())
+                            .font(.system(size: 9, weight: .black))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private func vehicleStatusLabel(_ status: String) -> String {
+        switch status {
+        case "available": "DISPONIBLE"
+        case "occupied": "ASIGNADO"
+        case "maintenance": "TALLER"
+        default: status.uppercased()
+        }
+    }
+
+    private func page<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+            .padding(18)
+            .padding(.bottom, 24)
+        }
+        .background(Palette.canvas.ignoresSafeArea())
+        .scrollIndicators(.hidden)
     }
 
     private var incidentsCard: some View {
@@ -362,7 +583,7 @@ struct BackendSupervisorAssignmentView: View {
 
                         if incident.status == "open" {
                             Button {
-                                Task { await model.markReviewed(incident) }
+                                requestConfirmation(.reviewIncident(incident))
                             } label: {
                                 Label(
                                     model.updatingIncidentId == incident.id ? "Registrando…" : "Marcar como recibida",
@@ -433,7 +654,7 @@ struct BackendSupervisorAssignmentView: View {
                                 symbol: "person.fill.checkmark",
                                 isEnabled: model.updatingCoverageId == nil
                             ) {
-                                Task { await model.approveGuard(vacancy) }
+                                requestConfirmation(.approveGuard(vacancy))
                             }
                         }
 
@@ -442,7 +663,7 @@ struct BackendSupervisorAssignmentView: View {
                            absence.status == "awaiting_authorization" {
                             HStack(spacing: 8) {
                                 Button {
-                                    Task { await model.resolveAbsence(absence, approved: true) }
+                                    requestConfirmation(.approveAbsence(absence))
                                 } label: {
                                     Label("Autorizar ausencia", systemImage: "checkmark.seal.fill")
                                         .font(.caption.weight(.bold))
@@ -454,7 +675,7 @@ struct BackendSupervisorAssignmentView: View {
                                 .disabled(model.updatingCoverageId != nil)
 
                                 Button {
-                                    Task { await model.resolveAbsence(absence, approved: false) }
+                                    requestConfirmation(.rejectAbsence(absence))
                                 } label: {
                                     Text("Rechazar")
                                         .font(.caption.weight(.bold))
@@ -665,7 +886,7 @@ struct BackendSupervisorAssignmentView: View {
     }
 
     private var noteField: some View {
-        TextField("Nota opcional", text: $model.note, axis: .vertical)
+        TextField("Motivo obligatorio", text: $model.note, axis: .vertical)
             .lineLimit(2...4)
             .padding(16)
             .panel()
@@ -678,7 +899,7 @@ struct BackendSupervisorAssignmentView: View {
                 symbol: model.isAssigning ? "hourglass" : "car.side.fill",
                 isEnabled: model.canAssign
             ) {
-                Task { await model.assign() }
+                requestConfirmation(.assignment, reason: model.note)
             }
 
             if let reason = model.assignmentBlockReason {
@@ -687,6 +908,103 @@ struct BackendSupervisorAssignmentView: View {
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
             }
+        }
+    }
+
+    private func requestConfirmation(
+        _ action: SupervisorPendingAction,
+        reason: String = ""
+    ) {
+        confirmationReason = reason
+        model.errorMessage = nil
+        model.successMessage = nil
+        pendingAction = action
+    }
+
+    private var isConfirmingAction: Bool {
+        model.isAssigning || model.updatingIncidentId != nil || model.updatingCoverageId != nil
+    }
+
+    private func confirmationSheet(for action: SupervisorPendingAction) -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("ACCIÓN SENSIBLE", systemImage: "shield.lefthalf.filled")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Palette.amber)
+
+                Text(action.reference)
+                    .font(.title3.weight(.bold))
+
+                Text("Escribe el motivo operativo. Supabase lo conservará junto con la identidad, la estación y la clave única del comando.")
+                    .font(.footnote)
+                    .foregroundStyle(Palette.textMuted)
+
+                TextField("Motivo obligatorio", text: $confirmationReason, axis: .vertical)
+                    .lineLimit(3...6)
+                    .padding(16)
+                    .panelFlat()
+
+                if confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines).count < 5 {
+                    Text("El motivo debe tener al menos 5 caracteres.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.amber)
+                }
+
+                if let error = model.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.danger)
+                }
+
+                BigButton(
+                    title: isConfirmingAction ? "Registrando…" : "Confirmar y auditar",
+                    symbol: isConfirmingAction ? "hourglass" : "checkmark.shield.fill",
+                    isEnabled: !isConfirmingAction
+                        && confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines).count >= 5
+                ) {
+                    Task { await execute(action) }
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .background(Palette.canvas.ignoresSafeArea())
+            .navigationTitle(action.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") {
+                        pendingAction = nil
+                        confirmationReason = ""
+                    }
+                    .disabled(isConfirmingAction)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isConfirmingAction)
+    }
+
+    private func execute(_ action: SupervisorPendingAction) async {
+        let reason = confirmationReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard reason.count >= 5 else { return }
+
+        switch action {
+        case .assignment:
+            model.note = reason
+            await model.assign()
+        case .reviewIncident(let incident):
+            await model.markReviewed(incident, reason: reason)
+        case .approveGuard(let vacancy):
+            await model.approveGuard(vacancy, reason: reason)
+        case .approveAbsence(let absence):
+            await model.resolveAbsence(absence, approved: true, reason: reason)
+        case .rejectAbsence(let absence):
+            await model.resolveAbsence(absence, approved: false, reason: reason)
+        }
+
+        if model.errorMessage == nil {
+            pendingAction = nil
+            confirmationReason = ""
         }
     }
 }

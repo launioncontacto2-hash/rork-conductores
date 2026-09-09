@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Supabase
 
 /// Why a proved identity was still not allowed to open a session.
 ///
@@ -144,6 +145,11 @@ final class FleetStore {
     var notifiedBonusWeeks: [String] = []
     /// Unit the station tied to this driver. Written by the supervisor, read here.
     var unitAssignment: VehicleAssignment?
+    /// Connectivity state for the authoritative driver snapshot. A failed refresh never
+    /// converts cached data into permission to write; protected RPCs still decide.
+    var backendOperationalError: String?
+    var isBackendRefreshing: Bool = false
+    var lastBackendRefreshAt: Date?
     /// Demo-only offset applied to the device clock so every shift rule can be reviewed.
     var clockOffsetMinutes: Int = 0
     /// Set right after an explicit sign out: the access screen then waits for a
@@ -177,6 +183,13 @@ final class FleetStore {
             apply(restored)
         } else {
             seedDemoState()
+        }
+        // DORI's final operational build keeps the former demonstration world frozen on
+        // disk for later review, but it never restores a local credential into the live
+        // router. Only a principal proved by Supabase may open an operational workspace.
+        if session?.principal == nil {
+            session = nil
+            awaitsCredentialChoice = true
         }
         // A restored session carries only an account id: the driver profile is not
         // persisted, so it has to be resolved again from the credential. Without this the
@@ -410,36 +423,87 @@ final class FleetStore {
         persist()
     }
 
+    /// Rebuilds the visible history from authoritative closed shifts. The phone does not
+    /// retain an independent backend ledger, so a new device renders the same operation.
+    func refreshBackendShiftHistory() async throws {
+        guard usesBackendShiftCycle, let stationId = currentPrincipal?.stationId else { return }
+        let snapshot = try await SupabaseShiftService.loadDriverHistory(stationId: stationId)
+
+        history = snapshot.shifts.compactMap { row in
+            guard let group = ShiftGroup(rawValue: row.shift_group),
+                  let slot = ShiftSlot(rawValue: row.shift_slot),
+                  let endedAt = row.finished_at,
+                  let endOdometerKm = row.end_odometer_km,
+                  let endBatteryPct = row.end_battery_pct else { return nil }
+            let relatedIncome = incomes.filter { $0.shiftId == row.id.uuidString }
+            return ShiftRecord(
+                id: row.id.uuidString,
+                driverId: driver.id,
+                vehicleId: row.vehicle_id.uuidString,
+                vehicleInternalNumber: snapshot.vehicleNumbers[row.vehicle_id] ?? "Unidad",
+                group: group,
+                slot: slot,
+                scheduledStartAt: row.scheduled_start_at,
+                startedAt: row.started_at,
+                endedAt: endedAt,
+                lateMinutes: row.late_minutes,
+                paidBackMinutes: 0,
+                startOdometerKm: row.start_odometer_km,
+                endOdometerKm: endOdometerKm,
+                startBatteryPct: row.start_battery_pct,
+                endBatteryPct: endBatteryPct,
+                trips: relatedIncome.reduce(0) { $0 + $1.trips },
+                earningsMxn: relatedIncome.reduce(0) { $0 + $1.amountMxn },
+                origin: .backend
+            )
+        }
+        persist()
+    }
+
     /// Refreshes the authoritative driver state in dependency order. An open shift is
     /// scoped by the active assignment, and its financial totals can only be projected
     /// after that shift has been reconstructed locally.
     func refreshBackendOperationalState() async throws {
         guard let principal = currentPrincipal, principal.role == .driver else { return }
 
-        // This is both a heartbeat and the handoff detector. If the same credential was
-        // used on another phone, the server refuses before any operational row is read or
-        // mutated and the root router closes this local session.
-        try await SupabaseDriverDeviceService.heartbeat()
-        try await refreshBackendAssignment()
-        try await refreshBackendIncidents()
-        guard let assignment = unitAssignment else {
-            if activeShift?.origin == .backend { activeShift = nil }
-            backendShiftRevision = nil
-            persist()
-            try await refreshBackendFinancialState()
-            return
-        }
+        isBackendRefreshing = true
+        defer { isBackendRefreshing = false }
+        do {
 
-        if let row = try await SupabaseShiftService.loadOpenShift(
-            assignmentId: assignment.id
-        ) {
-            _ = try adoptBackendShift(row)
-        } else {
-            if activeShift?.origin == .backend { activeShift = nil }
-            backendShiftRevision = nil
-            persist()
+            // This is both a heartbeat and the handoff detector. If the same credential was
+            // used on another phone, the server refuses before any operational row is read or
+            // mutated and the root router closes this local session.
+            try await SupabaseDriverDeviceService.heartbeat()
+            try await refreshBackendAssignment()
+            try await refreshBackendIncidents()
+            guard let assignment = unitAssignment else {
+                if activeShift?.origin == .backend { activeShift = nil }
+                backendShiftRevision = nil
+                persist()
+                try await refreshBackendFinancialState()
+                try await refreshBackendShiftHistory()
+                backendOperationalError = nil
+                lastBackendRefreshAt = Date()
+                return
+            }
+
+            if let row = try await SupabaseShiftService.loadOpenShift(
+                assignmentId: assignment.id
+            ) {
+                _ = try adoptBackendShift(row)
+            } else {
+                if activeShift?.origin == .backend { activeShift = nil }
+                backendShiftRevision = nil
+                persist()
+            }
+            try await refreshBackendFinancialState()
+            try await refreshBackendShiftHistory()
+            backendOperationalError = nil
+            lastBackendRefreshAt = Date()
+        } catch {
+            backendOperationalError = error.localizedDescription
+            throw error
         }
-        try await refreshBackendFinancialState()
     }
 
     /// TEV-014 for Carlos Méndez Rivas, and for nobody else.
@@ -945,10 +1009,6 @@ final class FleetStore {
 
     /// Builds the driver profile of a backend session from the principal alone.
     ///
-    /// `password` is the empty string because `Driver` still declares that legacy field;
-    /// it is a placeholder for a model shape, never a stored credential, and the password
-    /// typed on the access screen never reaches this point.
-    ///
     /// `authorizedVehicleIds` is empty because no real assignment exists yet for this
     /// person. An invented unit would be worse than none: the driver would see a vehicle
     /// the station never gave them.
@@ -973,7 +1033,6 @@ final class FleetStore {
             name: principal.name,
             employeeNumber: principal.employeeNumber,
             email: principal.email,
-            password: "",
             photoAsset: "rideshare_driver_portrait",
             stationId: stationId,
             station: stationName,
@@ -1049,6 +1108,9 @@ final class FleetStore {
         vehicles = owned.vehicles
         activeShift = owned.activeShift
         backendShiftRevision = nil
+        backendOperationalError = nil
+        isBackendRefreshing = false
+        lastBackendRefreshAt = nil
         history = owned.history
         incomes = owned.incomes
         incidents = owned.incidents
@@ -1069,6 +1131,9 @@ final class FleetStore {
     private func adoptDemoState() {
         driver = MockData.driver
         backendShiftRevision = nil
+        backendOperationalError = nil
+        isBackendRefreshing = false
+        lastBackendRefreshAt = nil
         if let stored = Self.restore(key: Self.demoStorageKey, defaults: defaults) {
             enrolledAccountId = stored.enrolledAccountId
             applyOperational(stored)
@@ -1092,6 +1157,9 @@ final class FleetStore {
         if wasBackendSession {
             adoptDemoState()
             reloadAssignment()
+            Task { @MainActor in
+                try? await SupabaseBridge.client?.auth.signOut()
+            }
         }
         persist()
     }
@@ -1109,6 +1177,9 @@ final class FleetStore {
             adoptDemoState()
             enrolledAccountId = nil
             reloadAssignment()
+            Task { @MainActor in
+                try? await SupabaseBridge.client?.auth.signOut()
+            }
         }
         persist()
     }
@@ -1477,30 +1548,33 @@ final class FleetStore {
             )
         }
 
-        guard let assignment = unitAssignment,
+        guard let principal = currentPrincipal,
+              let assignment = unitAssignment,
               assignment.origin == .backend,
               assignment.vehicleId == vehicle.id else {
             throw UnitAssignmentError.unitNotAssigned
+        }
+        guard let odometerPhoto, let batteryPhoto else {
+            throw SupabaseShiftService.ServiceError.evidenceRequired
         }
 
         let row = try await SupabaseShiftService.start(
             assignmentId: assignment.id,
             odometerKm: odometerKm,
             batteryPct: batteryPct,
+            odometerPhoto: odometerPhoto,
+            batteryPhoto: batteryPhoto,
+            principal: principal,
             idempotencyKey: idempotencyKey
         )
 
-        var photos: [String: Data] = [:]
-        if let odometerPhoto { photos[InspectionSlot.odometer.rawValue] = odometerPhoto }
-        if let batteryPhoto { photos[InspectionSlot.battery.rawValue] = batteryPhoto }
-        return try adoptBackendShift(row, photos: photos)
+        // The camera data has already crossed into the private shift-evidence bucket.
+        // Do not persist a parallel copy in UserDefaults: Supabase is the evidence store.
+        return try adoptBackendShift(row)
     }
 
     @discardableResult
-    private func adoptBackendShift(
-        _ row: SupabaseShiftService.ShiftRow,
-        photos: [String: Data]? = nil
-    ) throws -> ActiveShift {
+    private func adoptBackendShift(_ row: SupabaseShiftService.ShiftRow) throws -> ActiveShift {
         guard let principal = currentPrincipal,
               let assignment = unitAssignment,
               row.assignment_id.uuidString.lowercased() == assignment.id.lowercased(),
@@ -1514,9 +1588,6 @@ final class FleetStore {
             throw BackendShiftContractError.invalidSlot
         }
 
-        let cachedPhotos = activeShift?.id == row.id.uuidString
-            ? activeShift?.photos ?? [:]
-            : [:]
         let shift = ActiveShift(
             id: row.id.uuidString,
             driverId: principal.profileId,
@@ -1528,7 +1599,7 @@ final class FleetStore {
             lateMinutes: row.late_minutes,
             startOdometerKm: row.start_odometer_km,
             startBatteryPct: row.start_battery_pct,
-            photos: photos ?? cachedPhotos,
+            photos: [:],
             trips: activeShift?.id == row.id.uuidString ? activeShift?.trips ?? 0 : 0,
             earningsMxn: activeShift?.id == row.id.uuidString ? activeShift?.earningsMxn ?? 0 : 0,
             origin: .backend
@@ -1919,7 +1990,9 @@ final class FleetStore {
             kind: remoteKind,
             createdAt: row.reported_at,
             description: row.description,
-            photos: photos,
+            // Incident photographs are not authorized for a remote bucket yet. They
+            // remain only in the view's draft and are never persisted as server evidence.
+            photos: [],
             status: remoteStatus,
             origin: .backend
         )
@@ -1931,7 +2004,7 @@ final class FleetStore {
         pushNotice(
             kind: .station,
             title: "Incidencia recibida por la estación",
-            body: "El reporte (row.folio) quedó abierto para supervisión y taller."
+            body: "El reporte \(row.folio) quedó abierto para supervisión y taller."
         )
         persist()
         return incident
@@ -1960,11 +2033,15 @@ final class FleetStore {
             )
         }
 
-        guard let shift = activeShift, shift.origin == .backend else {
+        guard let principal = currentPrincipal,
+              let shift = activeShift, shift.origin == .backend else {
             throw OperationalMutationError.unauthoritativeShift
         }
         guard let revision = backendShiftRevision else {
             throw BackendShiftContractError.missingRevision
+        }
+        guard let photo else {
+            throw SupabaseShiftService.ServiceError.evidenceRequired
         }
 
         let row = try await SupabaseShiftService.finish(
@@ -1972,6 +2049,8 @@ final class FleetStore {
             expectedRevision: revision,
             odometerKm: endOdometerKm,
             batteryPct: endBatteryPct,
+            odometerPhoto: photo,
+            principal: principal,
             idempotencyKey: idempotencyKey
         )
         guard let endedAt = row.finished_at else {

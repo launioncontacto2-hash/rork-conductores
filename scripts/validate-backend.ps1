@@ -22,7 +22,8 @@ $allowedBranches = @(
     '15G-financial-hardening',
     '15G-financial-hardening-v2',
     '15H-backend-hiring',
-    'fix/15h-migration-history-alignment'
+    'fix/15h-migration-history-alignment',
+    'dori-01-foundation'
 )
 
 function Write-Step {
@@ -65,10 +66,22 @@ try {
     Write-Host "Rama: $branch" -ForegroundColor Green
 
     Write-Step 'Verificando Docker'
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $dockerCommand = $null
+    if (Get-Command docker -ErrorAction SilentlyContinue) {
+        # Invoke by command name. `Get-Command` may resolve to an application, alias or
+        # shim, and those command types do not expose the same path properties.
+        $dockerCommand = 'docker'
+    }
+    if ([string]::IsNullOrWhiteSpace($dockerCommand)) {
+        $dockerCandidate = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\DockerDesktop\resources\bin\docker.exe'
+        if (Test-Path -LiteralPath $dockerCandidate) {
+            $dockerCommand = $dockerCandidate
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($dockerCommand)) {
         throw 'Docker no esta disponible. Abre Docker Desktop y vuelve a ejecutar el script.'
     }
-    Invoke-Checked docker @('version', '--format', 'Docker Engine {{.Server.Version}}')
+    Invoke-Checked $dockerCommand @('version', '--format', 'Docker Engine {{.Server.Version}}')
 
     Write-Step 'Verificando Supabase CLI'
     if (-not (Get-Command supabase -ErrorAction SilentlyContinue)) {

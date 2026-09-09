@@ -67,7 +67,7 @@ const StationPanel = () => {
             <Zap className="size-6" strokeWidth={2.6} />
           </span>
           <div>
-            <p className="text-lg font-black leading-none tracking-tight">TURNO EV</p>
+            <p className="text-lg font-black leading-none tracking-tight">DORI</p>
             <p className="label-caps mt-1">Operación de flotilla</p>
           </div>
         </div>

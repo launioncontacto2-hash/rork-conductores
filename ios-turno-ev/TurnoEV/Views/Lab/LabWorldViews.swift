@@ -458,7 +458,7 @@ private struct LabUserEditor: View {
     @State private var employeeNumber: String = ""
     @State private var email: String = ""
     @State private var phone: String = ""
-    @State private var password: String = "Prueba14"
+    @State private var password: String = ""
     @State private var role: StaffRole = .driver
     @State private var stationId: String = ""
     @State private var regionId: String = ""
@@ -498,7 +498,7 @@ private struct LabUserEditor: View {
 
             LabField(label: "Nombre completo", placeholder: "Nombre y apellidos", text: $name, autocapitalization: .words)
             LabField(label: "Número de empleado", placeholder: "PRB-0001", text: $employeeNumber, autocapitalization: .characters)
-            LabField(label: "Correo", placeholder: "usuario@turnoev.mx", text: $email, keyboard: .emailAddress, autocapitalization: .never)
+            LabField(label: "Correo", placeholder: "usuario@empresa.com", text: $email, keyboard: .emailAddress, autocapitalization: .never)
             LabField(label: "Teléfono", placeholder: "5512345678", text: $phone, keyboard: .phonePad)
             LabField(label: "Contraseña", placeholder: "Mínimo 6 caracteres", text: $password, autocapitalization: .never)
 
@@ -569,7 +569,7 @@ private struct LabUserEditor: View {
             stationId = lab.world.stations.first?.id ?? ""
             regionId = lab.world.regions.first?.id ?? ""
             employeeNumber = "PRB-\(String(format: "%04d", lab.world.users.count + 1))"
-            email = "prueba\(lab.world.users.count + 1)@turnoev.mx"
+            email = "prueba\(lab.world.users.count + 1)@dori.invalid"
             return
         }
         name = user.name

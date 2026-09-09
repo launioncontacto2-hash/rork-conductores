@@ -1,4 +1,4 @@
-/** Domain model for the Turno EV fleet driver app. All data is mock data today;
+/** Legacy domain model retained while DORI moves operational data to Supabase;
  *  every type is shaped so it can be fed later by a real API (Uber, GPS, OCR, telemetry). */
 
 export type ShiftGroup = "weekday" | "weekend";
@@ -14,7 +14,6 @@ export interface Driver {
   name: string;
   employeeNumber: string;
   email: string;
-  password: string;
   photoUrl: string;
   /** Station the driver belongs to; work can only start in this station. */
   stationId: string;

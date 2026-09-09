@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Public product identity. Internal target names and persisted storage keys intentionally
+/// keep their historical values so an installed TEST build upgrades in place and does not
+/// lose local state during the DORI transition.
+nonisolated enum DORIBrand {
+    static let name = "DORI"
+    static let productName = "DORI Operaciones"
+    static let consoleName = "Consola DORI"
+    static let accessTagline = "Acceso operativo por rol y estación"
+}
+
 /// One palette for the whole network, built on a graphite base so colour is never
 /// decoration. The interface is read while driving: almost everything is neutral, and
 /// a tint only appears when it changes what the person has to do.

@@ -370,10 +370,10 @@ nonisolated enum EnvironmentControl {
         UserDefaults.standard.bool(forKey: backendTestKey)
     }
 
-    /// A local simulation and an authenticated TEST station share the logical clock,
-    /// while only the former swaps in demo catalogues and permits simulated writes.
+    /// Only an authenticated TEST station may use the shared logical clock. A local
+    /// laboratory flag left by an older build is never authoritative in DORI.
     static var usesSharedTestClock: Bool {
-        LabRuntime.isTest || isBackendTestActive
+        isBackendTestActive
     }
 
     static func lock() {
