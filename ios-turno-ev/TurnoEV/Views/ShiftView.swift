@@ -378,6 +378,9 @@ struct ShiftView: View {
                     .background((isActive ? Palette.volt : canStart ? Palette.info : Color.white).opacity(0.13), in: .capsule)
             }
 
+            assignedUnitStatus
+                .padding(.top, 16)
+
             if let shift = store.activeShift {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -471,6 +474,56 @@ struct ShiftView: View {
                 .allowsHitTesting(false)
         }
         .clipShape(.rect(cornerRadius: 26))
+    }
+
+    /// The assignment is operational information, not a step in the start wizard. It is
+    /// therefore shown on the home screen as soon as the Supabase-backed store publishes
+    /// it, before the driver starts a shift or scans a QR code.
+    private var assignedUnitStatus: some View {
+        HStack(spacing: 12) {
+            Image(systemName: store.unitAssignment == nil ? "car.badge.questionmark" : "car.side.fill")
+                .font(.system(.headline, weight: .bold))
+                .foregroundStyle(store.unitAssignment == nil ? Palette.amber : Palette.volt)
+                .frame(width: 38, height: 38)
+                .background(
+                    (store.unitAssignment == nil ? Palette.amber : Palette.volt).opacity(0.12),
+                    in: .rect(cornerRadius: 12)
+                )
+
+            VStack(alignment: .leading, spacing: 3) {
+                CapsLabel(text: "Unidad asignada")
+                if let assignment = store.unitAssignment {
+                    Text(assignment.vehicleNumber)
+                        .font(.system(.headline, weight: .black))
+                    Text("Esta es la unidad que debes tomar.")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                } else if store.isBackendRefreshing {
+                    Text("Consultando asignación…")
+                        .font(.system(.subheadline, weight: .bold))
+                        .foregroundStyle(Palette.textMuted)
+                } else {
+                    Text("Sin unidad asignada")
+                        .font(.system(.subheadline, weight: .bold))
+                        .foregroundStyle(Palette.amber)
+                    Text("Espera la asignación de supervisión antes de tomar un vehículo.")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(
+                    (store.unitAssignment == nil ? Palette.amber : Palette.volt).opacity(0.24),
+                    lineWidth: 1
+                )
+        }
+        .accessibilityElement(children: .combine)
     }
 
     /// Copy under the clock: when the block opens, when it closes for good.
