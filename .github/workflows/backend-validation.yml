@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - 15C-backend-test
+      - feature/dori-copiloto
     paths:
       - "supabase/**"
       - "scripts/validate-backend.ps1"
