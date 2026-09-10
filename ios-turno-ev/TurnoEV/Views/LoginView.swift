@@ -2,19 +2,13 @@ import LocalAuthentication
 import SwiftUI
 
 nonisolated enum BackendAuthenticationRouting {
-    static let testEmails: Set<String> = [
-        "test.001@joramza.test",
-        "test.002@joramza.test",
-        "test.driver@joramza.test",
-        "test.supervisor@joramza.test",
-        "test.maintenance@joramza.test",
-        "test.recruitment@joramza.test"
-    ]
-
     static func shouldUseBackend(identifier: String) -> Bool {
-        testEmails.contains(
-            identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
+        let cleaned = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = cleaned.split(separator: "@", omittingEmptySubsequences: false)
+        return parts.count == 2
+            && !parts[0].isEmpty
+            && !parts[1].isEmpty
+            && !cleaned.contains(where: { $0.isWhitespace })
     }
 }
 
@@ -602,21 +596,17 @@ struct LoginView: View {
         // Every visible DORI access uses Supabase Auth. Demonstration identities remain
         // in source for historical previews, but can no longer enter the operational app.
         guard credentialMode == .email,
-              cleanedIdentifier.contains("@") else {
+              BackendAuthenticationRouting.shouldUseBackend(
+                  identifier: cleanedIdentifier
+              ) else {
             errorMessage = "Ingresa tu correo institucional."
             supabaseProbeMessage = nil
             return
         }
 
-        // Keep main's exact operational allowlist without restoring the local demo
-        // fallback: an unapproved identity remains outside the authenticated app.
-        guard BackendAuthenticationRouting.shouldUseBackend(
-            identifier: cleanedIdentifier
-        ) else {
-            errorMessage = "Esta cuenta no está habilitada para la operación actual."
-            supabaseProbeMessage = nil
-            return
-        }
+        // Every syntactically valid email is sent to Supabase. Authentication, active
+        // profile, membership, role and station are the authorization boundary; the
+        // client never grants or denies operational access from a hard-coded email list.
 
             guard !isSupabaseProbeRunning else {
                 return

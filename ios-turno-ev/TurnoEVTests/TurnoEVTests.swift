@@ -47,17 +47,23 @@ struct DORIVehicleIdentificationTests {
 }
 
 struct BackendAuthenticationRoutingTests {
-    @Test func routesRecruitmentEmailEvenWhenTheSelectorStateIsIrrelevant() {
+    @Test func routesAnyWellFormedEmailToSupabaseForAuthorization() {
         #expect(BackendAuthenticationRouting.shouldUseBackend(
             identifier: "  TEST.RECRUITMENT@JORAMZA.TEST  "
         ))
-    }
-
-    @Test func keepsUnknownAndDemoIdentitiesOutOfTheBackend() {
-        #expect(!BackendAuthenticationRouting.shouldUseBackend(
+        #expect(BackendAuthenticationRouting.shouldUseBackend(
+            identifier: "jorge.ramos@dori.mx"
+        ))
+        #expect(BackendAuthenticationRouting.shouldUseBackend(
             identifier: "reclutamiento@turnoev.mx"
         ))
+    }
+
+    @Test func keepsNonEmailIdentifiersOutOfTheBackend() {
         #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "REC-001"))
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "@dori.mx"))
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "jorge@"))
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "jorge @dori.mx"))
     }
 }
 
