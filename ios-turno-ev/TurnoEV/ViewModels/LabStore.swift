@@ -73,6 +73,7 @@ final class LabStore {
     /// The order is the original one and it matters: the shared clock is stopped *before*
     /// the reset, so leaving test mode on this phone never publishes a reset that would
     /// drag a second device back to the real hour.
+    @MainActor
     func exitTestEnvironment() {
         guard mode == .test else { return }
         setMode(.production)

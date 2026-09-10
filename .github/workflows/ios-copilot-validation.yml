@@ -1,0 +1,224 @@
+name: iOS Copilot validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/dori-copiloto
+    paths:
+      - .github/workflows/ios-copilot-validation.yml
+      - ios-turno-ev/**
+      - scripts/copilot*.cjs
+      - scripts/validate-ios-app-icon.cjs
+      - scripts/sync-copilot-ios-resource.cjs
+      - supabase/functions/_shared/dori-copilot.js
+  pull_request:
+    paths:
+      - .github/workflows/ios-copilot-validation.yml
+      - ios-turno-ev/**
+      - scripts/copilot*.cjs
+      - scripts/validate-ios-app-icon.cjs
+      - scripts/sync-copilot-ios-resource.cjs
+      - supabase/functions/_shared/dori-copilot.js
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-copilot-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and test TurnoEV
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      PROJECT_PATH: ios-turno-ev/TurnoEV.xcodeproj
+      SCHEME: TurnoEV
+      DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData
+      SOURCE_PACKAGES_PATH: ${{ github.workspace }}/SourcePackages
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Record macOS, Xcode, and Node versions
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          node --version
+          {
+            echo "### Validation environment"
+            echo
+            echo "- macOS: $(sw_vers -productVersion)"
+            echo "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "- Node: $(node --version)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate distribution AppIcon
+        run: node scripts/validate-ios-app-icon.cjs
+
+      - name: Verify canonical Copilot resource
+        run: node scripts/sync-copilot-ios-resource.cjs --check
+
+      - name: Run Copilot Node tests
+        run: >-
+          node --test
+          scripts/copilot.test.cjs
+          scripts/copilot-simulator.test.cjs
+          scripts/copilot-ios-resource.test.cjs
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH"
+
+      - name: Select and boot an available iPhone simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import re
+          import shlex
+          import subprocess
+
+          inventory = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                  text=True,
+              )
+          )
+          xcode_version = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          xcode_major = int(re.search(r"Xcode (\d+)", xcode_version).group(1))
+          maximum_ios_major = xcode_major if xcode_major >= 20 else xcode_major + 2
+          candidates = []
+          for runtime, devices in inventory.get("devices", {}).items():
+              if ".iOS-" not in runtime:
+                  continue
+              version = tuple(int(part) for part in re.findall(r"\d+", runtime.split(".iOS-")[-1]))
+              if not version or version[0] > maximum_ios_major:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable", True) and device.get("name", "").startswith("iPhone"):
+                      candidates.append((version, device["name"], device["udid"], runtime))
+
+          if not candidates:
+              raise SystemExit(
+                  f"No iPhone simulator compatible with Xcode {xcode_major} was found "
+                  f"(maximum supported iOS major: {maximum_ios_major})"
+              )
+
+          version, name, udid, runtime = max(candidates, key=lambda item: item[0])
+          values = {
+              "SIMULATOR_NAME": name,
+              "SIMULATOR_UDID": udid,
+              "SIMULATOR_RUNTIME": runtime.rsplit(".", 1)[-1].replace("-", " "),
+          }
+          with open("selected-simulator.env", "w", encoding="utf-8") as stream:
+              for key, value in values.items():
+                  stream.write(f"{key}={shlex.quote(value)}\n")
+          PY
+          source selected-simulator.env
+          {
+            echo "SIMULATOR_NAME=$SIMULATOR_NAME"
+            echo "SIMULATOR_UDID=$SIMULATOR_UDID"
+            echo "SIMULATOR_RUNTIME=$SIMULATOR_RUNTIME"
+          } >> "$GITHUB_ENV"
+          {
+            echo "simulator_name=$SIMULATOR_NAME"
+            echo "simulator_udid=$SIMULATOR_UDID"
+            echo "simulator_runtime=$SIMULATOR_RUNTIME"
+          } >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$SIMULATOR_UDID" || true
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          {
+            echo "- Simulator: $SIMULATOR_NAME ($SIMULATOR_RUNTIME)"
+            echo "- Simulator UDID: $SIMULATOR_UDID"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build TurnoEV and TurnoEVTests for iOS Simulator
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee ios-build.log
+
+      - name: Verify dori-copilot.js in the app bundle
+        run: |
+          set -euo pipefail
+          app_path="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/TurnoEV.app"
+          bundled_resource="$app_path/dori-copilot.js"
+          test -d "$app_path"
+          test -f "$bundled_resource"
+          cmp supabase/functions/_shared/dori-copilot.js "$bundled_resource"
+          echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
+          echo "- Copilot resource: present and byte-identical to the canonical engine" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run DORICopilotContractTests
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          mkdir -p TestResults
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVTests/DORICopilotContractTests \
+            -resultBundlePath TestResults/DORICopilotContractTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee dori-contract-tests.log
+
+      - name: Run TurnoEVTests
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVTests \
+            -resultBundlePath TestResults/TurnoEVTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee ios-tests.log
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-copilot-validation-diagnostics
+          path: |
+            ios-build.log
+            dori-contract-tests.log
+            ios-tests.log
+            TestResults/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Shut down simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        run: xcrun simctl shutdown "$SIMULATOR_UDID" || true

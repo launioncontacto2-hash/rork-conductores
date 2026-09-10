@@ -2675,7 +2675,6 @@ struct ResidualFixtureLeakTests {
             name: "Conductor de prueba",
             employeeNumber: "EMP-TEST",
             email: "residual.driver@joramza.test",
-            password: "",
             photoAsset: "rideshare_driver_portrait",
             stationId: stationId,
             station: "Estaci\u{00f3}n de prueba",

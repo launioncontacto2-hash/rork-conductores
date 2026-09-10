@@ -1145,6 +1145,7 @@ final class FleetStore {
 
     /// Closes the session and returns to the access screen. The automatic scan is held
     /// back so another role can be identified instead of re-entering the same one.
+    @MainActor
     func signOut() {
         let wasBackendSession = isBackendSession
         // Saved under the key of the identity that is leaving, before it stops being the
@@ -1165,6 +1166,7 @@ final class FleetStore {
     }
 
     /// Removes the biometric link so the next access requires full credentials.
+    @MainActor
     func forgetDevice() {
         let wasBackendSession = isBackendSession
         persist()
