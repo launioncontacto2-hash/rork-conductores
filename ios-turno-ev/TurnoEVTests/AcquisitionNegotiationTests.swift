@@ -96,7 +96,7 @@ struct AcquisitionNegotiationFlowTests {
             summary: "La unidad cumple los parámetros principales."
         )
         let repository = Repository(detail: AcquisitionNegotiationModelTests.detail(assessment: assessment))
-        let model = makeModel(role: .doriAdmin, repository: repository)
+        let model = Self.makeModel(role: .doriAdmin, repository: repository)
 
         await model.load()
 
@@ -107,7 +107,7 @@ struct AcquisitionNegotiationFlowTests {
 
     @Test func doriSendsACounterofferThroughTheRepositoryCommand() async {
         let repository = Repository(detail: AcquisitionNegotiationModelTests.detail())
-        let model = makeModel(role: .doriAdmin, repository: repository)
+        let model = Self.makeModel(role: .doriAdmin, repository: repository)
 
         await model.load()
         await model.sendCounteroffer(amountText: "$268,000")
@@ -121,7 +121,7 @@ struct AcquisitionNegotiationFlowTests {
         let repository = Repository(
             detail: AcquisitionNegotiationModelTests.detail(lastActor: .doriAdmin, status: "negotiating")
         )
-        let model = makeModel(role: .provider, repository: repository)
+        let model = Self.makeModel(role: .provider, repository: repository)
 
         await model.load()
         await model.accept()
@@ -134,7 +134,7 @@ struct AcquisitionNegotiationFlowTests {
         let repository = Repository(
             detail: AcquisitionNegotiationModelTests.detail(lastActor: .doriAdmin, status: "negotiating")
         )
-        let model = makeModel(role: .provider, repository: repository)
+        let model = Self.makeModel(role: .provider, repository: repository)
 
         await model.load()
         await model.sendCounteroffer(amountText: "271000")
@@ -148,7 +148,7 @@ struct AcquisitionNegotiationFlowTests {
         let repository = Repository(
             detail: AcquisitionNegotiationModelTests.detail(lastActor: .provider, status: "negotiating")
         )
-        let model = makeModel(role: .doriAdmin, repository: repository)
+        let model = Self.makeModel(role: .doriAdmin, repository: repository)
 
         await model.load()
         await model.award()
@@ -160,7 +160,7 @@ struct AcquisitionNegotiationFlowTests {
 
     @Test func doriClosesAProposalThroughTheRejectTransition() async {
         let repository = Repository(detail: AcquisitionNegotiationModelTests.detail())
-        let model = makeModel(role: .doriAdmin, repository: repository)
+        let model = Self.makeModel(role: .doriAdmin, repository: repository)
 
         await model.load()
         await model.reject()
@@ -171,7 +171,7 @@ struct AcquisitionNegotiationFlowTests {
 
     @Test func aFreshLoadReconstructsStateWithoutRealtimeHistory() async {
         let repository = Repository(detail: AcquisitionNegotiationModelTests.detail())
-        let model = makeModel(role: .provider, repository: repository)
+        let model = Self.makeModel(role: .provider, repository: repository)
         await model.load()
 
         repository.detail = AcquisitionNegotiationModelTests.detail(
