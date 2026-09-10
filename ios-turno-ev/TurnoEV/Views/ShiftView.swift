@@ -491,8 +491,21 @@ struct ShiftView: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                CapsLabel(text: "Unidad asignada")
-                if let assignment = store.unitAssignment {
+                CapsLabel(text: "Tu unidad asignada")
+                if let vehicle = store.assignedVehicle {
+                    Text(vehicle.operationalUnitLabel)
+                        .font(.system(.title3, weight: .black))
+                    Text(vehicle.modelAndColorLabel)
+                        .font(.system(.subheadline, weight: .semibold))
+                    if let operationalCode = vehicle.operationalCode {
+                        Text(operationalCode)
+                            .font(.caption.monospaced().weight(.bold))
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                    Text("Esta es la unidad que debes tomar.")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                } else if let assignment = store.unitAssignment {
                     Text(assignment.vehicleNumber)
                         .font(.system(.headline, weight: .black))
                     Text("Esta es la unidad que debes tomar.")

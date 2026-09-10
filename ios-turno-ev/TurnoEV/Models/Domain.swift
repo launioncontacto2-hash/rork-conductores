@@ -82,6 +82,23 @@ nonisolated struct Vehicle: Codable, Identifiable, Hashable, Sendable {
     var status: VehicleStatus
     var occupiedBy: String?
     let photoAsset: String
+    var manufacturer: String? = nil
+    var modelDisplay: String? = nil
+    var unitNumber: Int? = nil
+    var operationalCode: String? = nil
+    var colorName: String? = nil
+
+    var operationalUnitLabel: String {
+        unitNumber.map { String(format: "Unidad %03d", $0) } ?? internalNumber
+    }
+
+    var modelAndColorLabel: String {
+        let visibleModel = modelDisplay ?? model
+        guard let colorName, !colorName.isEmpty else {
+            return "\(visibleModel) · Color no registrado"
+        }
+        return "\(visibleModel) · \(colorName)"
+    }
 }
 
 nonisolated enum InspectionSlot: String, Codable, CaseIterable, Sendable {

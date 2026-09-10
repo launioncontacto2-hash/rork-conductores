@@ -43,6 +43,11 @@ interface Vehicle {
   internal_number: string;
   plate: string | null;
   model: string;
+  manufacturer: string | null;
+  model_display: string | null;
+  unit_number: number | null;
+  operational_code: string | null;
+  color: string | null;
   battery_pct: number | null;
   odometer_km: number;
   status: "available" | "occupied" | "maintenance";
@@ -51,6 +56,7 @@ interface Vehicle {
 interface Driver {
   id: string;
   profile_id: string;
+  display_name: string;
   employee_number: string;
   status: string;
   shift_group: string | null;
@@ -189,6 +195,12 @@ const requireData = <T,>(result: { data: T | null; error: { message: string } | 
 const formatTime = (value: string, timeZone: string) =>
   new Intl.DateTimeFormat("es-MX", { dateStyle: "short", timeStyle: "short", timeZone }).format(new Date(value));
 
+const vehicleUnitLabel = (vehicle: Vehicle) =>
+  vehicle.unit_number == null ? vehicle.internal_number : `Unidad ${String(vehicle.unit_number).padStart(3, "0")}`;
+
+const vehicleModelColorLabel = (vehicle: Vehicle) =>
+  `${vehicle.model_display ?? vehicle.model} · ${vehicle.color ?? "Color no registrado"}`;
+
 const statusLabel: Record<Vehicle["status"], string> = {
   available: "Disponible",
   occupied: "Asignada",
@@ -253,8 +265,8 @@ const OperationsConsole = () => {
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", currentIdentity.environment_id).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
-        supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
-        supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
+        supabase.from("vehicles").select("id,internal_number,plate,model,manufacturer,model_display,unit_number,operational_code,color,battery_pct,odometer_km,status").eq("station_id", stationId).order("unit_number"),
+        supabase.from("console_drivers").select("id,profile_id,display_name,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
         supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,titular_vehicle_id,assigned_at").eq("station_id", stationId),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at").eq("station_id", stationId).eq("status", "open").order("started_at"),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at,finished_at,end_odometer_km,end_battery_pct").eq("station_id", stationId).eq("status", "closed").order("finished_at", { ascending: false }).limit(100),
@@ -480,7 +492,7 @@ const OperationsConsole = () => {
               Conductor
               <select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentDriverId} onChange={(event) => setAssignmentDriverId(event.target.value)}>
                 <option value="">Seleccionar</option>
-                {data?.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.employee_number}</option>)}
+                {data?.drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.display_name} · {driver.employee_number}</option>)}
               </select>
             </label>
             <label className="grid gap-2 text-sm font-semibold">
@@ -494,7 +506,7 @@ const OperationsConsole = () => {
               Unidad disponible
               <select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={assignmentVehicleId} onChange={(event) => setAssignmentVehicleId(event.target.value)}>
                 <option value="">Seleccionar</option>
-                {availableVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.internal_number} · {vehicle.plate ?? "sin placa"}</option>)}
+                {availableVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicleUnitLabel(vehicle)} · {vehicleModelColorLabel(vehicle)}</option>)}
               </select>
             </label>
             <label className="grid gap-2 text-sm font-semibold">
@@ -515,7 +527,7 @@ const OperationsConsole = () => {
                   <AlertDialogHeader>
                     <AlertDialogTitle>¿Confirmar cambio operativo?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Se asignará {vehicleById.get(assignmentVehicleId)?.internal_number ?? "la unidad"} a {driverById.get(assignmentDriverId)?.employee_number ?? "el conductor"}. El motivo quedará en auditoría.
+                      Se asignará {vehicleById.get(assignmentVehicleId) ? vehicleUnitLabel(vehicleById.get(assignmentVehicleId)!) : "la unidad"} a {driverById.get(assignmentDriverId)?.display_name ?? "el conductor"}. El motivo quedará en auditoría.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -543,8 +555,8 @@ const OperationsConsole = () => {
                   {data?.shifts.map((shift) => (
                     <TableRow key={shift.id}>
                       <TableCell className="font-bold">{shift.folio}</TableCell>
-                      <TableCell>{driverById.get(shift.driver_profile_id)?.employee_number ?? "—"}</TableCell>
-                      <TableCell>{vehicleById.get(shift.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                      <TableCell>{driverById.get(shift.driver_profile_id)?.display_name ?? "—"}</TableCell>
+                      <TableCell>{vehicleById.get(shift.vehicle_id) ? vehicleUnitLabel(vehicleById.get(shift.vehicle_id)!) : "—"}</TableCell>
                       <TableCell>{formatTime(shift.started_at, identity.station_timezone)}</TableCell>
                     </TableRow>
                   ))}
@@ -574,12 +586,12 @@ const OperationsConsole = () => {
                   const assignment = data.assignments.find((item) => item.vehicle_id === vehicle.id);
                   return (
                     <TableRow key={vehicle.id}>
-                      <TableCell><p className="font-bold">{vehicle.internal_number}</p><p className="text-xs text-muted-foreground">{vehicle.plate ?? "Sin placa"}</p></TableCell>
-                      <TableCell>{vehicle.model}</TableCell>
+                      <TableCell><p className="font-bold">{vehicleUnitLabel(vehicle)}</p><p className="text-xs text-muted-foreground">{vehicle.operational_code ?? vehicle.internal_number}</p></TableCell>
+                      <TableCell><p>{vehicle.model_display ?? vehicle.model}</p><p className="text-xs text-muted-foreground">{vehicle.color ?? "Color no registrado"}</p></TableCell>
                       <TableCell><Badge variant="outline">{statusLabel[vehicle.status]}</Badge></TableCell>
                       <TableCell><span className="inline-flex items-center gap-1.5 tabular"><BatteryCharging className="size-4 text-primary" />{vehicle.battery_pct ?? "—"}%</span></TableCell>
                       <TableCell className="tabular">{vehicle.odometer_km.toLocaleString("es-MX")} km</TableCell>
-                      <TableCell>{assignment ? driverById.get(assignment.driver_profile_id)?.employee_number ?? "—" : "Sin asignar"}</TableCell>
+                      <TableCell>{assignment ? driverById.get(assignment.driver_profile_id)?.display_name ?? "—" : "Sin asignar"}</TableCell>
                     </TableRow>
                   );
                 })}
@@ -651,7 +663,7 @@ const OperationsConsole = () => {
                   {data?.incidents.map((incident) => (
                     <TableRow key={incident.id}>
                       <TableCell className="font-bold">{incident.folio}</TableCell>
-                      <TableCell>{vehicleById.get(incident.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                       <TableCell>{vehicleById.get(incident.vehicle_id) ? vehicleUnitLabel(vehicleById.get(incident.vehicle_id)!) : "—"}</TableCell>
                       <TableCell><p>{incident.description}</p><p className="text-xs text-muted-foreground">{incident.kind} · {incident.severity}</p></TableCell>
                       <TableCell>
                         <div className="flex flex-col items-start gap-2">
@@ -681,7 +693,7 @@ const OperationsConsole = () => {
                   {data?.workOrders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell><p className="font-bold">{order.folio}</p><p className="text-xs text-muted-foreground">{order.problem}</p></TableCell>
-                      <TableCell>{vehicleById.get(order.vehicle_id)?.internal_number ?? "—"}</TableCell>
+                       <TableCell>{vehicleById.get(order.vehicle_id) ? vehicleUnitLabel(vehicleById.get(order.vehicle_id)!) : "—"}</TableCell>
                       <TableCell>{order.priority} · {order.estimated_minutes} min</TableCell>
                       <TableCell><Badge variant="outline">{order.status}</Badge></TableCell>
                     </TableRow>

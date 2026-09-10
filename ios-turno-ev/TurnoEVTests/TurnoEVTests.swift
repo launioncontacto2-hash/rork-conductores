@@ -17,6 +17,35 @@ struct DORIBrandTests {
     }
 }
 
+struct DORIVehicleIdentificationTests {
+    @Test func presentsOperationalIdentityWithoutReplacingTheTechnicalReference() {
+        let vehicle = Vehicle(
+            id: "vehicle-test",
+            qrCode: "qr-test",
+            internalNumber: "LAB-15C-001",
+            model: "Dolphin Mini Plus",
+            plates: "Sin placa",
+            odometerKm: 40,
+            batteryPct: 80,
+            stationId: "station-test",
+            station: "Puebla Laboratorio 01",
+            status: .occupied,
+            occupiedBy: "driver-test",
+            photoAsset: "electric_sedan_charging",
+            manufacturer: "BYD",
+            modelDisplay: "Dolphin Mini P.",
+            unitNumber: 1,
+            operationalCode: "DMP-001",
+            colorName: nil
+        )
+
+        #expect(vehicle.internalNumber == "LAB-15C-001")
+        #expect(vehicle.operationalUnitLabel == "Unidad 001")
+        #expect(vehicle.modelAndColorLabel == "Dolphin Mini P. · Color no registrado")
+        #expect(vehicle.operationalCode == "DMP-001")
+    }
+}
+
 struct BackendAuthenticationRoutingTests {
     @Test func routesRecruitmentEmailEvenWhenTheSelectorStateIsIrrelevant() {
         #expect(BackendAuthenticationRouting.shouldUseBackend(

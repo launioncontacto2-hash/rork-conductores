@@ -79,8 +79,12 @@ private final class BackendAssignmentStore {
     }
 
     func driverLabel(for shift: SupabaseShiftService.ShiftRow) -> String {
-        drivers.first { $0.id == shift.driver_profile_id }?.employee_number
+        drivers.first { $0.id == shift.driver_profile_id }.map(driverName)
             ?? shift.driver_profile_id.uuidString
+    }
+
+    func driverName(_ driver: SupabaseAssignmentService.DriverRow) -> String {
+        driver.display_name ?? driver.employee_number
     }
 
     func vehicleLabel(for shift: SupabaseShiftService.ShiftRow) -> String {
@@ -195,7 +199,7 @@ private final class BackendAssignmentStore {
                 titularVehicleId: titularId,
                 note: note
             )
-            successMessage = "\(vehicle.internal_number) quedó asignada a \(driver.employee_number)."
+            successMessage = "\(vehicle.operationalUnitLabel) quedó asignada a \(driverName(driver))."
             note = ""
             selectedVehicleId = nil
             await load()
@@ -439,13 +443,21 @@ struct BackendSupervisorAssignmentView: View {
                             .frame(width: 34, height: 34)
                             .background(Palette.surfaceRaised, in: .circle)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(driver.employee_number)
+                            Text(model.driverName(driver))
                                 .font(.subheadline.weight(.bold))
-                            Text(assignment.flatMap {
-                                assignmentRow in model.vehicles.first { $0.id == assignmentRow.vehicle_id }?.internal_number
-                            } ?? "Sin unidad asignada")
-                                .font(.caption)
-                                .foregroundStyle(Palette.textMuted)
+                            if let vehicle = assignment.flatMap({ assignmentRow in
+                                model.vehicles.first { $0.id == assignmentRow.vehicle_id }
+                            }) {
+                                Text(vehicle.operationalUnitLabel)
+                                    .font(.caption.weight(.bold))
+                                Text(vehicle.modelAndColorLabel)
+                                    .font(.caption2)
+                                    .foregroundStyle(Palette.textMuted)
+                            } else {
+                                Text("Sin unidad asignada")
+                                    .font(.caption)
+                                    .foregroundStyle(Palette.textMuted)
+                            }
                         }
                         Spacer(minLength: 8)
                         Text(shift == nil ? "SIN TURNO" : "EN TURNO")
@@ -468,11 +480,16 @@ struct BackendSupervisorAssignmentView: View {
                 ForEach(model.vehicles) { vehicle in
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(vehicle.internal_number)
+                            Text(vehicle.operationalUnitLabel)
                                 .font(.subheadline.weight(.bold))
-                            Text(vehicle.plate ?? "Sin placa")
+                            Text(vehicle.modelAndColorLabel)
                                 .font(.caption)
                                 .foregroundStyle(Palette.textMuted)
+                            if let operationalCode = vehicle.operational_code {
+                                Text(operationalCode)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Palette.textMuted)
+                            }
                         }
                         Spacer()
                         Text(vehicleStatusLabel(vehicle.status))

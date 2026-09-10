@@ -318,7 +318,12 @@ final class FleetStore {
             station: principal.stationName ?? principal.stationCode ?? "Estación",
             status: vehicleStatus,
             occupiedBy: principal.profileId,
-            photoAsset: "electric_sedan_charging"
+            photoAsset: "electric_sedan_charging",
+            manufacturer: vehicleRow.manufacturer,
+            modelDisplay: vehicleRow.model_display,
+            unitNumber: vehicleRow.unit_number,
+            operationalCode: vehicleRow.operational_code,
+            colorName: vehicleRow.color
         )
 
         vehicles = [vehicle]

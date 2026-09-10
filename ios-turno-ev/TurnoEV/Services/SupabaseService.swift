@@ -1199,6 +1199,7 @@ enum SupabaseAssignmentService {
         let id: UUID
         let station_id: UUID
         let profile_id: UUID
+        let display_name: String?
         let employee_number: String
         let status: String
     }
@@ -1210,9 +1211,26 @@ enum SupabaseAssignmentService {
         let plate: String?
         let qr_code: String
         let model: String
+        let manufacturer: String?
+        let model_display: String?
+        let unit_number: Int?
+        let operational_code: String?
+        let color: String?
         let odometer_km: Int
         let battery_pct: Int?
         let status: String
+
+        var operationalUnitLabel: String {
+            unit_number.map { String(format: "Unidad %03d", $0) } ?? internal_number
+        }
+
+        var modelAndColorLabel: String {
+            let visibleModel = model_display ?? model
+            guard let color, !color.isEmpty else {
+                return "\(visibleModel) · Color no registrado"
+            }
+            return "\(visibleModel) · \(color)"
+        }
     }
 
     nonisolated struct AssignmentRow: Decodable, Identifiable, Sendable {
@@ -1273,15 +1291,15 @@ enum SupabaseAssignmentService {
         guard UUID(uuidString: stationId) != nil else { throw ServiceError.invalidStation }
 
         async let driversRequest: [DriverRow] = client
-            .from("driver_profiles")
-            .select("id,station_id,profile_id,employee_number,status")
+            .from("console_drivers")
+            .select("id,station_id,profile_id,display_name,employee_number,status")
             .eq("station_id", value: stationId)
             .execute()
             .value
 
         async let vehiclesRequest: [VehicleRow] = client
             .from("vehicles")
-            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .select("id,station_id,internal_number,plate,qr_code,model,manufacturer,model_display,unit_number,operational_code,color,odometer_km,battery_pct,status")
             .eq("station_id", value: stationId)
             .execute()
             .value
@@ -1374,7 +1392,7 @@ enum SupabaseAssignmentService {
 
         let vehicles: [VehicleRow] = try await client
             .from("vehicles")
-            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .select("id,station_id,internal_number,plate,qr_code,model,manufacturer,model_display,unit_number,operational_code,color,odometer_km,battery_pct,status")
             .eq("id", value: assignment.vehicle_id.uuidString)
             .execute()
             .value
@@ -1979,7 +1997,7 @@ enum SupabaseWorkshopService {
 
         return try await client
             .from("vehicles")
-            .select("id,station_id,internal_number,plate,qr_code,model,odometer_km,battery_pct,status")
+            .select("id,station_id,internal_number,plate,qr_code,model,manufacturer,model_display,unit_number,operational_code,color,odometer_km,battery_pct,status")
             .eq("station_id", value: stationId)
             .order("internal_number", ascending: true)
             .execute()

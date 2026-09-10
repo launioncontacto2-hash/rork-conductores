@@ -165,6 +165,7 @@ test("revokes only a visible driver device with an audited reason", async () => 
   tableData.console_drivers = [{
     id: "71000000-0000-4000-8000-000000000001",
     profile_id: "72000000-0000-4000-8000-000000000001",
+    display_name: "Conductor TEST 001",
     employee_number: "DRV-DORI-001",
     status: "active",
     shift_group: "weekday",
@@ -207,6 +208,58 @@ test("revokes only a visible driver device with an audited reason", async () => 
   } finally {
     tableData.console_drivers = [];
     tableData.devices = [];
+  }
+});
+
+test("shows the operational DORI unit identity and keeps the TEST code secondary", async () => {
+  tableData.vehicles = [{
+    id: "83000000-0000-4000-8000-000000000001",
+    internal_number: "LAB-15C-001",
+    plate: null,
+    model: "Dolphin Mini Plus",
+    manufacturer: "BYD",
+    model_display: "Dolphin Mini P.",
+    unit_number: 1,
+    operational_code: "DMP-001",
+    color: null,
+    battery_pct: 80,
+    odometer_km: 40,
+    status: "occupied",
+  }];
+  tableData.console_drivers = [{
+    id: "71000000-0000-4000-8000-000000000001",
+    profile_id: "72000000-0000-4000-8000-000000000001",
+    display_name: "Conductor TEST 001",
+    employee_number: "DRV-TEST-001",
+    status: "active",
+    shift_group: "weekday",
+    shift_slot: "morning",
+  }];
+  tableData.assignment_current = [{
+    driver_profile_id: "71000000-0000-4000-8000-000000000001",
+    vehicle_id: "83000000-0000-4000-8000-000000000001",
+    kind: "titular",
+    titular_vehicle_id: null,
+    assigned_at: "2026-09-07T11:00:00Z",
+  }];
+
+  try {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const screen = await render(
+      <QueryClientProvider client={client}>
+        <OperationsConsole />
+      </QueryClientProvider>,
+    );
+
+    await expect.element(screen.getByText("Unidad 001")).toBeInTheDocument();
+    await expect.element(screen.getByText("Dolphin Mini P.")).toBeInTheDocument();
+    await expect.element(screen.getByText("Color no registrado")).toBeInTheDocument();
+    await expect.element(screen.getByText("DMP-001")).toBeInTheDocument();
+    await expect.element(screen.getByRole("cell", { name: "Conductor TEST 001" })).toBeInTheDocument();
+  } finally {
+    tableData.vehicles = [];
+    tableData.console_drivers = [];
+    tableData.assignment_current = [];
   }
 });
 
