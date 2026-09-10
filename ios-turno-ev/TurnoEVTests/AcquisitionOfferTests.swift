@@ -67,6 +67,9 @@ struct AcquisitionOfferFormTests {
             mileage: 8_400,
             price_mxn: 274_000,
             transfer_included: true,
+            vin: "LGXCE6CB1S0000011",
+            declared_soh: 96,
+            agreed_price_mxn: nil,
             submitted_at: nil
         )
         let offer = SupabaseAcquisitionRepository.offer(from: row)
@@ -82,7 +85,6 @@ struct AcquisitionOfferFormTests {
         let columns = AcquisitionQueries.offerColumns.lowercased()
         #expect(!columns.contains("recommendation"))
         #expect(!columns.contains("risk"))
-        #expect(!columns.contains("declared_soh"))
         #expect(!columns.contains("supplier_id"))
         #expect(!columns.contains("internal"))
     }
@@ -194,6 +196,12 @@ struct AcquisitionOfferSubmissionTests {
         }
         func loadRequests() async throws -> [AcquisitionRequest] { [] }
         func loadOffers() async throws -> [AcquisitionOfferSummary] { [] }
+        func loadOfferDetail(
+            offerID: UUID,
+            membership: AcquisitionMembership
+        ) async throws -> AcquisitionOfferDetail {
+            throw Failure.unavailable
+        }
 
         func submitOffer(
             _ submission: AcquisitionOfferSubmission,
@@ -212,6 +220,12 @@ struct AcquisitionOfferSubmissionTests {
                 priceMxn: submission.priceMxn,
                 transferIncluded: submission.transferIncluded
             )
+        }
+
+        func respondToOffer(
+            _ command: AcquisitionOfferCommand
+        ) async throws -> AcquisitionOfferCommandResult {
+            throw Failure.unavailable
         }
     }
 }

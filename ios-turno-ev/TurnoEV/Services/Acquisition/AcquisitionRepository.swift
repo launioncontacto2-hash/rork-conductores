@@ -6,16 +6,24 @@ protocol AcquisitionRepository {
     func loadMembership(profileID: UUID) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail
     func submitOffer(
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
     ) async throws -> AcquisitionOfferSummary
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult
 }
 
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, submitted_at"
+    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+    static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
+    static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at"
+    static let evidenceColumns = "id, kind, object_path, verified"
 }
 
 @MainActor
@@ -59,9 +67,35 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let version: String?
         let year: Int
         let mileage: Int
-        let price_mxn: Int
+        let price_mxn: Decimal
         let transfer_included: Bool
+        let vin: String
+        let declared_soh: Decimal?
+        let agreed_price_mxn: Decimal?
         let submitted_at: Date?
+    }
+
+    nonisolated struct AssessmentRow: Decodable, Sendable {
+        let maximum_recommended_mxn: Decimal?
+        let recommendation: AcquisitionRecommendation
+        let evidence_status: String
+        let summary: String
+    }
+
+    nonisolated struct NegotiationRow: Decodable, Sendable {
+        let id: UUID
+        let actor_role: AcquisitionRole
+        let action: String
+        let amount_mxn: Decimal?
+        let message: String?
+        let created_at: Date
+    }
+
+    nonisolated struct EvidenceRow: Decodable, Sendable {
+        let id: UUID
+        let kind: AcquisitionEvidenceKind
+        let object_path: String
+        let verified: Bool
     }
 
     nonisolated struct EvidenceReference: Encodable, Sendable {
@@ -85,12 +119,28 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_idempotency_key: String
     }
 
+    nonisolated struct RespondOfferParameters: Encodable, Sendable {
+        let p_offer_id: UUID
+        let p_action: String
+        let p_amount_mxn: Int?
+        let p_message: String?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct RespondOfferRow: Decodable, Sendable {
+        let offer_id: UUID
+        let status: String
+        let agreed_price_mxn: Decimal?
+        let order_id: UUID?
+    }
+
     enum RepositoryError: LocalizedError {
         case notConfigured
         case noMembership
         case multipleMemberships(Int)
         case invalidRole(String)
         case invalidScope(AcquisitionRole)
+        case offerNotFound
         case evidenceRequired
         case evidenceTooLarge
 
@@ -106,6 +156,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                 "La membresía de adquisición devolvió un rol no reconocido: \(role)."
             case .invalidScope(let role):
                 "La membresía de \(role.rawValue) tiene un alcance de proveedor inválido."
+            case .offerNotFound:
+                "La propuesta ya no está disponible."
             case .evidenceRequired:
                 "La propuesta requiere las tres fotografías."
             case .evidenceTooLarge:
@@ -184,6 +236,74 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         return rows.map { Self.offer(from: $0) }
     }
 
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let offerRows: [OfferRow] = try await client
+            .from("acquisition_offers")
+            .select(AcquisitionQueries.offerColumns)
+            .eq("id", value: offerID.uuidString)
+            .execute()
+            .value
+        guard let offerRow = offerRows.first else { throw RepositoryError.offerNotFound }
+
+        let negotiationRows: [NegotiationRow] = try await client
+            .from("acquisition_negotiations")
+            .select(AcquisitionQueries.negotiationColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        let evidenceRows: [EvidenceRow] = try await client
+            .from("acquisition_evidence")
+            .select(AcquisitionQueries.evidenceColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        var evidence: [AcquisitionEvidenceItem] = []
+        let bucket = client.storage.from("acquisition-evidence")
+        for row in evidenceRows {
+            let data = try await bucket.download(path: row.object_path)
+            evidence.append(
+                AcquisitionEvidenceItem(
+                    id: row.id,
+                    kind: row.kind,
+                    objectPath: row.object_path,
+                    verified: row.verified,
+                    imageData: data
+                )
+            )
+        }
+
+        let assessment: AcquisitionOfferAssessment?
+        if membership.role == .doriAdmin {
+            let rows: [AssessmentRow] = try await client
+                .from("acquisition_offer_assessments")
+                .select(AcquisitionQueries.assessmentColumns)
+                .eq("offer_id", value: offerID.uuidString)
+                .execute()
+                .value
+            assessment = rows.first.map { Self.assessment(from: $0) }
+        } else {
+            assessment = nil
+        }
+
+        return AcquisitionOfferDetail(
+            offer: Self.offer(from: offerRow),
+            assessment: assessment,
+            negotiations: negotiationRows.map { Self.negotiation(from: $0) },
+            evidence: evidence
+        )
+    }
+
     func submitOffer(
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
@@ -245,6 +365,33 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         return Self.offer(from: row)
     }
 
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let row: RespondOfferRow = try await client
+            .rpc(
+                "respond_acquisition_offer",
+                params: RespondOfferParameters(
+                    p_offer_id: command.offerID,
+                    p_action: command.action.rawValue,
+                    p_amount_mxn: command.amountMxn,
+                    p_message: command.message,
+                    p_idempotency_key: command.idempotencyKey
+                )
+            )
+            .execute()
+            .value
+
+        return AcquisitionOfferCommandResult(
+            offerID: row.offer_id,
+            status: row.status,
+            agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
+            orderID: row.order_id
+        )
+    }
+
     nonisolated static func request(from row: RequestRow) -> AcquisitionRequest {
         AcquisitionRequest(
             id: row.id,
@@ -270,10 +417,37 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             version: row.version,
             year: row.year,
             mileage: row.mileage,
-            priceMxn: row.price_mxn,
+            priceMxn: Self.integer(from: row.price_mxn),
             transferIncluded: row.transfer_included,
+            vin: row.vin,
+            declaredSoh: row.declared_soh.map { Self.integer(from: $0) },
+            agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
             submittedAt: row.submitted_at
         )
+    }
+
+    nonisolated static func assessment(from row: AssessmentRow) -> AcquisitionOfferAssessment {
+        AcquisitionOfferAssessment(
+            suggestedAmountMxn: row.maximum_recommended_mxn.map { Self.integer(from: $0) },
+            recommendation: row.recommendation,
+            evidenceStatus: row.evidence_status,
+            summary: row.summary
+        )
+    }
+
+    nonisolated static func negotiation(from row: NegotiationRow) -> AcquisitionNegotiation {
+        AcquisitionNegotiation(
+            id: row.id,
+            actorRole: row.actor_role,
+            action: row.action,
+            amountMxn: row.amount_mxn.map { Self.integer(from: $0) },
+            message: row.message,
+            createdAt: row.created_at
+        )
+    }
+
+    nonisolated static func integer(from value: Decimal) -> Int {
+        NSDecimalNumber(decimal: value).intValue
     }
 }
 
@@ -367,6 +541,46 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
     }
     func loadRequests() async throws -> [AcquisitionRequest] { requests }
     func loadOffers() async throws -> [AcquisitionOfferSummary] { offers }
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail {
+        let offer = offers.first(where: { $0.id == offerID })
+            ?? AcquisitionOfferSummary(
+                id: offerID,
+                requestID: requests[0].id,
+                status: "submitted",
+                model: requests[0].model,
+                version: requests[0].versions.first,
+                year: 2025,
+                mileage: 8_400,
+                priceMxn: 274_000,
+                transferIncluded: true,
+                vin: "LGXCE6CB1S0000011",
+                declaredSoh: 96
+            )
+        return AcquisitionOfferDetail(
+            offer: offer,
+            assessment: membership.role == .doriAdmin
+                ? AcquisitionOfferAssessment(
+                    suggestedAmountMxn: 268_000,
+                    recommendation: .negotiate,
+                    evidenceStatus: "complete",
+                    summary: "La unidad cumple los parámetros principales."
+                )
+                : nil,
+            negotiations: [],
+            evidence: AcquisitionEvidenceKind.allCases.map {
+                AcquisitionEvidenceItem(
+                    id: UUID(),
+                    kind: $0,
+                    objectPath: "preview/\($0.rawValue).jpg",
+                    verified: false,
+                    imageData: nil
+                )
+            }
+        )
+    }
     func submitOffer(
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
@@ -382,6 +596,14 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
             priceMxn: submission.priceMxn,
             transferIncluded: submission.transferIncluded,
             submittedAt: Date()
+        )
+    }
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult {
+        AcquisitionOfferCommandResult(
+            offerID: command.offerID,
+            status: command.action == .award ? "awarded" : command.action == .accept ? "price_agreed" : command.action == .reject ? "rejected" : "negotiating",
+            agreedPriceMxn: command.amountMxn,
+            orderID: command.action == .award ? UUID() : nil
         )
     }
 }

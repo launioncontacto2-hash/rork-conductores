@@ -68,7 +68,21 @@ struct AcquisitionRootView: View {
                     Group {
                         switch model.destination {
                         case .administrator:
-                            AcquisitionAdministratorHome(summary: summary, offers: model.offers)
+                            if let membership = model.membership {
+                                AcquisitionAdministratorHome(
+                                    summary: summary,
+                                    offers: model.offers,
+                                    membership: membership,
+                                    repository: repository,
+                                    onChanged: { Task { await model.load() } }
+                                )
+                            } else {
+                                message(
+                                    symbol: "lock.shield.fill",
+                                    title: "Acceso no permitido.",
+                                    action: nil
+                                )
+                            }
                         case .provider:
                             if let membership = model.membership {
                                 AcquisitionProviderHome(
@@ -128,6 +142,9 @@ struct AcquisitionRootView: View {
 private struct AcquisitionAdministratorHome: View {
     let summary: AcquisitionRequestSummary
     let offers: [AcquisitionOfferSummary]
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    let onChanged: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -166,7 +183,12 @@ private struct AcquisitionAdministratorHome: View {
                         .font(.title2.weight(.black))
 
                     NavigationLink {
-                        AcquisitionOfferReviewView(offer: offer)
+                        AcquisitionOfferDetailView(
+                            offerID: offer.id,
+                            membership: membership,
+                            repository: repository,
+                            onChanged: onChanged
+                        )
                     } label: {
                         Label("Revisar", systemImage: "arrow.right")
                             .frame(maxWidth: .infinity)
@@ -235,51 +257,34 @@ private struct AcquisitionProviderHome: View {
                         .foregroundStyle(Palette.textMuted)
                 } else {
                     ForEach(offers.prefix(3)) { offer in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("\(offer.modelAndVersion) \(offer.year)")
-                                .font(.subheadline.weight(.bold))
-                            Text("\(offer.mileageText) km · \(offer.priceText)")
-                                .font(.caption)
-                                .foregroundStyle(Palette.textMuted)
+                        NavigationLink {
+                            AcquisitionOfferDetailView(
+                                offerID: offer.id,
+                                membership: membership,
+                                repository: repository,
+                                onChanged: { onSubmitted(offer) }
+                            )
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("\(offer.modelAndVersion) \(offer.year)")
+                                    .font(.subheadline.weight(.bold))
+                                Text("\(offer.mileageText) km · \(offer.priceText)")
+                                    .font(.caption)
+                                    .foregroundStyle(Palette.textMuted)
+                                Text(AcquisitionStatusText.visible(offer.status))
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .panelFlat()
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
-                        .panelFlat()
+                        .buttonStyle(.plain)
                     }
                 }
             }
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct AcquisitionOfferReviewView: View {
-    let offer: AcquisitionOfferSummary
-
-    var body: some View {
-        ZStack {
-            StationBackground()
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Propuesta recibida")
-                    .font(.system(.title2, weight: .black))
-                Text("\(offer.modelAndVersion) \(offer.year)")
-                    .font(.title3.weight(.bold))
-                Text("\(offer.mileageText) km")
-                Text(offer.priceText)
-                    .font(.title.weight(.black))
-                Text(offer.transferIncluded
-                     ? "Incluye traslado a Puebla."
-                     : "No incluye traslado a Puebla.")
-                    .foregroundStyle(Palette.textMuted)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-            .panel()
-            .padding(18)
-        }
-        .navigationTitle("Revisar propuesta")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

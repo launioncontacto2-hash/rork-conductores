@@ -66,8 +66,8 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Minimal offer projection needed by the first dashboards.
-/// Price, VIN, declared SOH and internal assessment are intentionally not loaded.
+/// Public commercial fields shared by the offer owner and DORI. Internal
+/// assessment remains in a separate administrator-only projection.
 nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let requestID: UUID
@@ -78,6 +78,9 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let mileage: Int
     let priceMxn: Int
     let transferIncluded: Bool
+    let vin: String
+    let declaredSoh: Int?
+    let agreedPriceMxn: Int?
     let submittedAt: Date?
 
     init(
@@ -90,6 +93,9 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         mileage: Int = 0,
         priceMxn: Int = 0,
         transferIncluded: Bool = false,
+        vin: String = "",
+        declaredSoh: Int? = nil,
+        agreedPriceMxn: Int? = nil,
         submittedAt: Date? = nil
     ) {
         self.id = id
@@ -101,6 +107,9 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         self.mileage = mileage
         self.priceMxn = priceMxn
         self.transferIncluded = transferIncluded
+        self.vin = vin
+        self.declaredSoh = declaredSoh
+        self.agreedPriceMxn = agreedPriceMxn
         self.submittedAt = submittedAt
     }
 
@@ -118,12 +127,25 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     }
 
     var priceText: String {
+        Self.currencyText(priceMxn)
+    }
+
+    var agreedPriceText: String? {
+        agreedPriceMxn.map(Self.currencyText)
+    }
+
+    var abbreviatedVin: String {
+        guard vin.count >= 8 else { return vin }
+        return "•••• \(vin.suffix(6))"
+    }
+
+    static func currencyText(_ amount: Int) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "es_MX")
         formatter.numberStyle = .currency
         formatter.currencyCode = "MXN"
         formatter.maximumFractionDigits = 0
-        return formatter.string(from: priceMxn as NSNumber) ?? "$\(priceMxn)"
+        return formatter.string(from: amount as NSNumber) ?? "$\(amount)"
     }
 }
 

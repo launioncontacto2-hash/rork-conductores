@@ -6,7 +6,7 @@ import Supabase
 @MainActor
 final class AcquisitionRealtimeObserver {
     private var channel: RealtimeChannelV2?
-    private var listenTask: Task<Void, Never>?
+    private var listenTasks: [Task<Void, Never>] = []
     private var observedEnvironmentID: UUID?
 
     func start(
@@ -21,25 +21,78 @@ final class AcquisitionRealtimeObserver {
         let channel = client.channel("dori-acquisition-\(environmentID.uuidString.lowercased())")
         self.channel = channel
 
-        let inserts = channel.postgresChange(
-            InsertAction.self,
+        let offerChanges = channel.postgresChange(
+            AnyAction.self,
             schema: "public",
             table: "acquisition_offers"
         )
-        listenTask = Task {
-            for await _ in inserts {
-                guard !Task.isCancelled else { return }
-                onChange()
+        let negotiationChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_negotiations"
+        )
+        let orderChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_orders"
+        )
+        listenTasks = [offerChanges, negotiationChanges, orderChanges].map { changes in
+            Task {
+                for await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    onChange()
+                }
             }
         }
 
-        Task { await channel.subscribe() }
+        Task {
+            await channel.subscribe()
+        }
+    }
+
+    /// A detail screen uses its own signal so it can reload the full authorized
+    /// projection even when the dashboard is not visible.
+    func startForOffer(
+        environmentID: UUID,
+        offerID: UUID,
+        onChange: @escaping @MainActor () -> Void
+    ) {
+        stop()
+        guard let client = SupabaseBridge.client else { return }
+
+        observedEnvironmentID = environmentID
+        let channel = client.channel("dori-acquisition-offer-\(offerID.uuidString.lowercased())")
+        self.channel = channel
+        let offerChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_offers",
+            filter: .eq("id", value: offerID.uuidString.lowercased())
+        )
+        let negotiationChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_negotiations",
+            filter: .eq("offer_id", value: offerID.uuidString.lowercased())
+        )
+        listenTasks = [offerChanges, negotiationChanges].map { changes in
+            Task {
+                for await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    onChange()
+                }
+            }
+        }
+
+        Task {
+            await channel.subscribe()
+        }
     }
 
     func stop() {
         observedEnvironmentID = nil
-        listenTask?.cancel()
-        listenTask = nil
+        listenTasks.forEach { $0.cancel() }
+        listenTasks = []
         if let channel {
             Task { await channel.unsubscribe() }
         }

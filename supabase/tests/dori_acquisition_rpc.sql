@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(30);
+SELECT plan(38);
 
 SELECT has_function(
     'public', 'publish_acquisition_request',
@@ -103,6 +103,32 @@ SELECT gen_random_uuid(), 'acquisition-evidence', entity.path_prefix || fixture.
 FROM test_acquisition_rpc_entities entity
 CROSS JOIN (VALUES ('vin.jpg'), ('front.jpg'), ('dashboard.jpg')) fixture(file_name);
 
+INSERT INTO public.acquisition_offers(
+    id, environment_id, request_id, supplier_id, created_by, vin,
+    model, version, year, mileage, declared_soh, color, price_mxn,
+    transfer_included, status, submitted_at, updated_at
+)
+SELECT
+    'ad240000-0000-4000-8000-000000000002', entity.environment_id,
+    entity.request_id, 'ad210000-0000-4000-8000-000000000001',
+    'ad200000-0000-4000-8000-000000000002', 'LGXCE6CB1S0000022',
+    'Dolphin Mini', 'Plus', 2025, 9100, NULL, 'Azul', 279000,
+    false, 'submitted', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity;
+
+INSERT INTO public.acquisition_offers(
+    id, environment_id, request_id, supplier_id, created_by, vin,
+    model, version, year, mileage, declared_soh, color, price_mxn,
+    transfer_included, status, submitted_at, updated_at
+)
+SELECT
+    'ad240000-0000-4000-8000-000000000003', entity.environment_id,
+    entity.request_id, 'ad210000-0000-4000-8000-000000000001',
+    'ad200000-0000-4000-8000-000000000002', 'LGXCE6CB1S0000033',
+    'Dolphin Mini', 'Plus', 2025, 7300, 94, 'Gris', 276000,
+    true, 'submitted', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity;
+
 -- Proveedor A envia la unidad. Toda recomendacion se calcula dentro del RPC.
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
 SET LOCAL ROLE authenticated;
@@ -143,6 +169,20 @@ SELECT throws_ok(
     '42501', 'dori_award_not_allowed',
     'el proveedor no puede adjudicarse su propia unidad'
 );
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000002', 'reject', NULL, NULL, 'adq-provider-reject-denied'
+    ) $sql$,
+    '42501', 'dori_reject_not_allowed',
+    'el proveedor no puede rechazar una propuesta en nombre de DORI'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000003', 'counteroffer', 271000,
+        'Podemos ajustar a este importe.', 'adq-provider-counter-1'
+    ) $sql$,
+    'el proveedor envia una contraoferta a DORI'
+);
 RESET ROLE;
 
 SELECT is((SELECT count(*)::bigint FROM public.acquisition_offers WHERE id = 'ad240000-0000-4000-8000-000000000001'), 1::bigint, 'la oferta idempotente existe una sola vez');
@@ -170,6 +210,45 @@ SELECT lives_ok(
         'Podemos cerrar en este precio.', 'adq-rpc-counter-1'
     ) $sql$,
     'DORI envia una contraoferta'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000002', 'reject', NULL,
+        'No continuaremos con esta unidad.', 'adq-rpc-reject-1'
+    ) $sql$,
+    'DORI cierra una propuesta sin compra'
+);
+SELECT is(
+    (SELECT status FROM public.acquisition_offers WHERE id = 'ad240000-0000-4000-8000-000000000002'),
+    'rejected',
+    'la propuesta rechazada conserva su estado comercial final'
+);
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000002', 'reject', NULL, NULL, 'adq-rpc-reject-invalid-repeat'
+    ) $sql$,
+    '42501', 'dori_reject_not_allowed',
+    'el backend rechaza una transicion repetida desde un estado final'
+);
+SELECT is(
+    (SELECT actor_role FROM public.acquisition_negotiations
+     WHERE offer_id = 'ad240000-0000-4000-8000-000000000003'
+     ORDER BY created_at DESC, id DESC LIMIT 1),
+    'provider',
+    'DORI recibe la contraoferta persistida del proveedor'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000003', 'award', 271000,
+        'Compra confirmada al importe contraofertado.', 'adq-rpc-award-provider-counter-1'
+    ) $sql$,
+    'DORI adjudica al importe contraofertado por el proveedor'
+);
+SELECT is(
+    (SELECT final_price_mxn FROM public.acquisition_orders
+     WHERE offer_id = 'ad240000-0000-4000-8000-000000000003'),
+    271000::numeric,
+    'la adjudicacion conserva el importe comercial visible'
 );
 RESET ROLE;
 
@@ -291,17 +370,17 @@ SELECT results_eq(
     'la retencion conserva la resolucion y confirmacion'
 );
 SELECT is(
-    (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-rpc-%'),
-    9::bigint,
-    'las nueve decisiones exitosas quedan en command_log sin duplicados'
+    (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-%'),
+    12::bigint,
+    'las doce decisiones exitosas quedan en command_log sin duplicados'
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.audit_log WHERE event_type LIKE 'acquisition.%' AND actor_profile_id IN (
         'ad200000-0000-4000-8000-000000000001'::uuid,
         'ad200000-0000-4000-8000-000000000002'::uuid
     )),
-    9::bigint,
-    'las nueve decisiones exitosas reutilizan audit_log'
+    12::bigint,
+    'las doce decisiones exitosas reutilizan audit_log'
 );
 
 SELECT * FROM finish();

@@ -64,7 +64,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, submitted_at"
+                == "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
         )
     }
 
@@ -190,6 +190,13 @@ struct AcquisitionViewModelTests {
             return []
         }
 
+        func loadOfferDetail(
+            offerID: UUID,
+            membership: AcquisitionMembership
+        ) async throws -> AcquisitionOfferDetail {
+            throw TestFailure.unavailable
+        }
+
         func submitOffer(
             _ submission: AcquisitionOfferSubmission,
             membership: AcquisitionMembership
@@ -205,6 +212,12 @@ struct AcquisitionViewModelTests {
                 mileage: submission.mileage,
                 priceMxn: submission.priceMxn
             )
+        }
+
+        func respondToOffer(
+            _ command: AcquisitionOfferCommand
+        ) async throws -> AcquisitionOfferCommandResult {
+            throw TestFailure.unavailable
         }
     }
 }
