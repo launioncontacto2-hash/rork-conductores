@@ -355,16 +355,6 @@ jobs:
               )
           )
           release_block = release_block.replace(automatic, manual)
-          replacements = {
-              '\t\t\t\tDORI_SUPABASE_PUBLISHABLE_KEY = "";':
-                  f'\t\t\t\tDORI_SUPABASE_PUBLISHABLE_KEY = {json.dumps(os.environ["TEST_SUPABASE_PUBLISHABLE_KEY"])};',
-              '\t\t\t\tDORI_SUPABASE_URL = "";':
-                  f'\t\t\t\tDORI_SUPABASE_URL = {json.dumps(os.environ["TEST_SUPABASE_URL"])};',
-          }
-          for canonical, configured in replacements.items():
-              if release_block.count(canonical) != 1:
-                  raise SystemExit("TurnoEV Release TEST configuration is not canonical")
-              release_block = release_block.replace(canonical, configured)
           project_file.write_text(source[:start] + release_block + source[end:], encoding="utf-8")
           PY
           xcodebuild archive \
@@ -377,6 +367,27 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN_PATH"
+
+      - name: Embed protected TEST configuration and re-sign archive
+        run: |
+          set -euo pipefail
+          app_path="$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
+          app_plist="$app_path/Info.plist"
+          entitlements_path="$RUNNER_TEMP/TurnoEV-entitlements.plist"
+          test -f "$app_plist"
+
+          codesign -d --entitlements :- "$app_path" > "$entitlements_path"
+          /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_URL' "$app_plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_URL string $TEST_SUPABASE_URL" "$app_plist"
+          /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY string $TEST_SUPABASE_PUBLISHABLE_KEY" "$app_plist"
+          codesign \
+            --force \
+            --sign 'Apple Distribution' \
+            --keychain "$SIGNING_KEYCHAIN_PATH" \
+            --entitlements "$entitlements_path" \
+            --timestamp \
+            "$app_path"
 
       - name: Verify embedded TEST configuration
         run: |
