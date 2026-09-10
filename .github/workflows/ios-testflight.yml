@@ -329,9 +329,12 @@ jobs:
       - name: Archive signed Release build
         env:
           RELEASE_CONFIGURATION_ID: 105FC59F2E9EAD3200EA8BCF
+          TESTFLIGHT_BUILD_OFFSET: 1000
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          testflight_build_number="$((GITHUB_RUN_NUMBER + TESTFLIGHT_BUILD_OFFSET))"
+          echo "TESTFLIGHT_BUILD_NUMBER=$testflight_build_number" >> "$GITHUB_ENV"
           python3 <<'PY'
           import json
           import os
@@ -365,7 +368,7 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            CURRENT_PROJECT_VERSION="$testflight_build_number" \
             OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN_PATH"
 
       - name: Embed protected TEST configuration and re-sign archive
@@ -396,8 +399,10 @@ jobs:
           test -f "$app_plist"
           embedded_url="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_URL' "$app_plist")"
           embedded_key="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist")"
+          embedded_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_plist")"
           [[ "$embedded_url" == "$EXPECTED_TEST_SUPABASE_URL" ]]
           [[ "$embedded_key" == sb_publishable_* ]]
+          [[ "$embedded_build" == "$TESTFLIGHT_BUILD_NUMBER" ]]
           codesign --verify --deep --strict "$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
 
       - name: Export IPA for App Store Connect
