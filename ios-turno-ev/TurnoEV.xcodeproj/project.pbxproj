@@ -407,8 +407,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = H9S3662NMB;
+				DORI_SUPABASE_PUBLISHABLE_KEY = "";
+				DORI_SUPABASE_URL = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "$(DORI_SUPABASE_PUBLISHABLE_KEY)";
+				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_URL = "$(DORI_SUPABASE_URL)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Se usa la cámara para escanear el QR de la unidad y registrar las fotografías del turno.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID te permite iniciar sesión rápidamente antes de comenzar tu turno.";
@@ -444,8 +448,12 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = H9S3662NMB;
+				DORI_SUPABASE_PUBLISHABLE_KEY = "";
+				DORI_SUPABASE_URL = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "$(DORI_SUPABASE_PUBLISHABLE_KEY)";
+				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_URL = "$(DORI_SUPABASE_URL)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Se usa la cámara para escanear el QR de la unidad y registrar las fotografías del turno.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID te permite iniciar sesión rápidamente antes de comenzar tu turno.";

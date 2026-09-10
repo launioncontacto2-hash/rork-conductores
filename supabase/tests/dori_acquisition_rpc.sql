@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(48);
+SELECT plan(50);
 
 SELECT has_function(
     'public', 'publish_acquisition_request',
@@ -116,6 +116,44 @@ SELECT
     false, 'submitted', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
 FROM test_acquisition_rpc_entities entity;
 
+-- Dos contraofertas con el mismo reloj de negocio deben conservar el orden de
+-- registro. Los UUID se eligen en orden inverso para demostrar que no se usan
+-- como desempate comercial.
+INSERT INTO public.acquisition_offers(
+    id, environment_id, request_id, supplier_id, created_by, vin,
+    model, version, year, mileage, declared_soh, color, price_mxn,
+    transfer_included, status, submitted_at, updated_at
+)
+SELECT
+    'ad240000-0000-4000-8000-000000000006', entity.environment_id,
+    entity.request_id, 'ad210000-0000-4000-8000-000000000001',
+    'ad200000-0000-4000-8000-000000000002', 'LGXCE6CB1S0000066',
+    'Dolphin Mini', 'Plus', 2025, 7600, 94, 'Plata', 274000,
+    true, 'negotiating', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity;
+
+INSERT INTO public.acquisition_negotiations(
+    id, environment_id, offer_id, actor_profile_id, actor_role,
+    action, amount_mxn, message, created_at
+)
+SELECT 'ffffffff-ffff-4fff-8fff-fffffffffff1', entity.environment_id,
+       'ad240000-0000-4000-8000-000000000006',
+       'ad200000-0000-4000-8000-000000000001', 'dori_admin',
+       'counteroffer', 268000, 'Oferta DORI con reloj congelado.',
+       app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity;
+
+INSERT INTO public.acquisition_negotiations(
+    id, environment_id, offer_id, actor_profile_id, actor_role,
+    action, amount_mxn, message, created_at
+)
+SELECT '00000000-0000-4000-8000-000000000001', entity.environment_id,
+       'ad240000-0000-4000-8000-000000000006',
+       'ad200000-0000-4000-8000-000000000002', 'provider',
+       'counteroffer', 271000, 'Respuesta posterior del proveedor.',
+       app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity;
+
 INSERT INTO public.acquisition_offers(
     id, environment_id, request_id, supplier_id, created_by, vin,
     model, version, year, mileage, declared_soh, color, price_mxn,
@@ -204,6 +242,19 @@ RESET ROLE;
 -- DORI contraoferta y el proveedor acepta.
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
 SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000006', 'accept', NULL,
+        'Aceptamos la ultima contraoferta.', 'adq-rpc-frozen-clock-accept'
+    ) $sql$,
+    'DORI acepta la ultima contraoferta aunque el reloj TEST este congelado'
+);
+SELECT is(
+    (SELECT agreed_price_mxn FROM public.acquisition_offers
+     WHERE id = 'ad240000-0000-4000-8000-000000000006'),
+    271000::numeric,
+    'el orden transaccional conserva la ultima contraoferta del proveedor'
+);
 SELECT lives_ok(
     $sql$ SELECT public.respond_acquisition_offer(
         'ad240000-0000-4000-8000-000000000001', 'counteroffer', 268000,
@@ -501,16 +552,16 @@ SELECT results_eq(
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-%'),
-    16::bigint,
-    'las dieciseis decisiones exitosas quedan en command_log sin duplicados'
+    17::bigint,
+    'las diecisiete decisiones exitosas quedan en command_log sin duplicados'
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.audit_log WHERE event_type LIKE 'acquisition.%' AND actor_profile_id IN (
         'ad200000-0000-4000-8000-000000000001'::uuid,
         'ad200000-0000-4000-8000-000000000002'::uuid
     )),
-    16::bigint,
-    'las dieciseis decisiones exitosas reutilizan audit_log'
+    17::bigint,
+    'las diecisiete decisiones exitosas reutilizan audit_log'
 );
 
 SELECT * FROM finish();

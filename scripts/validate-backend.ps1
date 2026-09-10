@@ -67,7 +67,13 @@ try {
     Write-Host "Rama: $branch" -ForegroundColor Green
 
     Write-Step 'Verificando Docker'
-    $dockerCommand = (Get-Command docker -ErrorAction SilentlyContinue).Source
+    $dockerCommandInfo = Get-Command docker -ErrorAction SilentlyContinue
+    $dockerCommand = if ($null -ne $dockerCommandInfo) {
+        $dockerCommandInfo.Source
+    }
+    else {
+        $null
+    }
     if ([string]::IsNullOrWhiteSpace($dockerCommand)) {
         $dockerCandidate = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Programs\DockerDesktop\resources\bin\docker.exe'
         if (Test-Path -LiteralPath $dockerCandidate) {

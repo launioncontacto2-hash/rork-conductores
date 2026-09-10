@@ -12,6 +12,8 @@ on:
       - scripts/validate-ios-app-icon.cjs
       - scripts/sync-copilot-ios-resource.cjs
       - supabase/functions/_shared/dori-copilot.js
+      - supabase/migrations/*acquisition*.sql
+      - supabase/tests/dori_acquisition*.sql
   pull_request:
     paths:
       - .github/workflows/ios-copilot-validation.yml
@@ -20,6 +22,8 @@ on:
       - scripts/validate-ios-app-icon.cjs
       - scripts/sync-copilot-ios-resource.cjs
       - supabase/functions/_shared/dori-copilot.js
+      - supabase/migrations/*acquisition*.sql
+      - supabase/tests/dori_acquisition*.sql
 
 permissions:
   contents: read

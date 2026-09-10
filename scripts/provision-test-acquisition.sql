@@ -133,7 +133,7 @@ BEGIN
     ) VALUES (
         v_request_id, v_environment_id, 'ADQ-TEST-001',
         '15 autos requeridos', 15, 'Dolphin Mini', ARRAY['Plus'],
-        2024, 2026, 30000, 'Puebla',
+        2025, 2026, 20000, 'Puebla',
         app.env_now(v_environment_id) + interval '30 days', 'published',
         v_admin_profile_id, app.env_now(v_environment_id), app.env_now(v_environment_id)
     )
