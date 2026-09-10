@@ -58,5 +58,8 @@ jobs:
       - name: Lint local database
         run: supabase db lint --local
 
+      - name: Run local security advisors
+        run: supabase db advisors --local --type security --level warn --fail-on error
+
       - name: Run SQL tests
         run: supabase test db
