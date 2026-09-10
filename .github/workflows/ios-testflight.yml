@@ -25,6 +25,8 @@ env:
   SCHEME: TurnoEV
   APPLE_TEAM_ID: H9S3662NMB
   BUNDLE_ID: com.turnoev.mobility
+  EXPECTED_TEST_SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
+  EXPECTED_TEST_ENVIRONMENT_ID: 9f8d4a52-0f0e-4a3f-9a1e-2c6f5b8d7e10
   XCODE_DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
 jobs:
@@ -223,6 +225,18 @@ jobs:
             printf 'Missing required GitHub secret: %s\n' "${missing[@]}" >&2
             exit 1
           fi
+          [[ "$TEST_SUPABASE_URL" == "$EXPECTED_TEST_SUPABASE_URL" ]] || {
+            echo 'TEST_SUPABASE_URL does not identify the authorized TEST project.' >&2
+            exit 1
+          }
+          [[ "$TEST_SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || {
+            echo 'TEST_SUPABASE_PUBLISHABLE_KEY is not a client publishable key.' >&2
+            exit 1
+          }
+          [[ "$EXPECTED_TEST_ENVIRONMENT_ID" == '9f8d4a52-0f0e-4a3f-9a1e-2c6f5b8d7e10' ]] || {
+            echo 'The authorized TEST environment identifier changed unexpectedly.' >&2
+            exit 1
+          }
 
       - name: Install Apple Distribution certificate and provisioning profile
         env:
@@ -328,6 +342,17 @@ jobs:
             DORI_SUPABASE_URL="$TEST_SUPABASE_URL" \
             DORI_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" \
             OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN_PATH"
+
+      - name: Verify embedded TEST configuration
+        run: |
+          set -euo pipefail
+          app_plist="$ARCHIVE_PATH/Products/Applications/TurnoEV.app/Info.plist"
+          test -f "$app_plist"
+          embedded_url="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_URL' "$app_plist")"
+          embedded_key="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist")"
+          [[ "$embedded_url" == "$EXPECTED_TEST_SUPABASE_URL" ]]
+          [[ "$embedded_key" == sb_publishable_* ]]
+          codesign --verify --deep --strict "$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
 
       - name: Export IPA for App Store Connect
         run: |
