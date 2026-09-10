@@ -327,9 +327,36 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH"
 
       - name: Archive signed Release build
+        env:
+          RELEASE_CONFIGURATION_ID: 105FC59F2E9EAD3200EA8BCF
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$ARCHIVE_PATH")"
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          project_file = Path(os.environ["PROJECT_PATH"]) / "project.pbxproj"
+          source = project_file.read_text(encoding="utf-8")
+          marker = f'\t\t{os.environ["RELEASE_CONFIGURATION_ID"]} /* Release */ = {{'
+          start = source.index(marker)
+          end = source.index("\n\t\t};", start) + len("\n\t\t};")
+          release_block = source[start:end]
+          automatic = "\t\t\t\tCODE_SIGN_STYLE = Automatic;"
+          if release_block.count(automatic) != 1:
+              raise SystemExit("TurnoEV Release signing configuration is not canonical")
+          profile_name = json.dumps(os.environ["PROVISIONING_PROFILE_NAME"])
+          manual = "\n".join(
+              (
+                  "\t\t\t\tCODE_SIGN_IDENTITY = \"Apple Distribution\";",
+                  "\t\t\t\tCODE_SIGN_STYLE = Manual;",
+                  f"\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = {profile_name};",
+              )
+          )
+          release_block = release_block.replace(automatic, manual)
+          project_file.write_text(source[:start] + release_block + source[end:], encoding="utf-8")
+          PY
           xcodebuild archive \
             -project "$PROJECT_PATH" \
             -scheme "$SCHEME" \
