@@ -48,8 +48,9 @@ jobs:
           set -euo pipefail
           test -d "$XCODE_DEVELOPER_DIR"
           sudo xcode-select -s "$XCODE_DEVELOPER_DIR"
-          xcodebuild -version | grep -q '^Xcode 26\.6$'
-          xcodebuild -version
+          xcode_version="$(xcodebuild -version)"
+          [[ "$xcode_version" == $'Xcode 26.6\n'* ]]
+          printf '%s\n' "$xcode_version"
 
       - name: Validate distribution AppIcon
         run: node scripts/validate-ios-app-icon.cjs
@@ -194,7 +195,9 @@ jobs:
           set -euo pipefail
           test -d "$XCODE_DEVELOPER_DIR"
           sudo xcode-select -s "$XCODE_DEVELOPER_DIR"
-          xcodebuild -version | grep -q '^Xcode 26\.6$'
+          xcode_version="$(xcodebuild -version)"
+          [[ "$xcode_version" == $'Xcode 26.6\n'* ]]
+          printf '%s\n' "$xcode_version"
 
       - name: Check required signing secrets
         env:
