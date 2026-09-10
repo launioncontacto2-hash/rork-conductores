@@ -56,6 +56,21 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
     let assessment: AcquisitionOfferAssessment?
     let negotiations: [AcquisitionNegotiation]
     let evidence: [AcquisitionEvidenceItem]
+    let delivery: AcquisitionDeliveryJourney?
+
+    init(
+        offer: AcquisitionOfferSummary,
+        assessment: AcquisitionOfferAssessment?,
+        negotiations: [AcquisitionNegotiation],
+        evidence: [AcquisitionEvidenceItem],
+        delivery: AcquisitionDeliveryJourney? = nil
+    ) {
+        self.offer = offer
+        self.assessment = assessment
+        self.negotiations = negotiations
+        self.evidence = evidence
+        self.delivery = delivery
+    }
 
     var lastCounteroffer: AcquisitionNegotiation? {
         negotiations.last { $0.action == "counteroffer" }

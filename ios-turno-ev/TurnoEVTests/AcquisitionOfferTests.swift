@@ -227,5 +227,11 @@ struct AcquisitionOfferSubmissionTests {
         ) async throws -> AcquisitionOfferCommandResult {
             throw Failure.unavailable
         }
+
+        func completeDelivery(
+            _ command: AcquisitionDeliveryCommand
+        ) async throws -> AcquisitionDeliveryCommandResult {
+            throw Failure.unavailable
+        }
     }
 }

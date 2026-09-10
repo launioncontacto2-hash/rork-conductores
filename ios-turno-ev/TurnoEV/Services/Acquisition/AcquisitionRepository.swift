@@ -15,6 +15,7 @@ protocol AcquisitionRepository {
         membership: AcquisitionMembership
     ) async throws -> AcquisitionOfferSummary
     func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult
+    func completeDelivery(_ command: AcquisitionDeliveryCommand) async throws -> AcquisitionDeliveryCommandResult
 }
 
 nonisolated enum AcquisitionQueries {
@@ -24,6 +25,11 @@ nonisolated enum AcquisitionQueries {
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at"
     static let evidenceColumns = "id, kind, object_path, verified"
+    static let orderColumns = "id, supplier_id, final_price_mxn, payment_status, status"
+    static let deliveryColumns = "status"
+    static let receptionColumns = "vin_correct, mileage_correct, chargers_complete, keys_complete, new_damage, result, issue_summary, hold_amount_mxn"
+    static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
+    static let supplierColumns = "name"
 }
 
 @MainActor
@@ -132,6 +138,57 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let status: String
         let agreed_price_mxn: Decimal?
         let order_id: UUID?
+    }
+
+    nonisolated struct OrderRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID
+        let final_price_mxn: Decimal
+        let payment_status: String
+        let status: String
+    }
+
+    nonisolated struct DeliveryRow: Decodable, Sendable {
+        let status: String
+    }
+
+    nonisolated struct ReceptionRow: Decodable, Sendable {
+        let vin_correct: Bool
+        let mileage_correct: Bool
+        let chargers_complete: Bool
+        let keys_complete: Bool
+        let new_damage: Bool
+        let result: AcquisitionReceptionResult
+        let issue_summary: String?
+        let hold_amount_mxn: Decimal
+    }
+
+    nonisolated struct HoldRow: Decodable, Sendable {
+        let amount_mxn: Decimal
+        let reason: String
+        let status: AcquisitionHoldStatus
+        let supplier_resolution_note: String?
+    }
+
+    nonisolated struct SupplierRow: Decodable, Sendable {
+        let name: String
+    }
+
+    nonisolated struct CompleteDeliveryParameters: Encodable, Sendable {
+        let p_order_id: UUID
+        let p_action: String
+        let p_checklist: AcquisitionReceptionChecklist?
+        let p_result: String?
+        let p_note: String?
+        let p_hold_amount_mxn: Int?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct CompleteDeliveryRow: Decodable, Sendable {
+        let order_id: UUID
+        let status: String
+        let recommended_result: AcquisitionReceptionResult?
+        let hold_amount_mxn: Decimal?
     }
 
     enum RepositoryError: LocalizedError {
@@ -296,11 +353,18 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             assessment = nil
         }
 
+        let delivery = try await loadDeliveryJourney(
+            offerID: offerID,
+            membership: membership,
+            client: client
+        )
+
         return AcquisitionOfferDetail(
             offer: Self.offer(from: offerRow),
             assessment: assessment,
             negotiations: negotiationRows.map { Self.negotiation(from: $0) },
-            evidence: evidence
+            evidence: evidence,
+            delivery: delivery
         )
     }
 
@@ -389,6 +453,118 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             status: row.status,
             agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
             orderID: row.order_id
+        )
+    }
+
+    func completeDelivery(
+        _ command: AcquisitionDeliveryCommand
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let row: CompleteDeliveryRow = try await client
+            .rpc(
+                "complete_acquisition_delivery",
+                params: CompleteDeliveryParameters(
+                    p_order_id: command.orderID,
+                    p_action: command.action.rawValue,
+                    p_checklist: command.checklist,
+                    p_result: nil,
+                    p_note: command.note,
+                    p_hold_amount_mxn: nil,
+                    p_idempotency_key: command.idempotencyKey
+                )
+            )
+            .execute()
+            .value
+
+        return AcquisitionDeliveryCommandResult(
+            orderID: row.order_id,
+            status: row.status,
+            receptionResult: row.recommended_result,
+            holdAmountMxn: row.hold_amount_mxn.map { Self.integer(from: $0) } ?? 0
+        )
+    }
+
+    private func loadDeliveryJourney(
+        offerID: UUID,
+        membership: AcquisitionMembership,
+        client: SupabaseClient
+    ) async throws -> AcquisitionDeliveryJourney? {
+        let orderRows: [OrderRow] = try await client
+            .from("acquisition_orders")
+            .select(AcquisitionQueries.orderColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .execute()
+            .value
+        guard let order = orderRows.first else { return nil }
+
+        let deliveryRows: [DeliveryRow] = try await client
+            .from("acquisition_deliveries")
+            .select(AcquisitionQueries.deliveryColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+        guard let delivery = deliveryRows.first else { return nil }
+
+        let receptionRows: [ReceptionRow] = try await client
+            .from("acquisition_receptions")
+            .select(AcquisitionQueries.receptionColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+        let holdRows: [HoldRow] = try await client
+            .from("acquisition_holds")
+            .select(AcquisitionQueries.holdColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+
+        let supplierName: String?
+        if membership.role == .doriAdmin {
+            let supplierRows: [SupplierRow] = try await client
+                .from("acquisition_suppliers")
+                .select(AcquisitionQueries.supplierColumns)
+                .eq("id", value: order.supplier_id.uuidString)
+                .execute()
+                .value
+            supplierName = supplierRows.first?.name
+        } else {
+            supplierName = nil
+        }
+
+        let reception = receptionRows.first.map {
+            AcquisitionReception(
+                checklist: AcquisitionReceptionChecklist(
+                    vinCorrect: $0.vin_correct,
+                    mileageCorrect: $0.mileage_correct,
+                    chargersComplete: $0.chargers_complete,
+                    keysComplete: $0.keys_complete,
+                    newDamage: $0.new_damage
+                ),
+                result: $0.result,
+                issueSummary: $0.issue_summary,
+                holdAmountMxn: Self.integer(from: $0.hold_amount_mxn)
+            )
+        }
+        let hold = holdRows.first.map {
+            AcquisitionHold(
+                amountMxn: Self.integer(from: $0.amount_mxn),
+                reason: $0.reason,
+                status: $0.status,
+                supplierResolutionNote: $0.supplier_resolution_note
+            )
+        }
+
+        return AcquisitionDeliveryJourney(
+            orderID: order.id,
+            supplierName: supplierName,
+            finalPriceMxn: Self.integer(from: order.final_price_mxn),
+            orderStatus: order.status,
+            deliveryStatus: delivery.status,
+            reception: reception,
+            hold: hold
         )
     }
 
@@ -604,6 +780,16 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
             status: command.action == .award ? "awarded" : command.action == .accept ? "price_agreed" : command.action == .reject ? "rejected" : "negotiating",
             agreedPriceMxn: command.amountMxn,
             orderID: command.action == .award ? UUID() : nil
+        )
+    }
+    func completeDelivery(
+        _ command: AcquisitionDeliveryCommand
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        AcquisitionDeliveryCommandResult(
+            orderID: command.orderID,
+            status: command.action == .ready ? "ready_for_delivery" : "closed",
+            receptionResult: command.action == .receive ? .accepted : nil,
+            holdAmountMxn: 0
         )
     }
 }

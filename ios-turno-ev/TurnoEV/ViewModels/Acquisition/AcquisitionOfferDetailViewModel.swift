@@ -113,6 +113,62 @@ final class AcquisitionOfferDetailViewModel {
         )
     }
 
+    func markReady() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .ready,
+                note: "Unidad y documentos listos para entrega."
+            ),
+            confirmation: "DORI ya puede preparar la recepción."
+        )
+    }
+
+    func receive(_ form: AcquisitionReceptionFormData) async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        do {
+            let checklist = try form.checklist()
+            await performDelivery(
+                AcquisitionDeliveryCommand(
+                    orderID: orderID,
+                    action: .receive,
+                    checklist: checklist,
+                    note: form.note.trimmingCharacters(in: .whitespacesAndNewlines)
+                ),
+                confirmation: nil
+            )
+        } catch let issue as AcquisitionDeliveryIssue {
+            feedbackMessage = issue.message
+        } catch {
+            feedbackMessage = "Revisa el checklist para continuar."
+        }
+    }
+
+    func resolveCondition() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .resolveCondition,
+                note: "Segunda llave entregada."
+            ),
+            confirmation: "DORI ya puede confirmar la resolución."
+        )
+    }
+
+    func closeCondition() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .closeCondition,
+                note: "Condición verificada por DORI."
+            ),
+            confirmation: "Condición resuelta. Adquisición cerrada."
+        )
+    }
+
     private func perform(
         _ command: AcquisitionOfferCommand,
         confirmation: String
@@ -128,6 +184,27 @@ final class AcquisitionOfferDetailViewModel {
             onChanged()
         } catch {
             feedbackMessage = "No pudimos completar la acción. La propuesta no cambió."
+        }
+        isWorking = false
+    }
+
+    private func performDelivery(
+        _ command: AcquisitionDeliveryCommand,
+        confirmation: String?
+    ) async {
+        guard !isWorking else { return }
+        isWorking = true
+        feedbackMessage = nil
+        confirmationMessage = nil
+        do {
+            let result = try await repository.completeDelivery(command)
+            await reloadFromSourceOfTruth()
+            confirmationMessage = confirmation
+                ?? result.receptionResult?.visibleLabel
+                ?? "Operación actualizada."
+            onChanged()
+        } catch {
+            feedbackMessage = "No pudimos completar la acción. La operación no cambió."
         }
         isWorking = false
     }

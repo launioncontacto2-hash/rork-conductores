@@ -276,5 +276,11 @@ struct AcquisitionNegotiationFlowTests {
                 orderID: status == "awarded" ? UUID() : nil
             )
         }
+
+        func completeDelivery(
+            _ command: AcquisitionDeliveryCommand
+        ) async throws -> AcquisitionDeliveryCommandResult {
+            throw CancellationError()
+        }
     }
 }

@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(38);
+SELECT plan(48);
 
 SELECT has_function(
     'public', 'publish_acquisition_request',
@@ -286,6 +286,50 @@ SELECT id AS order_id FROM public.acquisition_orders
 WHERE offer_id = 'ad240000-0000-4000-8000-000000000001';
 GRANT SELECT ON test_acquisition_order TO authenticated;
 
+CREATE TEMP TABLE test_acquisition_second_order AS
+SELECT id AS order_id FROM public.acquisition_orders
+WHERE offer_id = 'ad240000-0000-4000-8000-000000000003';
+GRANT SELECT ON test_acquisition_second_order TO authenticated;
+
+INSERT INTO public.acquisition_offers(
+    id, environment_id, request_id, supplier_id, created_by, vin,
+    model, version, year, mileage, declared_soh, color, price_mxn,
+    transfer_included, status, agreed_price_mxn, submitted_at, updated_at
+)
+SELECT fixture.offer_id, entity.environment_id, entity.request_id,
+       'ad210000-0000-4000-8000-000000000001',
+       'ad200000-0000-4000-8000-000000000002', fixture.vin,
+       'Dolphin Mini', 'Plus', 2025, fixture.mileage, 94, 'Blanco', 270000,
+       true, 'ready_for_delivery', 268000,
+       app.env_now(entity.environment_id), app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES
+    ('ad240000-0000-4000-8000-000000000004'::uuid, 'LGXCE6CB1S0000044'::text, 8700),
+    ('ad240000-0000-4000-8000-000000000005'::uuid, 'LGXCE6CB1S0000055'::text, 8800)
+) fixture(offer_id, vin, mileage);
+
+INSERT INTO public.acquisition_orders(
+    id, environment_id, code, offer_id, supplier_id, final_price_mxn,
+    payment_status, status, awarded_by, awarded_at
+)
+SELECT fixture.order_id, entity.environment_id, fixture.code, fixture.offer_id,
+       'ad210000-0000-4000-8000-000000000001', 268000,
+       'simulated', 'ready_for_delivery',
+       'ad200000-0000-4000-8000-000000000001', app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES
+    ('ad250000-0000-4000-8000-000000000004'::uuid, 'ADQ-RPC-OBS'::text, 'ad240000-0000-4000-8000-000000000004'::uuid),
+    ('ad250000-0000-4000-8000-000000000005'::uuid, 'ADQ-RPC-REJECT'::text, 'ad240000-0000-4000-8000-000000000005'::uuid)
+) fixture(order_id, code, offer_id);
+
+INSERT INTO public.acquisition_deliveries(environment_id, order_id, status, ready_at)
+SELECT entity.environment_id, fixture.order_id, 'ready', app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES
+    ('ad250000-0000-4000-8000-000000000004'::uuid),
+    ('ad250000-0000-4000-8000-000000000005'::uuid)
+) fixture(order_id);
+
 SELECT results_eq(
     $sql$ SELECT status, final_price_mxn, payment_status FROM public.acquisition_orders WHERE id = (SELECT order_id FROM test_acquisition_order) $sql$,
     $sql$ VALUES ('awarded'::text, 268000::numeric, 'simulated'::text) $sql$,
@@ -302,6 +346,13 @@ SELECT lives_ok(
     ) $sql$,
     'Proveedor A marca la unidad lista para entregar'
 );
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_second_order), 'ready', NULL, NULL,
+        'Segunda unidad lista.', NULL, 'adq-rpc-ready-normal'
+    ) $sql$,
+    'Proveedor A prepara una segunda unidad para recepcion normal'
+);
 SELECT throws_ok(
     $sql$ SELECT public.complete_acquisition_delivery(
         (SELECT order_id FROM test_acquisition_order), 'receive',
@@ -315,11 +366,65 @@ RESET ROLE;
 
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
 SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_second_order), 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":true,"new_damage":false}'::jsonb,
+        'rejected', 'Intento de contradecir el resultado.', NULL, 'adq-rpc-result-mismatch'
+    ) $sql$,
+    '22023', 'reception_result_must_match_server_recommendation',
+    'el backend impide que el cliente contradiga el resultado calculado'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_second_order), 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":true,"new_damage":false}'::jsonb,
+        NULL, NULL, NULL, 'adq-rpc-receive-normal'
+    ) $sql$,
+    'DORI recibe una unidad correcta con resultado decidido por backend'
+);
+SELECT results_eq(
+    $sql$ SELECT recommended_result, result, hold_amount_mxn
+          FROM public.acquisition_receptions
+          WHERE order_id = (SELECT order_id FROM test_acquisition_second_order) $sql$,
+    $sql$ VALUES ('accepted'::text, 'accepted'::text, 0::numeric) $sql$,
+    'la recepcion normal queda aceptada sin retencion'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        'ad250000-0000-4000-8000-000000000004', 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":true,"new_damage":true}'::jsonb,
+        NULL, 'Rayon menor en defensa.', NULL, 'adq-rpc-receive-observation'
+    ) $sql$,
+    'DORI recibe una unidad con observaciones'
+);
+SELECT results_eq(
+    $sql$ SELECT recommended_result, result, issue_summary
+          FROM public.acquisition_receptions
+          WHERE order_id = 'ad250000-0000-4000-8000-000000000004' $sql$,
+    $sql$ VALUES ('accepted_with_observations'::text, 'accepted_with_observations'::text, 'Rayon menor en defensa.'::text) $sql$,
+    'la observacion queda persistida con el resultado del backend'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        'ad250000-0000-4000-8000-000000000005', 'receive',
+        '{"vin_correct":false,"mileage_correct":true,"chargers_complete":true,"keys_complete":true,"new_damage":false}'::jsonb,
+        NULL, 'El VIN no corresponde a la orden.', NULL, 'adq-rpc-receive-rejected'
+    ) $sql$,
+    'DORI registra una no aceptacion material con causa'
+);
+SELECT results_eq(
+    $sql$ SELECT status, payment_status, closed_at IS NOT NULL
+          FROM public.acquisition_orders
+          WHERE id = 'ad250000-0000-4000-8000-000000000005' $sql$,
+    $sql$ VALUES ('rejected'::text, 'cancelled'::text, true) $sql$,
+    'la no aceptacion material cierra la orden simulada sin pago'
+);
 SELECT lives_ok(
     $sql$ SELECT public.complete_acquisition_delivery(
         (SELECT order_id FROM test_acquisition_order), 'receive',
         '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":false,"new_damage":false}'::jsonb,
-        'accepted_with_condition', 'Falta segunda llave.', 6000, 'adq-rpc-receive-1'
+        NULL, 'Falta segunda llave.', NULL, 'adq-rpc-receive-1'
     ) $sql$,
     'DORI acepta con condicion y retencion'
 );
@@ -335,6 +440,31 @@ SELECT results_eq(
     $sql$ VALUES ('pending_supplier'::text, 6000::numeric) $sql$,
     'la retencion queda pendiente del proveedor'
 );
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_order), 'close_condition', NULL, NULL,
+        'Intento del proveedor.', NULL, 'adq-provider-close-denied'
+    ) $sql$,
+    '42501', 'dori_condition_close_not_allowed',
+    'el proveedor no puede confirmar ni cerrar su propia condicion'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+    $sql$ SELECT public.complete_acquisition_delivery(
+        (SELECT order_id FROM test_acquisition_second_order), 'receive',
+        '{"vin_correct":true,"mileage_correct":true,"chargers_complete":true,"keys_complete":true,"new_damage":false}'::jsonb,
+        NULL, NULL, NULL, 'adq-dori-repeat-receive-denied'
+    ) $sql$,
+    '42501', 'dori_reception_not_allowed',
+    'DORI no puede recibir una orden que ya salio del estado esperado'
+);
+RESET ROLE;
 
 -- El proveedor resuelve y DORI confirma el cierre.
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
@@ -371,16 +501,16 @@ SELECT results_eq(
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-%'),
-    12::bigint,
-    'las doce decisiones exitosas quedan en command_log sin duplicados'
+    16::bigint,
+    'las dieciseis decisiones exitosas quedan en command_log sin duplicados'
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.audit_log WHERE event_type LIKE 'acquisition.%' AND actor_profile_id IN (
         'ad200000-0000-4000-8000-000000000001'::uuid,
         'ad200000-0000-4000-8000-000000000002'::uuid
     )),
-    12::bigint,
-    'las doce decisiones exitosas reutilizan audit_log'
+    16::bigint,
+    'las dieciseis decisiones exitosas reutilizan audit_log'
 );
 
 SELECT * FROM finish();

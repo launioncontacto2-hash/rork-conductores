@@ -36,7 +36,22 @@ final class AcquisitionRealtimeObserver {
             schema: "public",
             table: "acquisition_orders"
         )
-        listenTasks = [offerChanges, negotiationChanges, orderChanges].map { changes in
+        let deliveryChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_deliveries"
+        )
+        let receptionChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_receptions"
+        )
+        let holdChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_holds"
+        )
+        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges].map { changes in
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
@@ -75,7 +90,28 @@ final class AcquisitionRealtimeObserver {
             table: "acquisition_negotiations",
             filter: .eq("offer_id", value: offerID.uuidString.lowercased())
         )
-        listenTasks = [offerChanges, negotiationChanges].map { changes in
+        let orderChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_orders",
+            filter: .eq("offer_id", value: offerID.uuidString.lowercased())
+        )
+        let deliveryChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_deliveries"
+        )
+        let receptionChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_receptions"
+        )
+        let holdChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_holds"
+        )
+        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges].map { changes in
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
