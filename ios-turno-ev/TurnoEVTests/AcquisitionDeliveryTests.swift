@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import TurnoEV
 
+nonisolated enum AcquisitionDeliveryFixtures {
+    static let offerID = UUID(uuidString: "AD720000-0000-4000-8000-000000000001")!
+    static let orderID = UUID(uuidString: "AD720000-0000-4000-8000-000000000002")!
+}
+
 struct AcquisitionDeliveryModelTests {
     @Test func translatesEveryReceptionResultIntoSpanish() {
         #expect(AcquisitionReceptionResult.accepted.visibleLabel == "Aceptada")
@@ -64,7 +69,7 @@ struct AcquisitionDeliveryModelTests {
         reception: AcquisitionReception? = nil
     ) -> AcquisitionDeliveryJourney {
         AcquisitionDeliveryJourney(
-            orderID: AcquisitionDeliveryFlowTests.orderID,
+            orderID: AcquisitionDeliveryFixtures.orderID,
             supplierName: "Agencia Puebla Centro",
             finalPriceMxn: 268_000,
             orderStatus: status,
@@ -77,8 +82,8 @@ struct AcquisitionDeliveryModelTests {
 
 @MainActor
 struct AcquisitionDeliveryFlowTests {
-    static let offerID = UUID(uuidString: "AD720000-0000-4000-8000-000000000001")!
-    static let orderID = UUID(uuidString: "AD720000-0000-4000-8000-000000000002")!
+    static let offerID = AcquisitionDeliveryFixtures.offerID
+    static let orderID = AcquisitionDeliveryFixtures.orderID
 
     @Test func providerMarksTheAwardedUnitReadyThroughTheRPCBoundary() async {
         let repository = Repository(journey: AcquisitionDeliveryModelTests.journey(status: "awarded"))
