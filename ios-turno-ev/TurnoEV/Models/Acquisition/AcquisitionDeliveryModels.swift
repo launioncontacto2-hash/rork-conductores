@@ -98,6 +98,16 @@ nonisolated struct AcquisitionHold: Equatable, Sendable {
     let supplierResolutionNote: String?
 
     var amountText: String { AcquisitionOfferSummary.currencyText(amountMxn) }
+
+    var visibleConditionTitle: String {
+        let normalized = reason.folding(
+            options: [.diacriticInsensitive, .caseInsensitive],
+            locale: Locale(identifier: "es_MX")
+        )
+        if normalized.contains("llave") { return "Segunda llave" }
+        if normalized.contains("cargador") { return "Cargadores" }
+        return "Condición pendiente"
+    }
 }
 
 nonisolated struct AcquisitionDeliveryJourney: Equatable, Sendable {

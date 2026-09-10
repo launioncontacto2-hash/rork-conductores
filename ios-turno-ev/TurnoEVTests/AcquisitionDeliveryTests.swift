@@ -51,6 +51,7 @@ struct AcquisitionDeliveryModelTests {
         #expect(journey.canProviderResolve)
         #expect(!journey.canDORIClose)
         #expect(journey.hold?.amountText.contains("6,000") == true)
+        #expect(journey.hold?.visibleConditionTitle == "Segunda llave")
     }
 
     static func form() -> AcquisitionReceptionFormData {

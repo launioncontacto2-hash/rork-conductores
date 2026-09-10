@@ -147,11 +147,12 @@ final class AcquisitionOfferDetailViewModel {
 
     func resolveCondition() async {
         guard let orderID = detail?.delivery?.orderID else { return }
+        let reason = detail?.delivery?.hold?.reason ?? "Condición pendiente"
         await performDelivery(
             AcquisitionDeliveryCommand(
                 orderID: orderID,
                 action: .resolveCondition,
-                note: "Segunda llave entregada."
+                note: "Condición resuelta: \(reason)"
             ),
             confirmation: "DORI ya puede confirmar la resolución."
         )

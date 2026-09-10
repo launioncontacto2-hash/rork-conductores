@@ -314,9 +314,9 @@ struct AcquisitionOfferDetailView: View {
                 .disabled(model.isWorking)
         } else if model.membership.role == .provider, delivery.canProviderResolve {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Segunda llave")
+                Text(delivery.hold?.visibleConditionTitle ?? "Condición pendiente")
                     .font(.headline)
-                Text("Entrega la llave pendiente y avisa a DORI.")
+                Text("Entrega lo pendiente y avisa a DORI.")
                     .foregroundStyle(Palette.textMuted)
                 Button("Marcar como entregada") {
                     Task { await model.resolveCondition() }
