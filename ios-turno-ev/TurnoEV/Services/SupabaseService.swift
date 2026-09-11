@@ -2,6 +2,151 @@ import Foundation
 import CryptoKit
 import Supabase
 
+// MARK: - Auth diagnostics
+
+/// A deliberately small, non-sensitive description of a failed session opening.
+/// Passwords, tokens, API keys and server response bodies never enter this value.
+@MainActor
+enum SupabaseAuthDiagnostic {
+    enum Kind: String, Equatable {
+        case invalidCredentials = "credenciales_invalidas"
+        case emailNotConfirmed = "usuario_no_confirmado"
+        case network = "red"
+        case configuration = "configuracion_supabase"
+        case server = "servidor_auth"
+        case authenticatedWithoutMembership = "autenticado_sin_membresia"
+        case authRejected = "auth_rechazado"
+        case unexpected = "inesperado"
+    }
+
+    struct Report: Equatable {
+        let kind: Kind
+        let errorType: String
+        let authCode: String?
+        let httpStatus: Int?
+
+        var safeLogLine: String {
+            let code = authCode ?? "ninguno"
+            let status = httpStatus.map(String.init) ?? "ninguno"
+            return "[Sesión][Diagnóstico] categoría=\(kind.rawValue) " +
+                "tipo=\(errorType) código_auth=\(code) http=\(status)"
+        }
+
+        var userMessage: String {
+            switch kind {
+            case .invalidCredentials, .authRejected, .unexpected:
+                "No pudimos iniciar sesión. Revisa tus datos e intenta de nuevo."
+            case .emailNotConfirmed:
+                "Confirma tu correo antes de iniciar sesión."
+            case .network:
+                "No pudimos conectar con el servicio. Revisa tu conexión e intenta de nuevo."
+            case .configuration:
+                "Esta compilación no tiene una configuración TEST válida."
+            case .server:
+                "El servicio de acceso no respondió correctamente. Intenta de nuevo."
+            case .authenticatedWithoutMembership:
+                "Esta cuenta no está habilitada para la operación actual."
+            }
+        }
+    }
+
+    static func classify(_ error: any Error) -> Report {
+        if let authError = error as? AuthError {
+            let code = authError.errorCode.rawValue
+            let status: Int?
+            if case .api(_, _, _, let response) = authError {
+                status = response.statusCode
+            } else {
+                status = nil
+            }
+
+            return Report(
+                kind: kind(authCode: code, httpStatus: status),
+                errorType: String(describing: type(of: error)),
+                authCode: code,
+                httpStatus: status
+            )
+        }
+
+        if isNetworkError(error) {
+            return Report(
+                kind: .network,
+                errorType: String(describing: type(of: error)),
+                authCode: nil,
+                httpStatus: nil
+            )
+        }
+
+        if let probeError = error as? SupabaseAuthProbe.ProbeError {
+            let kind: Kind
+            switch probeError {
+            case .notConfigured:
+                kind = .configuration
+            case .noMembership:
+                kind = .authenticatedWithoutMembership
+            default:
+                kind = .authRejected
+            }
+            return Report(
+                kind: kind,
+                errorType: String(describing: type(of: error)),
+                authCode: nil,
+                httpStatus: nil
+            )
+        }
+
+        if let repositoryError = error as? SupabaseAcquisitionRepository.RepositoryError {
+            let kind: Kind
+            switch repositoryError {
+            case .notConfigured:
+                kind = .configuration
+            case .noMembership:
+                kind = .authenticatedWithoutMembership
+            default:
+                kind = .authRejected
+            }
+            return Report(
+                kind: kind,
+                errorType: String(describing: type(of: error)),
+                authCode: nil,
+                httpStatus: nil
+            )
+        }
+
+        return Report(
+            kind: .unexpected,
+            errorType: String(describing: type(of: error)),
+            authCode: nil,
+            httpStatus: nil
+        )
+    }
+
+    static func kind(authCode: String, httpStatus: Int?) -> Kind {
+        switch authCode.lowercased() {
+        case "invalid_credentials", "user_not_found":
+            return .invalidCredentials
+        case "email_not_confirmed", "provider_email_needs_verification":
+            return .emailNotConfirmed
+        case "unexpected_failure":
+            return .server
+        default:
+            if let httpStatus, (500...599).contains(httpStatus) {
+                return .server
+            }
+            return .authRejected
+        }
+    }
+
+    private static func isNetworkError(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? any Error {
+            return isNetworkError(underlying)
+        }
+        return false
+    }
+}
+
 // MARK: - Credentials
 
 /// Reads the Supabase credentials out of the public configuration injected at build time.

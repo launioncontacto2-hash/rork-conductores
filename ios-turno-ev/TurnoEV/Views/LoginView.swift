@@ -737,12 +737,9 @@ struct LoginView: View {
                 } catch {
                     password = ""
                     supabaseProbeMessage = nil
-                    errorMessage = "No pudimos iniciar sesión. Revisa tus datos e intenta de nuevo."
-
-                    print(
-                        "[Sesión] Auth/RLS no resolvió la cuenta · " +
-                        error.localizedDescription
-                    )
+                    let diagnostic = SupabaseAuthDiagnostic.classify(error)
+                    errorMessage = diagnostic.userMessage
+                    print(diagnostic.safeLogLine)
                 }
             }
 

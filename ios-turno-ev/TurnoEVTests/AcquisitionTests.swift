@@ -26,12 +26,17 @@ struct AcquisitionRoleAndPresentationTests {
     }
 
     @Test func providerWithoutTraditionalMembershipUsesAcquisition() throws {
-        let membership = try membership(role: "provider", supplierID: supplierID)
+        let membership = try Self.membership(
+            role: "provider",
+            supplierID: Self.supplierID
+        )
         let route = try SupabaseSessionResolver.preferredRoute(
             hasStaffMembership: false,
             acquisitionMembership: membership
         )
-        #expect(route == .acquisition(.provider))
+        #expect(
+            route == SessionMembershipRoute.acquisition(AcquisitionRole.provider)
+        )
     }
 
     @Test func accountWithoutAnyMembershipIsDenied() {
@@ -166,6 +171,59 @@ struct AcquisitionRoleAndPresentationTests {
             profileID: profileID,
             environmentID: Self.environmentID,
             now: now
+        )
+    }
+}
+
+@MainActor
+struct SupabaseAuthDiagnosticTests {
+    @Test func classifiesInvalidCredentials() {
+        #expect(
+            SupabaseAuthDiagnostic.kind(
+                authCode: "invalid_credentials",
+                httpStatus: 400
+            ) == .invalidCredentials
+        )
+    }
+
+    @Test func classifiesUnconfirmedUser() {
+        #expect(
+            SupabaseAuthDiagnostic.kind(
+                authCode: "email_not_confirmed",
+                httpStatus: 400
+            ) == .emailNotConfirmed
+        )
+    }
+
+    @Test func classifiesNetworkFailureWithoutSensitiveValues() {
+        let report = SupabaseAuthDiagnostic.classify(
+            URLError(.notConnectedToInternet)
+        )
+        #expect(report.kind == .network)
+        #expect(!report.safeLogLine.contains("password"))
+        #expect(!report.safeLogLine.contains("token"))
+    }
+
+    @Test func classifiesMissingConfiguration() {
+        let report = SupabaseAuthDiagnostic.classify(
+            SupabaseAuthProbe.ProbeError.notConfigured
+        )
+        #expect(report.kind == .configuration)
+    }
+
+    @Test func distinguishesAuthenticationFromMissingMembership() {
+        let report = SupabaseAuthDiagnostic.classify(
+            SupabaseAuthProbe.ProbeError.noMembership
+        )
+        #expect(report.kind == .authenticatedWithoutMembership)
+    }
+
+    @Test func classifiesServerFailure() {
+        #expect(
+            SupabaseAuthDiagnostic.kind(
+                authCode: "unexpected_failure",
+                httpStatus: 500
+            ) == .server
         )
     }
 }
