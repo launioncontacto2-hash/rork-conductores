@@ -52,6 +52,7 @@ nonisolated struct AcquisitionEvidenceItem: Identifiable, Equatable, Sendable {
 }
 
 nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
+    static let counterofferLimit = 2
     let offer: AcquisitionOfferSummary
     let assessment: AcquisitionOfferAssessment?
     let negotiations: [AcquisitionNegotiation]
@@ -83,6 +84,19 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
     func hasPendingCounteroffer(for role: AcquisitionRole) -> Bool {
         offer.status == "negotiating" && lastCounteroffer?.actorRole != role
     }
+
+    func counterofferCount(for role: AcquisitionRole) -> Int {
+        negotiations.filter { $0.action == "counteroffer" && $0.actorRole == role }.count
+    }
+
+    func counteroffersRemaining(for role: AcquisitionRole) -> Int {
+        max(0, Self.counterofferLimit - counterofferCount(for: role))
+    }
+
+    func canCounteroffer(as role: AcquisitionRole) -> Bool {
+        ["submitted", "negotiating"].contains(offer.status)
+            && counteroffersRemaining(for: role) > 0
+    }
 }
 
 nonisolated enum AcquisitionOfferAction: String, Sendable {
@@ -90,6 +104,7 @@ nonisolated enum AcquisitionOfferAction: String, Sendable {
     case accept
     case award
     case reject
+    case withdraw
 }
 
 nonisolated struct AcquisitionOfferCommand: Equatable, Sendable {

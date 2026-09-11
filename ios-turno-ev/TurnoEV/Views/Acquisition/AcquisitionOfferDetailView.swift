@@ -8,6 +8,7 @@ struct AcquisitionOfferDetailView: View {
     @State private var showsRejection = false
     @State private var showsPreparation = false
     @State private var showsReception = false
+    private let repository: any AcquisitionRepository
 
     init(
         offerID: UUID,
@@ -15,6 +16,7 @@ struct AcquisitionOfferDetailView: View {
         repository: any AcquisitionRepository,
         onChanged: @escaping () -> Void
     ) {
+        self.repository = repository
         _model = State(
             initialValue: AcquisitionOfferDetailViewModel(
                 offerID: offerID,
@@ -89,7 +91,7 @@ struct AcquisitionOfferDetailView: View {
             titleVisibility: .visible
         ) {
             Button("No continuar", role: .destructive) {
-                Task { await model.reject() }
+                Task { await model.stopWithoutPurchase() }
             }
             Button("Cancelar", role: .cancel) {}
         } message: {
@@ -114,12 +116,32 @@ struct AcquisitionOfferDetailView: View {
 
                 evidenceCard(detail.evidence)
 
+                NavigationLink {
+                    AcquisitionUnitChatLauncherView(
+                        offerID: detail.offer.id,
+                        membership: model.membership,
+                        profileID: model.membership.profileID,
+                        repository: repository
+                    )
+                } label: {
+                    Label("Chat de esta unidad", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                }
+                .buttonStyle(.bordered)
+                .tint(Palette.volt)
+
                 if let delivery = detail.delivery {
                     deliveryCard(delivery, offer: detail.offer)
                 }
 
                 if let last = detail.lastCounteroffer {
                     negotiationCard(detail: detail, last: last)
+                }
+
+                if ["submitted", "negotiating"].contains(detail.offer.status) {
+                    negotiationLimitCard(detail)
                 }
 
                 if let feedback = model.feedbackMessage {
@@ -245,20 +267,55 @@ struct AcquisitionOfferDetailView: View {
         .panel()
     }
 
+    private func negotiationLimitCard(_ detail: AcquisitionOfferDetail) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Límite de negociación", systemImage: "arrow.left.arrow.right")
+                .font(.headline)
+            Text("La negociación permite hasta 2 contraofertas por cada parte.")
+                .font(.subheadline)
+                .foregroundStyle(Palette.textMuted)
+            HStack {
+                Text("DORI: \(detail.counterofferCount(for: .doriAdmin))/2")
+                Spacer()
+                Text("Proveedor: \(detail.counterofferCount(for: .provider))/2")
+            }
+            .font(.subheadline.weight(.bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panelFlat()
+    }
+
     @ViewBuilder
     private func actions(_ detail: AcquisitionOfferDetail) -> some View {
         if let delivery = detail.delivery {
             deliveryActions(delivery)
         } else if model.membership.role == .doriAdmin {
             if !["awarded", "rejected"].contains(detail.offer.status) {
-                Button("Comprar") { showsAward = true }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
-                    .frame(maxWidth: .infinity)
+                if detail.offer.status == "price_agreed" {
+                    Button("Confirmar compra") { showsAward = true }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                        .frame(maxWidth: .infinity)
+                } else if detail.hasPendingCounteroffer(for: .doriAdmin) {
+                    Button("Aceptar") { Task { await model.accept() } }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                        .disabled(model.isWorking)
+                } else if detail.offer.status == "submitted" {
+                    Button("Comprar") { showsAward = true }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                        .frame(maxWidth: .infinity)
+                }
 
-                Button("Negociar") { showsNegotiation = true }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
+                if detail.canCounteroffer(as: .doriAdmin),
+                   detail.offer.status == "submitted"
+                    || detail.hasPendingCounteroffer(for: .doriAdmin) {
+                    Button("Negociar") { showsNegotiation = true }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity)
+                }
 
                 Button("No continuar", role: .destructive) { showsRejection = true }
                     .frame(maxWidth: .infinity)
@@ -273,8 +330,17 @@ struct AcquisitionOfferDetailView: View {
             .tint(Palette.volt)
             .disabled(model.isWorking)
 
-            Button("Contraofertar") { showsNegotiation = true }
-                .buttonStyle(.bordered)
+            if detail.canCounteroffer(as: .provider) {
+                Button("Contraofertar") { showsNegotiation = true }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isWorking)
+            }
+
+            Button("No continuar", role: .destructive) { showsRejection = true }
+                .disabled(model.isWorking)
+        } else if model.membership.role == .provider,
+                  ["submitted", "negotiating", "price_agreed"].contains(detail.offer.status) {
+            Button("No continuar", role: .destructive) { showsRejection = true }
                 .disabled(model.isWorking)
         } else {
             finalStatus(detail.offer.status)
@@ -386,6 +452,14 @@ private struct AcquisitionNegotiationSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text("La negociación permite hasta 2 contraofertas por cada parte.")
+                    LabeledContent(
+                        "Tus contraofertas",
+                        value: "\(detail.counterofferCount(for: role))/2"
+                    )
+                }
+
                 Section {
                     LabeledContent("Precio del proveedor", value: detail.offer.priceText)
                     if role == .doriAdmin,

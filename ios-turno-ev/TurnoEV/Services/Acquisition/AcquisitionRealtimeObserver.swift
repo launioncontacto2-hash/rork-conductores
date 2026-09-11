@@ -51,7 +51,17 @@ final class AcquisitionRealtimeObserver {
             schema: "public",
             table: "acquisition_holds"
         )
-        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges].map { changes in
+        let chatChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_chat_messages"
+        )
+        let readChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_chat_read_receipts"
+        )
+        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges, chatChanges, readChanges].map { changes in
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
@@ -63,6 +73,40 @@ final class AcquisitionRealtimeObserver {
         Task {
             await channel.subscribe()
         }
+    }
+
+    func startForChat(
+        environmentID: UUID,
+        threadID: UUID? = nil,
+        onChange: @escaping @MainActor () -> Void
+    ) {
+        stop()
+        guard let client = SupabaseBridge.client else { return }
+
+        observedEnvironmentID = environmentID
+        let suffix = threadID?.uuidString.lowercased() ?? environmentID.uuidString.lowercased()
+        let channel = client.channel("dori-acquisition-chat-\(suffix)")
+        self.channel = channel
+
+        let messageChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_chat_messages"
+        )
+        let readChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_chat_read_receipts"
+        )
+        listenTasks = [messageChanges, readChanges].map { changes in
+            Task {
+                for await _ in changes {
+                    guard !Task.isCancelled else { return }
+                    onChange()
+                }
+            }
+        }
+        Task { await channel.subscribe() }
     }
 
     /// A detail screen uses its own signal so it can reload the full authorized

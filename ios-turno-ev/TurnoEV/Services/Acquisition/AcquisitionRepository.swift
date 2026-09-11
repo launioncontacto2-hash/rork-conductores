@@ -21,11 +21,33 @@ protocol AcquisitionRepository {
     ) async throws -> AcquisitionOfferSummary
     func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult
     func completeDelivery(_ command: AcquisitionDeliveryCommand) async throws -> AcquisitionDeliveryCommandResult
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary]
+    func ensureChatThread(supplierID: UUID?, offerID: UUID?) async throws -> AcquisitionChatThreadSummary
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage]
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage
+    func markChatRead(threadID: UUID, sequence: Int64) async throws
 }
 
 extension AcquisitionRepository {
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary] { [] }
     func loadContacts() async throws -> [AcquisitionInstitutionalContact] { [] }
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary] { [] }
+    func ensureChatThread(supplierID: UUID?, offerID: UUID?) async throws -> AcquisitionChatThreadSummary {
+        throw CancellationError()
+    }
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage] { [] }
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage {
+        throw CancellationError()
+    }
+    func markChatRead(threadID: UUID, sequence: Int64) async throws {}
 }
 
 nonisolated enum AcquisitionQueries {
@@ -33,7 +55,7 @@ nonisolated enum AcquisitionQueries {
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
     static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
-    static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at"
+    static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at, event_sequence"
     static let evidenceColumns = "id, kind, object_path, verified"
     static let orderColumns = "id, supplier_id, final_price_mxn, payment_status, status"
     static let deliveryColumns = "status"
@@ -41,6 +63,7 @@ nonisolated enum AcquisitionQueries {
     static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
     static let supplierColumns = "id, name, city"
     static let contactColumns = "id, supplier_id, organization_name, person_name, job_title, phone, email, business_hours, is_primary"
+    static let chatMessageColumns = "id, event_sequence, thread_id, sender_profile_id, sender_role, message_kind, body, attachment_path, created_at"
 }
 
 @MainActor
@@ -106,6 +129,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let amount_mxn: Decimal?
         let message: String?
         let created_at: Date
+        let event_sequence: Int
     }
 
     nonisolated struct EvidenceRow: Decodable, Sendable {
@@ -214,6 +238,61 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let status: String
         let recommended_result: AcquisitionReceptionResult?
         let hold_amount_mxn: Decimal?
+    }
+
+    nonisolated struct ChatThreadRow: Decodable, Sendable {
+        let thread_id: UUID
+        let supplier_id: UUID
+        let offer_id: UUID?
+        let scope: AcquisitionChatScope
+        let title: String
+        let supplier_name: String
+        let last_message: String?
+        let last_message_kind: AcquisitionChatMessageKind?
+        let last_message_at: Date?
+        let unread_count: Int
+    }
+
+    nonisolated struct EnsuredChatThreadRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID
+        let offer_id: UUID?
+        let scope: AcquisitionChatScope
+        let title: String
+    }
+
+    nonisolated struct ChatMessageRow: Decodable, Sendable {
+        let id: UUID
+        let event_sequence: Int64
+        let thread_id: UUID
+        let sender_profile_id: UUID?
+        let sender_role: String
+        let message_kind: AcquisitionChatMessageKind
+        let body: String?
+        let attachment_path: String?
+        let created_at: Date
+    }
+
+    nonisolated struct EnsureChatThreadParameters: Encodable, Sendable {
+        let p_supplier_id: UUID?
+        let p_offer_id: UUID?
+    }
+
+    nonisolated struct SendChatMessageParameters: Encodable, Sendable {
+        let p_thread_id: UUID
+        let p_body: String?
+        let p_attachment_path: String?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct MarkChatReadParameters: Encodable, Sendable {
+        let p_thread_id: UUID
+        let p_last_read_sequence: Int64
+    }
+
+    nonisolated struct ChatReadReceiptRow: Decodable, Sendable {
+        let thread_id: UUID
+        let last_read_sequence: Int64
     }
 
     enum RepositoryError: LocalizedError {
@@ -409,7 +488,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .from("acquisition_negotiations")
             .select(AcquisitionQueries.negotiationColumns)
             .eq("offer_id", value: offerID.uuidString)
-            .order("created_at", ascending: true)
+            .order("event_sequence", ascending: true)
             .execute()
             .value
 
@@ -583,6 +662,151 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         )
     }
 
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let rows: [ChatThreadRow] = try await client
+            .rpc("list_acquisition_chat_threads")
+            .execute()
+            .value
+        return rows.map(Self.chatThread(from:))
+    }
+
+    func ensureChatThread(
+        supplierID: UUID?,
+        offerID: UUID?
+    ) async throws -> AcquisitionChatThreadSummary {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let row: EnsuredChatThreadRow = try await client
+            .rpc(
+                "ensure_acquisition_chat_thread",
+                params: EnsureChatThreadParameters(
+                    p_supplier_id: supplierID,
+                    p_offer_id: offerID
+                )
+            )
+            .execute()
+            .value
+        let supplierRows: [SupplierRow] = try await client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .eq("id", value: row.supplier_id.uuidString)
+            .execute()
+            .value
+        return AcquisitionChatThreadSummary(
+            id: row.id,
+            supplierID: row.supplier_id,
+            offerID: row.offer_id,
+            scope: row.scope,
+            title: row.title,
+            supplierName: supplierRows.first?.name ?? "Proveedor",
+            lastMessage: nil,
+            lastMessageKind: nil,
+            lastMessageAt: nil,
+            unreadCount: 0
+        )
+    }
+
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let rows: [ChatMessageRow] = try await client
+            .from("acquisition_chat_messages")
+            .select(AcquisitionQueries.chatMessageColumns)
+            .eq("thread_id", value: threadID.uuidString)
+            .order("event_sequence", ascending: true)
+            .execute()
+            .value
+        let bucket = client.storage.from("acquisition-chat-attachments")
+        var messages: [AcquisitionChatMessage] = []
+        for row in rows {
+            let attachmentData: Data?
+            if let path = row.attachment_path {
+                attachmentData = try? await bucket.download(path: path)
+            } else {
+                attachmentData = nil
+            }
+            messages.append(Self.chatMessage(from: row, attachmentData: attachmentData))
+        }
+        return messages
+    }
+
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let attachmentPath: String?
+        if let attachment {
+            guard attachment.data.count <= 10 * 1_024 * 1_024 else {
+                throw RepositoryError.evidenceTooLarge
+            }
+            let path = AcquisitionChatAttachmentPath.make(
+                environmentID: try await currentEnvironmentID(),
+                supplierID: thread.supplierID,
+                threadID: thread.id,
+                fileExtension: attachment.fileExtension
+            )
+            try await client.storage.from("acquisition-chat-attachments").upload(
+                path,
+                data: attachment.data,
+                options: FileOptions(
+                    contentType: attachment.contentType,
+                    upsert: false
+                )
+            )
+            attachmentPath = path
+        } else {
+            attachmentPath = nil
+        }
+
+        let row: ChatMessageRow = try await client
+            .rpc(
+                "send_acquisition_chat_message",
+                params: SendChatMessageParameters(
+                    p_thread_id: thread.id,
+                    p_body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                    p_attachment_path: attachmentPath,
+                    p_idempotency_key: "ios-acquisition-chat-\(UUID().uuidString.lowercased())"
+                )
+            )
+            .execute()
+            .value
+        return Self.chatMessage(from: row, attachmentData: attachment?.data)
+    }
+
+    func markChatRead(threadID: UUID, sequence: Int64) async throws {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let _: ChatReadReceiptRow = try await client
+            .rpc(
+                "mark_acquisition_chat_read",
+                params: MarkChatReadParameters(
+                    p_thread_id: threadID,
+                    p_last_read_sequence: sequence
+                )
+            )
+            .execute()
+            .value
+    }
+
+    private func currentEnvironmentID() async throws -> UUID {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let session = try await client.auth.session
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
+        return profile.environment_id
+    }
+
     private func loadDeliveryJourney(
         offerID: UUID,
         membership: AcquisitionMembership,
@@ -720,6 +944,39 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
     nonisolated static func integer(from value: Decimal) -> Int {
         NSDecimalNumber(decimal: value).intValue
+    }
+
+    nonisolated static func chatThread(from row: ChatThreadRow) -> AcquisitionChatThreadSummary {
+        AcquisitionChatThreadSummary(
+            id: row.thread_id,
+            supplierID: row.supplier_id,
+            offerID: row.offer_id,
+            scope: row.scope,
+            title: row.title,
+            supplierName: row.supplier_name,
+            lastMessage: row.last_message,
+            lastMessageKind: row.last_message_kind,
+            lastMessageAt: row.last_message_at,
+            unreadCount: row.unread_count
+        )
+    }
+
+    nonisolated static func chatMessage(
+        from row: ChatMessageRow,
+        attachmentData: Data?
+    ) -> AcquisitionChatMessage {
+        AcquisitionChatMessage(
+            id: row.id,
+            sequence: row.event_sequence,
+            threadID: row.thread_id,
+            senderProfileID: row.sender_profile_id,
+            senderRole: AcquisitionRole(rawValue: row.sender_role),
+            kind: row.message_kind,
+            body: row.body,
+            attachmentPath: row.attachment_path,
+            createdAt: row.created_at,
+            attachmentData: attachmentData
+        )
     }
 }
 

@@ -60,6 +60,10 @@ final class AcquisitionOfferDetailViewModel {
     }
 
     func sendCounteroffer(amountText: String) async {
+        guard detail?.canCounteroffer(as: membership.role) == true else {
+            feedbackMessage = "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar."
+            return
+        }
         guard let amount = Self.amount(from: amountText), amount > 0 else {
             feedbackMessage = "Captura un importe válido."
             return
@@ -108,6 +112,20 @@ final class AcquisitionOfferDetailViewModel {
                 offerID: offerID,
                 action: .reject,
                 message: "DORI decidió no continuar"
+            ),
+            confirmation: "La propuesta se cerró sin compra."
+        )
+    }
+
+    func stopWithoutPurchase() async {
+        let isDORI = membership.role == .doriAdmin
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: isDORI ? .reject : .withdraw,
+                message: isDORI
+                    ? "DORI decidió no continuar"
+                    : "El proveedor decidió no continuar"
             ),
             confirmation: "La propuesta se cerró sin compra."
         )
@@ -184,7 +202,12 @@ final class AcquisitionOfferDetailViewModel {
             confirmationMessage = confirmation
             onChanged()
         } catch {
-            feedbackMessage = "No pudimos completar la acción. La propuesta no cambió."
+            if command.action == .counteroffer,
+               error.localizedDescription.contains("acquisition_counteroffer_limit_reached") {
+                feedbackMessage = "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar."
+            } else {
+                feedbackMessage = "No pudimos completar la acción. La propuesta no cambió."
+            }
         }
         isWorking = false
     }

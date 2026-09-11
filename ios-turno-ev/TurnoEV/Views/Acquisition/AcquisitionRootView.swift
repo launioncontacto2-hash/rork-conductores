@@ -28,7 +28,22 @@ struct AcquisitionRootView: View {
                         }
                     }
                     .navigationDestination(isPresented: $showConversations) {
-                        AcquisitionConversationPlaceholderView()
+                        if let membership = model.membership,
+                           let profileID = UUID(uuidString: model.principal.profileId) {
+                            ZStack {
+                                StationBackground()
+                                ScrollView {
+                                    AcquisitionChatListView(
+                                        membership: membership,
+                                        profileID: profileID,
+                                        repository: repository
+                                    )
+                                    .padding(18)
+                                }
+                            }
+                            .navigationTitle("Conversaciones")
+                            .navigationBarTitleDisplayMode(.inline)
+                        }
                     }
             }
         }
@@ -288,27 +303,14 @@ struct AcquisitionRootView: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                AcquisitionSectionHeader(title: "Conversaciones")
-                NavigationLink {
-                    AcquisitionConversationPlaceholderView()
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Chat institucional")
-                                .font(.headline)
-                            Text("Comunicación general y por unidad")
-                                .font(.subheadline)
-                                .foregroundStyle(Palette.textMuted)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(Palette.volt)
-                    }
-                    .foregroundStyle(Palette.text)
-                    .padding(18)
-                    .panelFlat()
+                if let membership = model.membership,
+                   let profileID = UUID(uuidString: model.principal.profileId) {
+                    AcquisitionChatListView(
+                        membership: membership,
+                        profileID: profileID,
+                        repository: repository
+                    )
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -410,8 +412,10 @@ struct AcquisitionRootView: View {
 
     private func dockBadges(for role: AcquisitionRole) -> [AcquisitionDockDestination: Int] {
         let attention = groupedOffers(.attention, role: role).count
-        guard attention > 0 else { return [:] }
-        return [.vehicles: attention]
+        var badges: [AcquisitionDockDestination: Int] = [:]
+        if attention > 0 { badges[.vehicles] = attention }
+        if model.unreadChatCount > 0 { badges[.contact] = model.unreadChatCount }
+        return badges
     }
 
     private func finishedLink(membership: AcquisitionMembership) -> some View {
@@ -473,21 +477,6 @@ struct AcquisitionRootView: View {
             }
         }
         .padding(28)
-    }
-}
-
-private struct AcquisitionConversationPlaceholderView: View {
-    var body: some View {
-        ZStack {
-            StationBackground()
-            ContentUnavailableView(
-                "Aún no hay conversaciones",
-                systemImage: "bubble.left.and.bubble.right",
-                description: Text("El chat institucional se habilitará en la siguiente etapa.")
-            )
-        }
-        .navigationTitle("Conversaciones")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

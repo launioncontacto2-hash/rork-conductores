@@ -22,6 +22,7 @@ final class AcquisitionViewModel {
     var offers: [AcquisitionOfferSummary] = []
     var suppliers: [AcquisitionSupplierSummary] = []
     var contacts: [AcquisitionInstitutionalContact] = []
+    var chatThreads: [AcquisitionChatThreadSummary] = []
 
     init(principal: SessionPrincipal, repository: any AcquisitionRepository) {
         self.principal = principal
@@ -59,6 +60,10 @@ final class AcquisitionViewModel {
 
     var uniqueOffers: [AcquisitionOfferSummary] {
         AcquisitionHumanStatus.uniqueVehicles(offers)
+    }
+
+    var unreadChatCount: Int {
+        chatThreads.reduce(0) { $0 + $1.unreadCount }
     }
 
     var counterpartContacts: [AcquisitionInstitutionalContact] {
@@ -102,12 +107,20 @@ final class AcquisitionViewModel {
                 loadedContacts = []
                 print("[Adquisiciones] El directorio de contactos no está disponible.")
             }
+            let loadedChatThreads: [AcquisitionChatThreadSummary]
+            do {
+                loadedChatThreads = try await repository.loadChatThreads()
+            } catch {
+                loadedChatThreads = []
+                print("[Adquisiciones] Las conversaciones no están disponibles.")
+            }
 
             membership = loadedMembership
             requests = loadedRequests
             offers = loadedOffers
             suppliers = loadedSuppliers
             contacts = loadedContacts
+            chatThreads = loadedChatThreads
             state = loadedRequests.isEmpty ? .empty : .content
 
             realtime.start(environmentID: loadedMembership.environmentID) { [weak self] in
@@ -119,6 +132,7 @@ final class AcquisitionViewModel {
             offers = []
             suppliers = []
             contacts = []
+            chatThreads = []
             state = .failed
             print("[Adquisiciones] No se pudo cargar el módulo: \(error.localizedDescription)")
         }

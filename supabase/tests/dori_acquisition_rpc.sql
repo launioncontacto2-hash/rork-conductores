@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(50);
+SELECT plan(61);
 
 SELECT has_function(
     'public', 'publish_acquisition_request',
@@ -115,6 +115,22 @@ SELECT
     'Dolphin Mini', 'Plus', 2025, 9100, NULL, 'Azul', 279000,
     false, 'submitted', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
 FROM test_acquisition_rpc_entities entity;
+
+INSERT INTO public.acquisition_offers(
+    id, environment_id, request_id, supplier_id, created_by, vin,
+    model, version, year, mileage, declared_soh, color, price_mxn,
+    transfer_included, status, submitted_at, updated_at
+)
+SELECT fixture.offer_id, entity.environment_id, entity.request_id,
+       'ad210000-0000-4000-8000-000000000001',
+       'ad200000-0000-4000-8000-000000000002', fixture.vin,
+       'Dolphin Mini', 'Plus', 2025, 8000, 94, 'Blanco', 274000,
+       true, 'submitted', app.env_now(entity.environment_id), app.env_now(entity.environment_id)
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES
+    ('ad240000-0000-4000-8000-000000000008'::uuid, 'LGXCE6CB1S0000088'::text),
+    ('ad240000-0000-4000-8000-000000000009'::uuid, 'LGXCE6CB1S0000099'::text)
+) fixture(offer_id, vin);
 
 -- Dos contraofertas con el mismo reloj de negocio deben conservar el orden de
 -- registro. Los UUID se eligen en orden inverso para demostrar que no se usan
@@ -239,6 +255,94 @@ SELECT throws_ok(
 );
 RESET ROLE;
 
+-- Maximo dos contraofertas por cada parte. Aceptar o no continuar permanecen
+-- disponibles cuando se agota el contador.
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 268000,
+        'Primera oferta DORI.', 'adq-limit-dori-1'
+    ) $sql$,
+    'DORI envia su primera contraoferta'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 267000,
+        'Segunda oferta DORI.', 'adq-limit-dori-2'
+    ) $sql$,
+    'DORI envia su segunda contraoferta'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 272000,
+        'Primera contraoferta proveedor.', 'adq-limit-provider-1'
+    ) $sql$,
+    'Proveedor envia su primera contraoferta'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 271000,
+        'Segunda contraoferta proveedor.', 'adq-limit-provider-2'
+    ) $sql$,
+    'Proveedor envia su segunda contraoferta'
+);
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 270000,
+        'Tercera contraoferta proveedor.', 'adq-limit-provider-3'
+    ) $sql$,
+    '55000', 'acquisition_counteroffer_limit_reached',
+    'Proveedor no puede superar dos contraofertas'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
+SET LOCAL ROLE authenticated;
+SELECT throws_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'counteroffer', 266000,
+        'Tercera oferta DORI.', 'adq-limit-dori-3'
+    ) $sql$,
+    '55000', 'acquisition_counteroffer_limit_reached',
+    'DORI no puede superar dos contraofertas'
+);
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000008', 'accept', NULL,
+        'Aceptamos la ultima contraoferta.', 'adq-limit-accept'
+    ) $sql$,
+    'DORI aun puede aceptar despues de agotar su contador'
+);
+SELECT is(
+    (SELECT agreed_price_mxn FROM public.acquisition_offers
+     WHERE id = 'ad240000-0000-4000-8000-000000000008'),
+    271000::numeric,
+    'La aceptacion conserva la ultima contraoferta valida'
+);
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.respond_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000009', 'withdraw', NULL,
+        'No continuaremos.', 'adq-provider-withdraw'
+    ) $sql$,
+    'Proveedor puede no continuar mediante RPC'
+);
+RESET ROLE;
+SELECT is(
+    (SELECT status FROM public.acquisition_offers
+     WHERE id = 'ad240000-0000-4000-8000-000000000009'),
+    'withdrawn',
+    'La salida del proveedor conserva un estado final explicito'
+);
+
 -- DORI contraoferta y el proveedor acepta.
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001', true);
 SET LOCAL ROLE authenticated;
@@ -329,6 +433,40 @@ SELECT lives_ok(
         'Unidad adjudicada.', 'adq-rpc-award-1'
     ) $sql$,
     'DORI adjudica la unidad al precio acordado'
+);
+RESET ROLE;
+
+-- La solicitud aun necesita unidades despues de su primera adjudicacion.
+-- El proveedor debe poder seguir ofreciendo contra el estado partially_awarded.
+INSERT INTO storage.objects(id, bucket_id, name, owner_id, metadata)
+SELECT gen_random_uuid(), 'acquisition-evidence',
+       entity.environment_id::text
+           || '/ad210000-0000-4000-8000-000000000001/'
+           || 'ad240000-0000-4000-8000-000000000007/' || fixture.file_name,
+       'ad200000-0000-4000-8000-000000000002',
+       jsonb_build_object('mimetype', 'image/jpeg')
+FROM test_acquisition_rpc_entities entity
+CROSS JOIN (VALUES ('vin.jpg'), ('front.jpg'), ('dashboard.jpg')) fixture(file_name);
+
+SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000002', true);
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.submit_acquisition_offer(
+        'ad240000-0000-4000-8000-000000000007',
+        (SELECT request_id FROM test_acquisition_rpc_entities),
+        'LGXCE6CB1S0000077', 'Dolphin Mini', 'Plus', 2025, 8200, 94,
+        'Blanco', 273000, true,
+        jsonb_build_array(
+            jsonb_build_object('kind','vin','path',
+                (SELECT environment_id::text || '/ad210000-0000-4000-8000-000000000001/ad240000-0000-4000-8000-000000000007/vin.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','front','path',
+                (SELECT environment_id::text || '/ad210000-0000-4000-8000-000000000001/ad240000-0000-4000-8000-000000000007/front.jpg' FROM test_acquisition_rpc_entities)),
+            jsonb_build_object('kind','dashboard','path',
+                (SELECT environment_id::text || '/ad210000-0000-4000-8000-000000000001/ad240000-0000-4000-8000-000000000007/dashboard.jpg' FROM test_acquisition_rpc_entities))
+        ),
+        'adq-rpc-submit-partially-awarded-1'
+    ) $sql$,
+    'Proveedor puede ofrecer mientras la solicitud esta parcialmente adjudicada'
 );
 RESET ROLE;
 

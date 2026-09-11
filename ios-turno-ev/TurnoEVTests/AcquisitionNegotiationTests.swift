@@ -31,6 +31,20 @@ struct AcquisitionNegotiationModelTests {
         #expect(!offerColumns.contains("summary"))
     }
 
+    @Test func countsTwoCounteroffersPerPartyAndClosesFurtherMovement() {
+        let detail = Self.detail(
+            status: "negotiating",
+            counterofferActors: [.doriAdmin, .provider, .doriAdmin, .provider]
+        )
+
+        #expect(detail.counterofferCount(for: .doriAdmin) == 2)
+        #expect(detail.counterofferCount(for: .provider) == 2)
+        #expect(detail.counteroffersRemaining(for: .doriAdmin) == 0)
+        #expect(detail.counteroffersRemaining(for: .provider) == 0)
+        #expect(!detail.canCounteroffer(as: .doriAdmin))
+        #expect(!detail.canCounteroffer(as: .provider))
+    }
+
     fileprivate static let offerID = UUID(uuidString: "AD710000-0000-4000-8000-000000000001")!
     fileprivate static let requestID = UUID(uuidString: "AD710000-0000-4000-8000-000000000002")!
     fileprivate static let environmentID = UUID(uuidString: "AD710000-0000-4000-8000-000000000003")!
@@ -40,20 +54,20 @@ struct AcquisitionNegotiationModelTests {
     fileprivate static func detail(
         lastActor: AcquisitionRole? = nil,
         status: String = "submitted",
-        assessment: AcquisitionOfferAssessment? = nil
+        assessment: AcquisitionOfferAssessment? = nil,
+        counterofferActors: [AcquisitionRole]? = nil
     ) -> AcquisitionOfferDetail {
-        let negotiations: [AcquisitionNegotiation] = lastActor.map {
-            [
+        let actors = counterofferActors ?? lastActor.map { [$0] } ?? []
+        let negotiations: [AcquisitionNegotiation] = actors.enumerated().map { index, actor in
                 AcquisitionNegotiation(
                     id: UUID(),
-                    actorRole: $0,
+                    actorRole: actor,
                     action: "counteroffer",
-                    amountMxn: 268_000,
+                    amountMxn: 268_000 + index,
                     message: nil,
-                    createdAt: Date()
-                ),
-            ]
-        } ?? []
+                    createdAt: Date().addingTimeInterval(TimeInterval(index))
+                )
+        }
         return AcquisitionOfferDetail(
             offer: AcquisitionOfferSummary(
                 id: offerID,
@@ -142,6 +156,33 @@ struct AcquisitionNegotiationFlowTests {
         #expect(repository.commands.last?.action == .counteroffer)
         #expect(repository.commands.last?.amountMxn == 271_000)
         #expect(model.confirmationMessage == "Contraoferta enviada a DORI.")
+    }
+
+    @Test func providerCannotSendAThirdCounterofferFromTheClient() async {
+        let repository = Repository(
+            detail: AcquisitionNegotiationModelTests.detail(
+                status: "negotiating",
+                counterofferActors: [.doriAdmin, .provider, .doriAdmin, .provider]
+            )
+        )
+        let model = Self.makeModel(role: .provider, repository: repository)
+
+        await model.load()
+        await model.sendCounteroffer(amountText: "272000")
+
+        #expect(repository.commands.isEmpty)
+        #expect(model.feedbackMessage == "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar.")
+    }
+
+    @Test func providerCanStopWithoutPurchaseThroughTheRPCBoundary() async {
+        let repository = Repository(detail: AcquisitionNegotiationModelTests.detail())
+        let model = Self.makeModel(role: .provider, repository: repository)
+
+        await model.load()
+        await model.stopWithoutPurchase()
+
+        #expect(repository.commands.last?.action == .withdraw)
+        #expect(model.detail?.offer.status == "withdrawn")
     }
 
     @Test func doriAwardsThroughTheRPCBoundary() async {
@@ -267,6 +308,12 @@ struct AcquisitionNegotiationFlowTests {
                 )
             case .reject:
                 status = "rejected"
+                detail = AcquisitionNegotiationModelTests.detail(
+                    status: status,
+                    assessment: detail.assessment
+                )
+            case .withdraw:
+                status = "withdrawn"
                 detail = AcquisitionNegotiationModelTests.detail(
                     status: status,
                     assessment: detail.assessment
