@@ -30,10 +30,10 @@ struct AcquisitionOfferDetailView: View {
             StationBackground()
             switch model.state {
             case .idle, .loading:
-                ProgressView("Cargando propuesta…")
+                ProgressView("Cargando unidad…")
             case .failed:
                 ContentUnavailableView(
-                    "No pudimos cargar la propuesta",
+                    "No pudimos cargar la unidad",
                     systemImage: "wifi.exclamationmark",
                     description: Text("Intenta nuevamente.")
                 )
@@ -43,7 +43,7 @@ struct AcquisitionOfferDetailView: View {
                 }
             }
         }
-        .navigationTitle("Propuesta")
+        .navigationTitle("Unidad")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .onDisappear { model.stopObserving() }
@@ -84,7 +84,7 @@ struct AcquisitionOfferDetailView: View {
             }
         }
         .confirmationDialog(
-            "¿No continuar con esta propuesta?",
+            "¿No continuar con esta unidad?",
             isPresented: $showsRejection,
             titleVisibility: .visible
         ) {
@@ -93,7 +93,7 @@ struct AcquisitionOfferDetailView: View {
             }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("La propuesta se cerrará sin compra.")
+            Text("El proceso de esta unidad terminará sin compra.")
         }
         .alert("Listo", isPresented: confirmationBinding) {
             Button("Aceptar") { model.confirmationMessage = nil }
@@ -106,6 +106,7 @@ struct AcquisitionOfferDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 vehicleCard(detail.offer)
+                currentStateCard(detail)
 
                 if model.membership.role == .doriAdmin, let assessment = detail.assessment {
                     assessmentCard(assessment)
@@ -139,7 +140,7 @@ struct AcquisitionOfferDetailView: View {
 
     private func vehicleCard(_ offer: AcquisitionOfferSummary) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Vehículo")
+            Text("Unidad")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Palette.textMuted)
             Text("\(offer.modelAndVersion) \(offer.year)")
@@ -153,6 +154,26 @@ struct AcquisitionOfferDetailView: View {
             Text("VIN: \(offer.abbreviatedVin)")
                 .font(.caption)
                 .foregroundStyle(Palette.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .panel()
+    }
+
+    private func currentStateCard(_ detail: AcquisitionOfferDetail) -> some View {
+        let role = model.membership.role
+        let title = AcquisitionHumanStatus.title(for: detail.offer.status, role: role)
+        return VStack(alignment: .leading, spacing: 8) {
+            CapsLabel(text: "Estado actual")
+            AcquisitionHumanStatusIndicator(
+                title: title,
+                group: AcquisitionHumanStatus.group(for: detail.offer.status, role: role)
+            )
+            if role == .doriAdmin, let assessment = detail.assessment {
+                Text("DORI recomienda: \(assessment.recommendation.visibleLabel)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.textMuted)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -338,11 +359,13 @@ struct AcquisitionOfferDetailView: View {
     }
 
     private func finalStatus(_ status: String) -> some View {
-        Text(AcquisitionStatusText.visible(status))
-            .font(.headline)
-            .frame(maxWidth: .infinity)
-            .padding(16)
-            .panelFlat()
+        AcquisitionHumanStatusIndicator(
+            title: AcquisitionHumanStatus.title(for: status, role: model.membership.role),
+            group: AcquisitionHumanStatus.group(for: status, role: model.membership.role)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panelFlat()
     }
 
     private var confirmationBinding: Binding<Bool> {
@@ -520,15 +543,15 @@ nonisolated enum AcquisitionStatusText {
     static func visible(_ status: String) -> String {
         switch status {
         case "submitted": "Propuesta enviada"
-        case "negotiating": "Negociación en curso"
+        case "negotiating": "DORI hizo una oferta"
         case "price_agreed": "Precio acordado"
         case "awarded": "Compra confirmada"
-        case "ready_for_delivery": "Lista para entregar"
+        case "ready_for_delivery": "Esperando entrega"
         case "accepted": "Aceptada"
         case "accepted_with_observations": "Aceptada con observaciones"
-        case "accepted_with_condition": "Aceptada con condición"
-        case "closed": "Adquisición cerrada"
-        case "rejected": "DORI decidió no continuar"
+        case "accepted_with_condition": "Recibida; falta resolver un detalle"
+        case "closed": "Operación terminada"
+        case "rejected": "Proceso terminado sin compra"
         default: "Operación actualizada"
         }
     }

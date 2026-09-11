@@ -9,6 +9,7 @@ protocol AcquisitionRepository {
     ) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary]
     func loadOfferDetail(
         offerID: UUID,
         membership: AcquisitionMembership
@@ -21,10 +22,14 @@ protocol AcquisitionRepository {
     func completeDelivery(_ command: AcquisitionDeliveryCommand) async throws -> AcquisitionDeliveryCommandResult
 }
 
+extension AcquisitionRepository {
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary] { [] }
+}
+
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at"
     static let evidenceColumns = "id, kind, object_path, verified"
@@ -32,7 +37,7 @@ nonisolated enum AcquisitionQueries {
     static let deliveryColumns = "status"
     static let receptionColumns = "vin_correct, mileage_correct, chargers_complete, keys_complete, new_damage, result, issue_summary, hold_amount_mxn"
     static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
-    static let supplierColumns = "name"
+    static let supplierColumns = "id, name, city"
 }
 
 @MainActor
@@ -71,6 +76,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated struct OfferRow: Decodable, Sendable {
         let id: UUID
         let request_id: UUID
+        let supplier_id: UUID
         let status: String
         let model: String
         let version: String?
@@ -174,7 +180,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     }
 
     nonisolated struct SupplierRow: Decodable, Sendable {
+        let id: UUID
         let name: String
+        let city: String
     }
 
     nonisolated struct CompleteDeliveryParameters: Encodable, Sendable {
@@ -320,6 +328,23 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .value
 
         return rows.map { Self.offer(from: $0) }
+    }
+
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [SupplierRow] = try await client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .order("name", ascending: true)
+            .execute()
+            .value
+
+        return rows.map {
+            AcquisitionSupplierSummary(id: $0.id, name: $0.name, city: $0.city)
+        }
     }
 
     func loadOfferDetail(
@@ -617,6 +642,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         AcquisitionOfferSummary(
             id: row.id,
             requestID: row.request_id,
+            supplierID: row.supplier_id,
             status: row.status,
             model: row.model,
             version: row.version,

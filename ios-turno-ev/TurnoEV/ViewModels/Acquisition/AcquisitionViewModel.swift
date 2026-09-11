@@ -20,6 +20,7 @@ final class AcquisitionViewModel {
     var membership: AcquisitionMembership?
     var requests: [AcquisitionRequest] = []
     var offers: [AcquisitionOfferSummary] = []
+    var suppliers: [AcquisitionSupplierSummary] = []
 
     init(principal: SessionPrincipal, repository: any AcquisitionRepository) {
         self.principal = principal
@@ -36,6 +37,32 @@ final class AcquisitionViewModel {
 
     var destination: AcquisitionDestination? {
         AcquisitionNavigation.destination(for: principal.role)
+    }
+
+    var organizationName: String {
+        switch destination {
+        case .administrator:
+            let city = activeRequest?.deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
+            return city.map { $0.isEmpty ? "DORI" : "DORI \($0)" } ?? "DORI"
+        case .provider:
+            guard let supplierID = membership?.supplierID else { return principal.name }
+            return suppliers.first(where: { $0.id == supplierID })?.name ?? principal.name
+        case nil:
+            return principal.name
+        }
+    }
+
+    var organizationSubtitle: String {
+        destination == .administrator ? "Adquisiciones activas" : "Portal de proveedor"
+    }
+
+    var uniqueOffers: [AcquisitionOfferSummary] {
+        AcquisitionHumanStatus.uniqueVehicles(offers)
+    }
+
+    func supplierName(for offer: AcquisitionOfferSummary) -> String? {
+        guard let supplierID = offer.supplierID else { return nil }
+        return suppliers.first(where: { $0.id == supplierID })?.name
     }
 
     func load() async {
@@ -60,10 +87,12 @@ final class AcquisitionViewModel {
 
             let loadedRequests = try await repository.loadRequests()
             let loadedOffers = try await repository.loadOffers()
+            let loadedSuppliers = try await repository.loadSuppliers()
 
             membership = loadedMembership
             requests = loadedRequests
             offers = loadedOffers
+            suppliers = loadedSuppliers
             state = loadedRequests.isEmpty ? .empty : .content
 
             realtime.start(environmentID: loadedMembership.environmentID) { [weak self] in
@@ -73,6 +102,7 @@ final class AcquisitionViewModel {
             membership = nil
             requests = []
             offers = []
+            suppliers = []
             state = .failed
             print("[Adquisiciones] No se pudo cargar el módulo: \(error.localizedDescription)")
         }

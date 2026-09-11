@@ -36,6 +36,12 @@ nonisolated struct AcquisitionMembership: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct AcquisitionSupplierSummary: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let city: String
+}
+
 /// Public request fields only. Internal SOH and price rules deliberately have no client model.
 nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let id: UUID
@@ -71,6 +77,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
 nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let requestID: UUID
+    let supplierID: UUID?
     let status: String
     let model: String
     let version: String?
@@ -86,6 +93,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         requestID: UUID,
+        supplierID: UUID? = nil,
         status: String,
         model: String = "",
         version: String? = nil,
@@ -100,6 +108,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.requestID = requestID
+        self.supplierID = supplierID
         self.status = status
         self.model = model
         self.version = version
@@ -146,6 +155,56 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         formatter.currencyCode = "MXN"
         formatter.maximumFractionDigits = 0
         return formatter.string(from: amount as NSNumber) ?? "$\(amount)"
+    }
+}
+
+nonisolated enum AcquisitionHomeGroup: Equatable, Sendable {
+    case attention
+    case inProgress
+    case finished
+}
+
+/// Presentation-only rules. Backend values remain internal and are converted into
+/// plain language at the last possible boundary before rendering.
+nonisolated enum AcquisitionHumanStatus {
+    static func title(for status: String, role: AcquisitionRole) -> String {
+        switch (status, role) {
+        case ("submitted", .doriAdmin): "Propuesta por revisar"
+        case ("submitted", .provider): "Esperando revisión de DORI"
+        case ("negotiating", .doriAdmin): "Negociación por resolver"
+        case ("negotiating", .provider): "DORI hizo una oferta"
+        case ("price_agreed", _): "Precio acordado"
+        case ("awarded", _): "Compra confirmada"
+        case ("ready_for_delivery", .doriAdmin): "Esperando entrega"
+        case ("ready_for_delivery", .provider): "Esperando recepción de DORI"
+        case ("received", _), ("accepted", _): "Unidad recibida"
+        case ("accepted_with_observations", _): "Recibida con observaciones"
+        case ("accepted_with_condition", .doriAdmin): "Recibida; falta resolver un detalle"
+        case ("accepted_with_condition", .provider): "Falta resolver un detalle"
+        case ("closed", _): "Operación terminada"
+        case ("rejected", _): "Proceso terminado sin compra"
+        default: "Operación actualizada"
+        }
+    }
+
+    static func group(for status: String, role: AcquisitionRole) -> AcquisitionHomeGroup {
+        if ["closed", "rejected"].contains(status) { return .finished }
+        switch (status, role) {
+        case ("submitted", .doriAdmin), ("negotiating", _),
+             ("price_agreed", .doriAdmin), ("accepted_with_condition", _):
+            .attention
+        default:
+            .inProgress
+        }
+    }
+
+    static func uniqueVehicles(_ offers: [AcquisitionOfferSummary]) -> [AcquisitionOfferSummary] {
+        var seen = Set<String>()
+        return offers.filter { offer in
+            let normalizedVIN = offer.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let key = normalizedVIN.isEmpty ? offer.id.uuidString : normalizedVIN
+            return seen.insert(key).inserted
+        }
     }
 }
 

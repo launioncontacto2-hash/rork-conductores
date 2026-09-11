@@ -60,6 +60,7 @@ struct AcquisitionOfferFormTests {
         let row = SupabaseAcquisitionRepository.OfferRow(
             id: Self.offerID,
             request_id: Self.request.id,
+            supplier_id: Self.supplierID,
             status: "submitted",
             model: "Dolphin Mini",
             version: "Plus",

@@ -125,6 +125,39 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(summary.missingCount == 14)
     }
 
+    @Test func presentsBackendStatesAsHumanActions() {
+        #expect(AcquisitionHumanStatus.title(for: "negotiating", role: .provider) == "DORI hizo una oferta")
+        #expect(AcquisitionHumanStatus.title(for: "awarded", role: .doriAdmin) == "Compra confirmada")
+        #expect(AcquisitionHumanStatus.title(for: "ready_for_delivery", role: .doriAdmin) == "Esperando entrega")
+        #expect(
+            AcquisitionHumanStatus.title(for: "accepted_with_condition", role: .provider)
+                == "Falta resolver un detalle"
+        )
+        #expect(AcquisitionHumanStatus.title(for: "closed", role: .provider) == "Operación terminada")
+    }
+
+    @Test func groupsTheDashboardByTheNextDecision() {
+        #expect(AcquisitionHumanStatus.group(for: "submitted", role: .doriAdmin) == .attention)
+        #expect(AcquisitionHumanStatus.group(for: "submitted", role: .provider) == .inProgress)
+        #expect(AcquisitionHumanStatus.group(for: "negotiating", role: .provider) == .attention)
+        #expect(AcquisitionHumanStatus.group(for: "awarded", role: .doriAdmin) == .inProgress)
+        #expect(AcquisitionHumanStatus.group(for: "closed", role: .provider) == .finished)
+    }
+
+    @Test func showsEachVinOnlyOnce() {
+        let vin = "LGXCE6CB1S0000011"
+        let offers = [
+            AcquisitionOfferSummary(id: UUID(), requestID: UUID(), status: "negotiating", vin: vin),
+            AcquisitionOfferSummary(id: UUID(), requestID: UUID(), status: "submitted", vin: vin.lowercased()),
+            AcquisitionOfferSummary(id: UUID(), requestID: UUID(), status: "awarded", vin: "LGXCE6CB1S0000022"),
+        ]
+
+        let visible = AcquisitionHumanStatus.uniqueVehicles(offers)
+
+        #expect(visible.count == 2)
+        #expect(visible[0].status == "negotiating")
+    }
+
     @Test func providerQueriesContainNoInternalRulesOrAssessmentFields() {
         let exposed = (AcquisitionQueries.requestColumns + AcquisitionQueries.offerColumns)
             .lowercased()
@@ -134,7 +167,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
         )
     }
 

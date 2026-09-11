@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct AcquisitionRootView: View {
-    @Environment(FleetStore.self) private var fleet
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AcquisitionViewModel
+    @State private var selectedDestination: AcquisitionDockDestination = .home
     private let repository: any AcquisitionRepository
 
     init(
@@ -17,115 +17,333 @@ struct AcquisitionRootView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                StationBackground()
+        ZStack {
+            StationBackground()
+            NavigationStack {
                 content
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            SessionMenuButton()
+                        }
+                    }
             }
-            .navigationTitle(model.destination == .administrator ? "Adquisiciones" : "DORI")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SessionMenuButton()
-                }
-            }
-            .task(id: model.principal.profileId) { await model.load() }
-            .refreshable { await model.load() }
-            .onChange(of: scenePhase) { _, phase in
-                guard phase == .active else { return }
-                Task { await model.load() }
-            }
-            .onDisappear { model.stopObserving() }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let role = model.membership?.role {
+                AcquisitionDock(selection: $selectedDestination, role: role)
+            }
+        }
+        .task(id: model.principal.profileId) { await model.load() }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await model.load() }
+        }
+        .onDisappear { model.stopObserving() }
     }
 
     @ViewBuilder
     private var content: some View {
         switch model.state {
         case .idle, .loading:
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("Cargando…")
-                    .foregroundStyle(Palette.textMuted)
-            }
-
+            statusMessage(symbol: nil, title: "Cargando…", action: nil)
         case .empty:
-            message(
+            statusMessage(
                 symbol: "car.2.fill",
-                title: "Sin solicitudes disponibles.",
+                title: "No hay solicitudes disponibles por ahora.",
                 action: nil
             )
-
         case .failed:
-            message(
+            statusMessage(
                 symbol: "wifi.exclamationmark",
                 title: "No pudimos cargar la información.",
                 action: "Reintentar"
             )
-
         case .content:
-            if let summary = model.activeSummary {
-                ScrollView {
-                    Group {
-                        switch model.destination {
-                        case .administrator:
-                            if let membership = model.membership {
-                                AcquisitionAdministratorHome(
-                                    summary: summary,
-                                    offers: model.offers,
-                                    membership: membership,
-                                    repository: repository,
-                                    onChanged: { Task { await model.load() } }
-                                )
-                            } else {
-                                message(
-                                    symbol: "lock.shield.fill",
-                                    title: "Acceso no permitido.",
-                                    action: nil
-                                )
-                            }
-                        case .provider:
-                            if let membership = model.membership {
-                                AcquisitionProviderHome(
-                                    summary: summary,
-                                    requestCount: model.requests.count,
-                                    offers: model.offers,
-                                    membership: membership,
-                                    repository: repository,
-                                    onSubmitted: { _ in Task { await model.load() } }
-                                )
-                            } else {
-                                message(
-                                    symbol: "lock.shield.fill",
-                                    title: "Acceso no permitido.",
-                                    action: nil
-                                )
-                            }
-                        case nil:
-                            message(
-                                symbol: "lock.shield.fill",
-                                title: "Acceso no permitido.",
-                                action: nil
-                            )
-                        }
-                    }
-                    .padding(18)
-                }
-                .scrollIndicators(.hidden)
+            if let membership = model.membership {
+                destinationContent(membership: membership)
             } else {
-                message(
-                    symbol: "car.2.fill",
-                    title: "Sin solicitudes disponibles.",
-                    action: nil
-                )
+                statusMessage(symbol: "lock.shield.fill", title: "Acceso no permitido.", action: nil)
             }
         }
     }
 
-    private func message(symbol: String, title: String, action: String?) -> some View {
+    @ViewBuilder
+    private func destinationContent(membership: AcquisitionMembership) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                AcquisitionIdentityHeader(
+                    name: model.organizationName,
+                    subtitle: model.organizationSubtitle
+                )
+
+                switch selectedDestination {
+                case .home:
+                    home(membership: membership)
+                case .requests:
+                    requests(membership: membership)
+                case .vehicles:
+                    vehicles(membership: membership)
+                case .contact:
+                    phasePlaceholder(
+                        title: "Contacto",
+                        message: "Personas y conversaciones estarán reunidas aquí."
+                    )
+                case .account:
+                    account(membership: membership)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
+        .refreshable { await model.load() }
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private func home(membership: AcquisitionMembership) -> some View {
+        if let summary = model.activeSummary {
+            switch membership.role {
+            case .doriAdmin:
+                administratorHome(summary: summary, membership: membership)
+            case .provider:
+                providerHome(summary: summary, membership: membership)
+            }
+        }
+    }
+
+    private func administratorHome(
+        summary: AcquisitionRequestSummary,
+        membership: AcquisitionMembership
+    ) -> some View {
+        let attention = groupedOffers(.attention, role: .doriAdmin)
+        let inProgress = groupedOffers(.inProgress, role: .doriAdmin)
+        return VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                AcquisitionSectionHeader(title: "Solicitud actual")
+                NavigationLink {
+                    AcquisitionRequestDetailView(summary: summary)
+                } label: {
+                    AcquisitionRequestCard(
+                        request: summary.request,
+                        progressText: "\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir",
+                        audience: .doriAdmin
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            offerSection(
+                title: "Necesita tu atención",
+                offers: attention,
+                membership: membership,
+                emptyText: "No tienes decisiones pendientes."
+            )
+
+            offerSection(
+                title: "En proceso",
+                offers: inProgress,
+                membership: membership,
+                emptyText: "No hay compras en proceso."
+            )
+
+            finishedLink(membership: membership)
+        }
+    }
+
+    private func providerHome(
+        summary: AcquisitionRequestSummary,
+        membership: AcquisitionMembership
+    ) -> some View {
+        let attention = groupedOffers(.attention, role: .provider)
+        let inProgress = groupedOffers(.inProgress, role: .provider)
+        return VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                AcquisitionSectionHeader(title: "Solicitud disponible")
+                AcquisitionRequestCard(
+                    request: summary.request,
+                    progressText: nil,
+                    audience: .provider
+                )
+                NavigationLink {
+                    AcquisitionOfferFormView(
+                        request: summary.request,
+                        membership: membership,
+                        repository: repository,
+                        onSubmitted: { _ in Task { await model.load() } }
+                    )
+                } label: {
+                    Label("Ofrecer un vehículo", systemImage: "car.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.volt)
+            }
+
+            offerSection(
+                title: "Necesita tu atención",
+                offers: attention,
+                membership: membership,
+                emptyText: "No tienes acciones pendientes."
+            )
+
+            offerSection(
+                title: "Mis vehículos",
+                offers: inProgress,
+                membership: membership,
+                emptyText: "Aún no has ofrecido vehículos."
+            )
+
+            finishedLink(membership: membership)
+        }
+    }
+
+    private func requests(membership: AcquisitionMembership) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AcquisitionSectionHeader(title: "Solicitudes", count: model.requests.count)
+            ForEach(model.requests) { request in
+                let summary = AcquisitionRequestSummary(request: request, offers: model.uniqueOffers)
+                NavigationLink {
+                    AcquisitionRequestDetailView(summary: summary)
+                } label: {
+                    AcquisitionRequestCard(
+                        request: request,
+                        progressText: membership.role == .doriAdmin
+                            ? "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir"
+                            : nil,
+                        audience: membership.role
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func vehicles(membership: AcquisitionMembership) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            offerSection(
+                title: membership.role == .doriAdmin ? "Operaciones" : "Mis vehículos",
+                offers: groupedOffers(.attention, role: membership.role)
+                    + groupedOffers(.inProgress, role: membership.role),
+                membership: membership,
+                emptyText: "No hay vehículos activos."
+            )
+            offerSection(
+                title: "Terminadas",
+                offers: groupedOffers(.finished, role: membership.role),
+                membership: membership,
+                emptyText: "Aún no hay operaciones terminadas."
+            )
+        }
+    }
+
+    private func account(membership: AcquisitionMembership) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            AcquisitionSectionHeader(title: "Cuenta")
+            AcquisitionContactCard(
+                organization: model.organizationName,
+                roleDescription: membership.role == .doriAdmin
+                    ? "Administrador DORI"
+                    : "Proveedor autorizado",
+                personName: model.principal.name
+            )
+            Text(membership.role == .provider
+                 ? "Estos datos son administrados por DORI."
+                 : "Tu acceso corresponde a esta operación de DORI.")
+                .font(.subheadline)
+                .foregroundStyle(Palette.textMuted)
+        }
+    }
+
+    private func offerSection(
+        title: String,
+        offers: [AcquisitionOfferSummary],
+        membership: AcquisitionMembership,
+        emptyText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AcquisitionSectionHeader(title: title, count: offers.count)
+            if offers.isEmpty {
+                Text(emptyText)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .panelFlat()
+            } else {
+                ForEach(offers) { offer in
+                    NavigationLink {
+                        AcquisitionOfferDetailView(
+                            offerID: offer.id,
+                            membership: membership,
+                            repository: repository,
+                            onChanged: { Task { await model.load() } }
+                        )
+                    } label: {
+                        AcquisitionVehicleCard(
+                            offer: offer,
+                            role: membership.role,
+                            supplierName: model.supplierName(for: offer)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func finishedLink(membership: AcquisitionMembership) -> some View {
+        let finished = groupedOffers(.finished, role: membership.role)
+        return Button {
+            selectedDestination = .vehicles
+        } label: {
+            HStack {
+                Text("Ver operaciones terminadas")
+                    .font(.headline)
+                Spacer()
+                Text("\(finished.count)")
+                Image(systemName: "arrow.right")
+            }
+            .foregroundStyle(Palette.text)
+            .padding(18)
+            .panelFlat()
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func groupedOffers(
+        _ group: AcquisitionHomeGroup,
+        role: AcquisitionRole
+    ) -> [AcquisitionOfferSummary] {
+        model.uniqueOffers.filter {
+            AcquisitionHumanStatus.group(for: $0.status, role: role) == group
+        }
+    }
+
+    private func phasePlaceholder(title: String, message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            AcquisitionSectionHeader(title: title)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(Palette.textMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .panel()
+        }
+    }
+
+    private func statusMessage(symbol: String?, title: String, action: String?) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: 42, weight: .light))
-                .foregroundStyle(Palette.volt)
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: 42, weight: .light))
+                    .foregroundStyle(Palette.volt)
+            } else {
+                ProgressView()
+            }
             Text(title)
                 .font(.headline)
                 .multilineTextAlignment(.center)
@@ -139,155 +357,6 @@ struct AcquisitionRootView: View {
     }
 }
 
-private struct AcquisitionAdministratorHome: View {
-    let summary: AcquisitionRequestSummary
-    let offers: [AcquisitionOfferSummary]
-    let membership: AcquisitionMembership
-    let repository: any AcquisitionRepository
-    let onChanged: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(summary.request.title)
-                    .font(.system(.title, weight: .black))
-                HStack(spacing: 18) {
-                    metric(summary.securedCount, "asegurados")
-                    metric(summary.decidingCount, "por decidir")
-                    metric(summary.missingCount, "faltantes")
-                }
-            }
-
-            requestCard(summary.request)
-
-            NavigationLink {
-                AcquisitionRequestDetailView(summary: summary)
-            } label: {
-                Label("Abrir solicitud", systemImage: "arrow.right")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.volt)
-
-            if let offer = offers.first {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Nueva propuesta")
-                        .font(.headline)
-                    Text("\(offer.modelAndVersion) \(offer.year)")
-                        .font(.title3.weight(.bold))
-                    Text("\(offer.mileageText) km")
-                        .foregroundStyle(Palette.textMuted)
-                    Text(offer.priceText)
-                        .font(.title2.weight(.black))
-
-                    NavigationLink {
-                        AcquisitionOfferDetailView(
-                            offerID: offer.id,
-                            membership: membership,
-                            repository: repository,
-                            onChanged: onChanged
-                        )
-                    } label: {
-                        Label("Revisar", systemImage: "arrow.right")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(Palette.volt)
-                }
-                .padding(18)
-                .panel()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func metric(_ value: Int, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)")
-                .font(.title2.weight(.black))
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(Palette.textMuted)
-        }
-    }
-}
-
-private struct AcquisitionProviderHome: View {
-    let summary: AcquisitionRequestSummary
-    let requestCount: Int
-    let offers: [AcquisitionOfferSummary]
-    let membership: AcquisitionMembership
-    let repository: any AcquisitionRepository
-    let onSubmitted: (AcquisitionOfferSummary) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(
-                requestCount == 1
-                    ? "1 solicitud disponible"
-                    : "\(requestCount) solicitudes disponibles"
-            )
-                .font(.system(.title2, weight: .black))
-
-            requestCard(summary.request)
-
-            NavigationLink {
-                AcquisitionOfferFormView(
-                    request: summary.request,
-                    membership: membership,
-                    repository: repository,
-                    onSubmitted: onSubmitted
-                )
-            } label: {
-                Label("Tengo unidades", systemImage: "car.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.volt)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Mis operaciones")
-                    .font(.headline)
-                if offers.isEmpty {
-                    Text("Aún no tienes operaciones.")
-                        .foregroundStyle(Palette.textMuted)
-                } else {
-                    ForEach(offers.prefix(3)) { offer in
-                        NavigationLink {
-                            AcquisitionOfferDetailView(
-                                offerID: offer.id,
-                                membership: membership,
-                                repository: repository,
-                                onChanged: { onSubmitted(offer) }
-                            )
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(offer.modelAndVersion) \(offer.year)")
-                                    .font(.subheadline.weight(.bold))
-                                Text("\(offer.mileageText) km · \(offer.priceText)")
-                                    .font(.caption)
-                                    .foregroundStyle(Palette.textMuted)
-                                Text(AcquisitionStatusText.visible(offer.status))
-                                    .font(.caption2.weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(14)
-                            .panelFlat()
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .padding(.top, 8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 private struct AcquisitionRequestDetailView: View {
     let summary: AcquisitionRequestSummary
 
@@ -295,55 +364,25 @@ private struct AcquisitionRequestDetailView: View {
         ZStack {
             StationBackground()
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(summary.request.title)
-                        .font(.system(.title2, weight: .black))
-                    requestCard(summary.request)
-                    Text("\(summary.securedCount) asegurados · \(summary.missingCount) faltantes")
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.textMuted)
+                VStack(alignment: .leading, spacing: 16) {
+                    AcquisitionSectionHeader(title: "Solicitud")
+                    AcquisitionRequestCard(
+                        request: summary.request,
+                        progressText: "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir",
+                        audience: .doriAdmin
+                    )
                 }
                 .padding(18)
             }
         }
-        .navigationTitle("Solicitud activa")
+        .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private func requestCard(_ request: AcquisitionRequest) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-        Text("Solicitud activa")
-            .font(.caption.weight(.bold))
-            .foregroundStyle(Palette.textMuted)
-        Text(request.modelAndVersions)
-            .font(.title3.weight(.bold))
-        Text("\(request.yearRange) · Máx. \(request.maximumMileageText) km")
-            .font(.subheadline)
-            .foregroundStyle(Palette.textMuted)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(18)
-    .panel()
-}
-
 #Preview("Administrador DORI") {
-    let principal = SessionPrincipal(
-        authUserId: UUID().uuidString,
-        profileId: UUID().uuidString,
-        name: "Administrador DORI",
-        employeeNumber: "ADQ-TEST-ADMIN",
-        email: "admin@ejemplo.test",
-        role: .doriAdmin,
-        environmentId: UUID().uuidString,
-        stationId: nil,
-        stationCode: nil,
-        stationName: nil,
-        shiftGroup: nil,
-        shiftSlot: nil
-    )
     AcquisitionRootView(
-        principal: principal,
+        principal: previewPrincipal(role: .doriAdmin),
         repository: PreviewAcquisitionRepository(role: .doriAdmin)
     )
     .environment(FleetStore())
@@ -351,13 +390,23 @@ private func requestCard(_ request: AcquisitionRequest) -> some View {
 }
 
 #Preview("Usuario Proveedor") {
-    let principal = SessionPrincipal(
+    AcquisitionRootView(
+        principal: previewPrincipal(role: .provider),
+        repository: PreviewAcquisitionRepository(role: .provider)
+    )
+    .environment(FleetStore())
+    .environment(LabStore())
+}
+
+@MainActor
+private func previewPrincipal(role: StaffRole) -> SessionPrincipal {
+    SessionPrincipal(
         authUserId: UUID().uuidString,
         profileId: UUID().uuidString,
-        name: "Agencia Puebla Centro",
-        employeeNumber: "ADQ-TEST-PROV-001",
-        email: "proveedor@ejemplo.test",
-        role: .provider,
+        name: role == .provider ? "Agencia Puebla Centro" : "Administrador DORI",
+        employeeNumber: role == .provider ? "ADQ-TEST-PROV-001" : "ADQ-TEST-ADMIN",
+        email: "cuenta@ejemplo.test",
+        role: role,
         environmentId: UUID().uuidString,
         stationId: nil,
         stationCode: nil,
@@ -365,10 +414,4 @@ private func requestCard(_ request: AcquisitionRequest) -> some View {
         shiftGroup: nil,
         shiftSlot: nil
     )
-    AcquisitionRootView(
-        principal: principal,
-        repository: PreviewAcquisitionRepository(role: .provider)
-    )
-    .environment(FleetStore())
-    .environment(LabStore())
 }
