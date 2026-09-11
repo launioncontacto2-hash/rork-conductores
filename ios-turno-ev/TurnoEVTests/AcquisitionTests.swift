@@ -355,6 +355,37 @@ struct AcquisitionViewModelTests {
         #expect(model.membership == nil)
     }
 
+    @Test func keepsDashboardContentWhenInstitutionalContactsAreUnavailable() async {
+        let request = AcquisitionRequest(
+            id: UUID(),
+            code: "ADQ-TEST-001",
+            title: "15 autos requeridos",
+            targetQuantity: 15,
+            model: "Dolphin Mini",
+            versions: ["Plus"],
+            minimumYear: 2025,
+            maximumYear: 2026,
+            maximumMileage: 20_000,
+            deliveryCity: "Puebla",
+            deadlineAt: nil
+        )
+        let repository = Repository(
+            requests: [request],
+            contactFailure: TestFailure.unavailable
+        )
+        let model = AcquisitionViewModel(
+            principal: Self.principal(role: .doriAdmin),
+            repository: repository
+        )
+
+        await model.load()
+
+        #expect(model.state == .content)
+        #expect(model.activeRequest?.code == "ADQ-TEST-001")
+        #expect(model.contacts.isEmpty)
+        #expect(model.organizationName == "DORI Puebla")
+    }
+
     private static func principal(role: StaffRole) -> SessionPrincipal {
         SessionPrincipal(
             authUserId: UUID().uuidString,
@@ -382,15 +413,18 @@ struct AcquisitionViewModelTests {
 
         let requests: [AcquisitionRequest]
         let failure: Error?
+        let contactFailure: Error?
         let membershipRole: AcquisitionRole
 
         init(
             requests: [AcquisitionRequest],
             failure: Error? = nil,
+            contactFailure: Error? = nil,
             membershipRole: AcquisitionRole = .doriAdmin
         ) {
             self.requests = requests
             self.failure = failure
+            self.contactFailure = contactFailure
             self.membershipRole = membershipRole
         }
 
@@ -415,6 +449,11 @@ struct AcquisitionViewModelTests {
 
         func loadOffers() async throws -> [AcquisitionOfferSummary] {
             if let failure { throw failure }
+            return []
+        }
+
+        func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
+            if let contactFailure { throw contactFailure }
             return []
         }
 

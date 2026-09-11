@@ -264,7 +264,7 @@ struct AcquisitionRootView: View {
             VStack(alignment: .leading, spacing: 12) {
                 AcquisitionSectionHeader(title: "Personas", count: model.counterpartContacts.count)
                 if model.counterpartContacts.isEmpty {
-                    Text("Aún no hay contactos institucionales disponibles.")
+                    Text("Información de contacto pendiente")
                         .font(.subheadline)
                         .foregroundStyle(Palette.textMuted)
                         .frame(maxWidth: .infinity, alignment: .leading)

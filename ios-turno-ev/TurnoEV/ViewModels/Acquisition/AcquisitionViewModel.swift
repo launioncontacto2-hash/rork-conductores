@@ -93,7 +93,15 @@ final class AcquisitionViewModel {
             let loadedRequests = try await repository.loadRequests()
             let loadedOffers = try await repository.loadOffers()
             let loadedSuppliers = try await repository.loadSuppliers()
-            let loadedContacts = try await repository.loadContacts()
+            let loadedContacts: [AcquisitionInstitutionalContact]
+            do {
+                loadedContacts = try await repository.loadContacts()
+            } catch {
+                // El directorio institucional es información secundaria. Una
+                // indisponibilidad no debe ocultar solicitudes u operaciones.
+                loadedContacts = []
+                print("[Adquisiciones] El directorio de contactos no está disponible.")
+            }
 
             membership = loadedMembership
             requests = loadedRequests
