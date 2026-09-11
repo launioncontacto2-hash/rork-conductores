@@ -33,15 +33,51 @@ nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable,
 struct AcquisitionIdentityHeader: View {
     let name: String
     let subtitle: String
+    var stationName: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(name)
-                .font(.system(.largeTitle, design: .rounded, weight: .black))
-                .foregroundStyle(Palette.text)
-            Text(subtitle)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Palette.textMuted)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(name)
+                        .font(.system(.largeTitle, design: .rounded, weight: .black))
+                        .foregroundStyle(Palette.text)
+                    Text(subtitle)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Palette.textMuted)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Label("Modo prueba", systemImage: "testtube.2")
+                        .font(.caption.weight(.bold))
+                    Text("Datos ficticios")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(Palette.amber)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 8)
+                .background(Palette.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 13)
+                        .stroke(Palette.amber.opacity(0.35), lineWidth: 1)
+                }
+            }
+
+            if let stationName {
+                HStack(spacing: 11) {
+                    Image(systemName: "building.2.crop.circle.fill")
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(Palette.volt)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(stationName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.text)
+                        Text("Compra segura. Más unidades en ruta.")
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -104,6 +140,238 @@ struct AcquisitionRequestCard: View {
     }
 }
 
+struct AcquisitionAdminRequestCard: View {
+    let summary: AcquisitionRequestSummary
+
+    private var progress: Double {
+        guard summary.request.targetQuantity > 0 else { return 0 }
+        return min(Double(summary.securedCount) / Double(summary.request.targetQuantity), 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .stroke(Palette.volt.opacity(0.18), lineWidth: 8)
+                    Circle()
+                        .trim(from: 0, to: max(progress, 0.06))
+                        .stroke(
+                            Palette.volt,
+                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                    Image(systemName: "car.side.fill")
+                        .font(.system(size: 21, weight: .semibold))
+                        .foregroundStyle(Palette.volt)
+                }
+                .frame(width: 64, height: 64)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(summary.request.targetQuantity) vehículos requeridos")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                    Text(summary.request.modelAndVersions)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.text)
+                    Text("\(summary.request.yearRange) · Máx. \(summary.request.maximumMileageText) km")
+                        .font(.caption)
+                        .foregroundStyle(Palette.textMuted)
+                }
+            }
+
+            ProgressView(value: progress)
+                .tint(Palette.volt)
+                .scaleEffect(x: 1, y: 1.6, anchor: .center)
+
+            HStack(spacing: 10) {
+                Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Palette.text)
+                Spacer(minLength: 6)
+                Label("Ver solicitud", systemImage: "arrow.right")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Color.black)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 10)
+                    .background(Palette.volt, in: RoundedRectangle(cornerRadius: 11))
+            }
+        }
+        .padding(18)
+        .background {
+            LinearGradient(
+                colors: [Palette.volt.opacity(0.16), Palette.surface.opacity(0.97)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Palette.volt.opacity(0.35), lineWidth: 1)
+        }
+        .shadow(color: Palette.volt.opacity(0.08), radius: 18, y: 8)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+struct AcquisitionOperationalSectionHeader: View {
+    let title: String
+    let symbol: String
+    let tint: Color
+    let count: Int
+    var trailingTitle: String? = nil
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(tint)
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(Palette.text)
+            Spacer()
+            if let trailingTitle {
+                Text(trailingTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(tint)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(tint)
+            } else {
+                Text("\(count)")
+                    .font(.subheadline.weight(.black))
+                    .foregroundStyle(count > 0 ? Color.black : Palette.textMuted)
+                    .frame(minWidth: 28, minHeight: 28)
+                    .background(count > 0 ? tint : Palette.surfaceRaised, in: Circle())
+            }
+        }
+    }
+}
+
+struct AcquisitionVehicleVisual: View {
+    var compact = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.white.opacity(0.20), Palette.info.opacity(0.10)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Image(systemName: "car.side.fill")
+                .font(.system(size: compact ? 30 : 39, weight: .semibold))
+                .foregroundStyle(Palette.text)
+                .shadow(color: .black.opacity(0.35), radius: 5, y: 4)
+        }
+        .frame(width: compact ? 78 : 96, height: compact ? 65 : 82)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(Color.white.opacity(0.12), lineWidth: 1)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct AcquisitionDashboardVehicleCard: View {
+    let offer: AcquisitionOfferSummary
+    let role: AcquisitionRole
+    let supplierName: String?
+    let actionTitle: String
+    var recommendation: String? = nil
+
+    private var group: AcquisitionHomeGroup {
+        AcquisitionHumanStatus.group(for: offer.status, role: role)
+    }
+
+    private var statusTint: Color {
+        if group == .attention { return Palette.amber }
+        if ["awarded", "received", "accepted", "closed"].contains(offer.status) {
+            return Palette.volt
+        }
+        return Palette.info
+    }
+
+    private var statusSymbol: String {
+        if group == .attention { return "exclamationmark.circle.fill" }
+        if ["awarded", "received", "accepted", "closed"].contains(offer.status) {
+            return "checkmark.circle.fill"
+        }
+        return "clock.fill"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 13) {
+                AcquisitionVehicleVisual(compact: group == .attention)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let supplierName, role == .doriAdmin {
+                        Text(supplierName)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                    Text("\(offer.modelAndVersion) \(offer.year)")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                        .lineLimit(2)
+                    if group == .attention {
+                        Text("\(offer.mileageText) km · \(offer.agreedPriceText ?? offer.priceText)")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.textMuted)
+                    } else {
+                        Text("VIN \(offer.abbreviatedVin)")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                    Label(
+                        AcquisitionHumanStatus.title(for: offer.status, role: role),
+                        systemImage: statusSymbol
+                    )
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(statusTint)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .background(statusTint.opacity(0.14), in: Capsule())
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(Palette.text)
+                    .frame(minHeight: 66)
+            }
+
+            if let recommendation {
+                Label("DORI recomienda: \(recommendation)", systemImage: "sparkles")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Palette.amber)
+            }
+
+            HStack {
+                Spacer()
+                Text(actionTitle)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(group == .attention ? Color.black : statusTint)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(
+                        group == .attention ? statusTint : statusTint.opacity(0.13),
+                        in: RoundedRectangle(cornerRadius: 10)
+                    )
+            }
+        }
+        .padding(14)
+        .background(Palette.surface.opacity(0.94), in: RoundedRectangle(cornerRadius: 17))
+        .overlay {
+            RoundedRectangle(cornerRadius: 17)
+                .stroke(statusTint.opacity(0.22), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.20), radius: 13, y: 7)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Abre el detalle de la unidad")
+    }
+}
+
 struct AcquisitionHumanStatusIndicator: View {
     let title: String
     let group: AcquisitionHomeGroup
@@ -118,13 +386,15 @@ struct AcquisitionHumanStatusIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(tint)
-                .frame(width: 8, height: 8)
+            Image(systemName: group == .attention ? "exclamationmark.circle.fill" : "clock.fill")
+                .font(.caption.weight(.bold))
             Text(title)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .font(.caption.weight(.bold))
         }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(tint.opacity(0.13), in: Capsule())
         .accessibilityElement(children: .combine)
     }
 }
@@ -299,6 +569,7 @@ struct AcquisitionPrimaryAction: View {
 struct AcquisitionDock: View {
     @Binding var selection: AcquisitionDockDestination
     let role: AcquisitionRole
+    var badges: [AcquisitionDockDestination: Int] = [:]
 
     var body: some View {
         HStack(spacing: 2) {
@@ -306,24 +577,46 @@ struct AcquisitionDock: View {
                 Button {
                     selection = destination
                 } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: destination.symbol)
-                            .font(.system(size: 16, weight: .semibold))
+                    VStack(spacing: 5) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: destination.symbol)
+                                .font(.system(size: 20, weight: .bold))
+                                .frame(width: 32, height: 25)
+                            if let badge = badges[destination], badge > 0 {
+                                Text("\(min(badge, 99))")
+                                    .font(.system(size: 9, weight: .black))
+                                    .foregroundStyle(.white)
+                                    .frame(minWidth: 17, minHeight: 17)
+                                    .background(Palette.danger, in: Circle())
+                                    .offset(x: 8, y: -7)
+                            }
+                        }
                         Text(destination.title(for: role))
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .bold))
                             .lineLimit(1)
                     }
                     .foregroundStyle(selection == destination ? Palette.volt : Palette.textMuted)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 10)
+                    .background(
+                        selection == destination ? Palette.volt.opacity(0.08) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 15)
+                    )
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
                 .accessibilityValue(selection == destination ? "Seleccionado" : "")
             }
         }
-        .padding(.horizontal, 8)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) { Divider().overlay(Palette.hairline) }
+        .padding(7)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 25, style: .continuous)
+                .stroke(Palette.hairline.opacity(0.9), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.34), radius: 18, y: 8)
+        .padding(.horizontal, 10)
+        .padding(.top, 7)
+        .background(Palette.canvas.opacity(0.94))
     }
 }

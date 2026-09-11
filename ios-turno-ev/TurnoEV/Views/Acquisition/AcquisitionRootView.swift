@@ -34,7 +34,11 @@ struct AcquisitionRootView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let role = model.membership?.role {
-                AcquisitionDock(selection: $selectedDestination, role: role)
+                AcquisitionDock(
+                    selection: $selectedDestination,
+                    role: role,
+                    badges: dockBadges(for: role)
+                )
             }
         }
         .task(id: model.principal.profileId) { await model.load() }
@@ -77,7 +81,10 @@ struct AcquisitionRootView: View {
             VStack(alignment: .leading, spacing: 24) {
                 AcquisitionIdentityHeader(
                     name: model.organizationName,
-                    subtitle: model.organizationSubtitle
+                    subtitle: model.organizationSubtitle,
+                    stationName: membership.role == .doriAdmin
+                        ? model.activeSummary.map { "Estación \($0.request.deliveryCity)" }
+                        : nil
                 )
 
                 switch selectedDestination {
@@ -126,24 +133,24 @@ struct AcquisitionRootView: View {
                 NavigationLink {
                     AcquisitionRequestDetailView(summary: summary)
                 } label: {
-                    AcquisitionRequestCard(
-                        request: summary.request,
-                        progressText: "\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir",
-                        audience: .doriAdmin
-                    )
+                    AcquisitionAdminRequestCard(summary: summary)
                 }
                 .buttonStyle(.plain)
             }
 
-            offerSection(
+            administratorOfferSection(
                 title: "Necesita tu atención",
+                symbol: "exclamationmark.triangle.fill",
+                tint: Palette.amber,
                 offers: attention,
                 membership: membership,
                 emptyText: "No tienes decisiones pendientes."
             )
 
-            offerSection(
+            administratorOfferSection(
                 title: "En proceso",
+                symbol: "clock.fill",
+                tint: Palette.info,
                 offers: inProgress,
                 membership: membership,
                 emptyText: "No hay compras en proceso."
@@ -341,6 +348,70 @@ struct AcquisitionRootView: View {
                 }
             }
         }
+    }
+
+    private func administratorOfferSection(
+        title: String,
+        symbol: String,
+        tint: Color,
+        offers: [AcquisitionOfferSummary],
+        membership: AcquisitionMembership,
+        emptyText: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            AcquisitionOperationalSectionHeader(
+                title: title,
+                symbol: symbol,
+                tint: tint,
+                count: offers.count
+            )
+            if offers.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Palette.volt)
+                    Text(emptyText)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Palette.textMuted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .panelFlat()
+            } else {
+                ForEach(offers) { offer in
+                    NavigationLink {
+                        AcquisitionOfferDetailView(
+                            offerID: offer.id,
+                            membership: membership,
+                            repository: repository,
+                            onChanged: { Task { await model.load() } }
+                        )
+                    } label: {
+                        AcquisitionDashboardVehicleCard(
+                            offer: offer,
+                            role: .doriAdmin,
+                            supplierName: model.supplierName(for: offer),
+                            actionTitle: administratorActionTitle(for: offer)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func administratorActionTitle(for offer: AcquisitionOfferSummary) -> String {
+        switch offer.status {
+        case "submitted": "Revisar propuesta"
+        case "negotiating", "price_agreed": "Resolver negociación"
+        case "accepted_with_condition": "Resolver condición"
+        default: "Ver unidad"
+        }
+    }
+
+    private func dockBadges(for role: AcquisitionRole) -> [AcquisitionDockDestination: Int] {
+        let attention = groupedOffers(.attention, role: role).count
+        guard attention > 0 else { return [:] }
+        return [.vehicles: attention]
     }
 
     private func finishedLink(membership: AcquisitionMembership) -> some View {
