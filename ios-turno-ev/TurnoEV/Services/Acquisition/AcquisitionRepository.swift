@@ -3,7 +3,10 @@ import Supabase
 
 @MainActor
 protocol AcquisitionRepository {
-    func loadMembership(profileID: UUID) async throws -> AcquisitionMembership
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
     func loadOfferDetail(
@@ -223,7 +226,10 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         }
     }
 
-    func loadMembership(profileID: UUID) async throws -> AcquisitionMembership {
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership {
         guard let client = SupabaseBridge.client else {
             throw RepositoryError.notConfigured
         }
@@ -232,15 +238,38 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .from("acquisition_memberships")
             .select(AcquisitionQueries.membershipColumns)
             .eq("profile_id", value: profileID.uuidString)
-            .eq("status", value: "active")
-            .is("ends_at", value: nil)
+            .eq("environment_id", value: environmentID.uuidString)
             .execute()
             .value
 
-        guard !rows.isEmpty else { throw RepositoryError.noMembership }
-        guard rows.count == 1 else { throw RepositoryError.multipleMemberships(rows.count) }
+        return try Self.membership(
+            from: rows,
+            profileID: profileID,
+            environmentID: environmentID,
+            now: Date()
+        )
+    }
 
-        let row = rows[0]
+    nonisolated static func membership(
+        from rows: [MembershipRow],
+        profileID: UUID,
+        environmentID: UUID,
+        now: Date
+    ) throws -> AcquisitionMembership {
+        let eligible = rows.filter { row in
+            row.profile_id == profileID
+                && row.environment_id == environmentID
+                && row.status == "active"
+                && row.starts_at <= now
+                && (row.ends_at.map { $0 > now } ?? true)
+        }
+
+        guard !eligible.isEmpty else { throw RepositoryError.noMembership }
+        guard eligible.count == 1 else {
+            throw RepositoryError.multipleMemberships(eligible.count)
+        }
+
+        let row = eligible[0]
         guard let role = AcquisitionRole(rawValue: row.role) else {
             throw RepositoryError.invalidRole(row.role)
         }
@@ -638,11 +667,27 @@ enum SupabaseSessionResolution {
     case acquisition(AcquisitionSessionIdentity)
 }
 
+nonisolated enum SessionMembershipRoute: Equatable {
+    case staff
+    case acquisition(AcquisitionRole)
+}
+
 /// One sign-in door for both existing station staff and acquisition-only accounts.
 /// Existing staff resolution remains first, so adding this module cannot steal an
 /// operational account's established route.
 @MainActor
 enum SupabaseSessionResolver {
+    nonisolated static func preferredRoute(
+        hasStaffMembership: Bool,
+        acquisitionMembership: AcquisitionMembership?
+    ) throws -> SessionMembershipRoute {
+        if hasStaffMembership { return .staff }
+        guard let acquisitionMembership else {
+            throw SupabaseAcquisitionRepository.RepositoryError.noMembership
+        }
+        return .acquisition(acquisitionMembership.role)
+    }
+
     static func run(email: String, password: String) async throws -> SupabaseSessionResolution {
         guard let client = SupabaseBridge.client else {
             throw SupabaseAuthProbe.ProbeError.notConfigured
@@ -653,20 +698,34 @@ enum SupabaseSessionResolver {
             password: password
         )
 
-        do {
-            return .staff(try await SupabaseAuthProbe.resolve(authUserId: session.user.id))
-        } catch SupabaseAuthProbe.ProbeError.noMembership {
-            let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
-            let membership = try await SupabaseAcquisitionRepository()
-                .loadMembership(profileID: profile.id)
-            return .acquisition(
-                AcquisitionSessionIdentity(
-                    authUserID: session.user.id,
-                    profile: profile,
-                    membership: membership
-                )
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
+
+        if let staff = try await SupabaseAuthProbe.resolveStaff(
+            authUserId: session.user.id,
+            profile: profile
+        ) {
+            _ = try Self.preferredRoute(
+                hasStaffMembership: true,
+                acquisitionMembership: nil
             )
+            return .staff(staff)
         }
+
+        let membership = try await SupabaseAcquisitionRepository().loadMembership(
+            profileID: profile.id,
+            environmentID: profile.environment_id
+        )
+        _ = try Self.preferredRoute(
+            hasStaffMembership: false,
+            acquisitionMembership: membership
+        )
+        return .acquisition(
+            AcquisitionSessionIdentity(
+                authUserID: session.user.id,
+                profile: profile,
+                membership: membership
+            )
+        )
     }
 }
 
@@ -706,10 +765,13 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
         offers = []
     }
 
-    func loadMembership(profileID: UUID) async throws -> AcquisitionMembership {
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership {
         AcquisitionMembership(
             id: membership.id,
-            environmentID: membership.environmentID,
+            environmentID: environmentID,
             profileID: profileID,
             supplierID: membership.supplierID,
             role: membership.role

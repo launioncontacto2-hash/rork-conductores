@@ -3,6 +3,66 @@ import Testing
 @testable import TurnoEV
 
 struct AcquisitionRoleAndPresentationTests {
+    private static let profileID = UUID(uuidString: "AD520000-0000-4000-8000-000000000001")!
+    private static let environmentID = UUID(uuidString: "AD520000-0000-4000-8000-000000000002")!
+    private static let supplierID = UUID(uuidString: "AD520000-0000-4000-8000-000000000003")!
+    private static let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    @Test func traditionalMembershipKeepsTraditionalRoute() throws {
+        let route = try SupabaseSessionResolver.preferredRoute(
+            hasStaffMembership: true,
+            acquisitionMembership: nil
+        )
+        #expect(route == .staff)
+    }
+
+    @Test func acquisitionAdminWithoutTraditionalMembershipUsesAcquisition() throws {
+        let membership = try membership(role: "dori_admin", supplierID: nil)
+        let route = try SupabaseSessionResolver.preferredRoute(
+            hasStaffMembership: false,
+            acquisitionMembership: membership
+        )
+        #expect(route == .acquisition(.doriAdmin))
+    }
+
+    @Test func providerWithoutTraditionalMembershipUsesAcquisition() throws {
+        let membership = try membership(role: "provider", supplierID: supplierID)
+        let route = try SupabaseSessionResolver.preferredRoute(
+            hasStaffMembership: false,
+            acquisitionMembership: membership
+        )
+        #expect(route == .acquisition(.provider))
+    }
+
+    @Test func accountWithoutAnyMembershipIsDenied() {
+        #expect(throws: (any Error).self) {
+            try SupabaseSessionResolver.preferredRoute(
+                hasStaffMembership: false,
+                acquisitionMembership: nil
+            )
+        }
+    }
+
+    @Test func membershipFromAnotherEnvironmentIsDenied() {
+        #expect(throws: (any Error).self) {
+            try Self.membership(
+                role: "provider",
+                supplierID: Self.supplierID,
+                environmentID: UUID()
+            )
+        }
+    }
+
+    @Test func inactiveMembershipIsDenied() {
+        #expect(throws: (any Error).self) {
+            try Self.membership(
+                role: "provider",
+                supplierID: Self.supplierID,
+                status: "inactive"
+            )
+        }
+    }
+
     @Test func resolvesOnlyTheTwoAcquisitionRoles() {
         #expect(StaffRole(backendValue: "dori_admin") == .doriAdmin)
         #expect(StaffRole(backendValue: "provider") == .provider)
@@ -81,6 +141,31 @@ struct AcquisitionRoleAndPresentationTests {
             maximumMileage: 30_000,
             deliveryCity: "Puebla",
             deadlineAt: nil
+        )
+    }
+
+    private static func membership(
+        role: String,
+        supplierID: UUID?,
+        environmentID: UUID = AcquisitionRoleAndPresentationTests.environmentID,
+        status: String = "active"
+    ) throws -> AcquisitionMembership {
+        try SupabaseAcquisitionRepository.membership(
+            from: [
+                SupabaseAcquisitionRepository.MembershipRow(
+                    id: UUID(),
+                    environment_id: environmentID,
+                    profile_id: profileID,
+                    supplier_id: supplierID,
+                    role: role,
+                    status: status,
+                    starts_at: now.addingTimeInterval(-60),
+                    ends_at: nil
+                ),
+            ],
+            profileID: profileID,
+            environmentID: Self.environmentID,
+            now: now
         )
     }
 }
@@ -169,7 +254,10 @@ struct AcquisitionViewModelTests {
             self.membershipRole = membershipRole
         }
 
-        func loadMembership(profileID: UUID) async throws -> AcquisitionMembership {
+        func loadMembership(
+            profileID: UUID,
+            environmentID: UUID
+        ) async throws -> AcquisitionMembership {
             if let failure { throw failure }
             return AcquisitionMembership(
                 id: UUID(),

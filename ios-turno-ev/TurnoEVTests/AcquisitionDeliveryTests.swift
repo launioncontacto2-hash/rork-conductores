@@ -226,7 +226,10 @@ struct AcquisitionDeliveryFlowTests {
             self.shouldFail = shouldFail
         }
 
-        func loadMembership(profileID: UUID) async throws -> AcquisitionMembership { throw CancellationError() }
+        func loadMembership(
+            profileID: UUID,
+            environmentID: UUID
+        ) async throws -> AcquisitionMembership { throw CancellationError() }
         func loadRequests() async throws -> [AcquisitionRequest] { [] }
         func loadOffers() async throws -> [AcquisitionOfferSummary] { [Self.detail(journey).offer] }
         func submitOffer(_ submission: AcquisitionOfferSubmission, membership: AcquisitionMembership) async throws -> AcquisitionOfferSummary { throw CancellationError() }

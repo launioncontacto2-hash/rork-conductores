@@ -191,7 +191,10 @@ struct AcquisitionOfferSubmissionTests {
 
         init(fails: Bool = false) { self.fails = fails }
 
-        func loadMembership(profileID: UUID) async throws -> AcquisitionMembership {
+        func loadMembership(
+            profileID: UUID,
+            environmentID: UUID
+        ) async throws -> AcquisitionMembership {
             throw Failure.unavailable
         }
         func loadRequests() async throws -> [AcquisitionRequest] { [] }

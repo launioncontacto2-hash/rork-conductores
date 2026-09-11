@@ -43,12 +43,17 @@ final class AcquisitionViewModel {
         state = .loading
 
         do {
-            guard let profileID = UUID(uuidString: principal.profileId) else {
+            guard let profileID = UUID(uuidString: principal.profileId),
+                  let environmentID = principal.environmentId.flatMap(UUID.init(uuidString:)) else {
                 throw ViewModelError.invalidProfile
             }
 
-            let loadedMembership = try await repository.loadMembership(profileID: profileID)
+            let loadedMembership = try await repository.loadMembership(
+                profileID: profileID,
+                environmentID: environmentID
+            )
             guard loadedMembership.profileID == profileID,
+                  loadedMembership.environmentID == environmentID,
                   loadedMembership.role.sessionRole == principal.role else {
                 throw ViewModelError.roleMismatch
             }

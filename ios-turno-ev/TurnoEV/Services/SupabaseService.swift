@@ -887,6 +887,7 @@ enum SupabaseAuthProbe {
 
     nonisolated struct ProfileRow: Decodable, Sendable {
         let id: UUID
+        let environment_id: UUID
         let auth_user_id: UUID?
         let employee_number: String
         let display_name: String
@@ -1045,6 +1046,24 @@ enum SupabaseAuthProbe {
     static func resolve(authUserId: UUID) async throws -> Result {
         let profile = try await loadProfile(authUserId: authUserId)
 
+        guard let result = try await resolveStaff(
+            authUserId: authUserId,
+            profile: profile
+        ) else {
+            throw ProbeError.noMembership
+        }
+
+        return result
+    }
+
+    /// Returns `nil` only when the authenticated profile has no current operational
+    /// membership. Acquisition identities intentionally live outside
+    /// `staff_memberships`, so that absence must not terminate session resolution.
+    static func resolveStaff(
+        authUserId: UUID,
+        profile: ProfileRow
+    ) async throws -> Result? {
+
         guard let client = SupabaseBridge.client else {
             throw ProbeError.notConfigured
         }
@@ -1075,9 +1094,7 @@ enum SupabaseAuthProbe {
             .execute()
             .value
 
-        guard !memberships.isEmpty else {
-            throw ProbeError.noMembership
-        }
+        guard !memberships.isEmpty else { return nil }
 
         guard memberships.count == 1 else {
             throw ProbeError.multipleMemberships(memberships.count)
@@ -1152,6 +1169,10 @@ enum SupabaseAuthProbe {
             throw ProbeError.inactiveStation(station.status)
         }
 
+        guard station.environment_id == profile.environment_id else {
+            throw ProbeError.noStation
+        }
+
         return Result(
             authUserId: authUserId,
             profile: profile,
@@ -1174,12 +1195,14 @@ enum SupabaseAuthProbe {
             .select(
                 """
                 id,
+                environment_id,
                 auth_user_id,
                 employee_number,
                 display_name,
                 status
                 """
             )
+            .eq("auth_user_id", value: authUserId.uuidString)
             .execute()
             .value
 

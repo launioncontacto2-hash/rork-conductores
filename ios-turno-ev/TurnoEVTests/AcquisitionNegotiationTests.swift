@@ -205,7 +205,10 @@ struct AcquisitionNegotiationFlowTests {
             self.detail = detail
         }
 
-        func loadMembership(profileID: UUID) async throws -> AcquisitionMembership {
+        func loadMembership(
+            profileID: UUID,
+            environmentID: UUID
+        ) async throws -> AcquisitionMembership {
             AcquisitionNegotiationModelTests.membership(.doriAdmin)
         }
 
