@@ -382,8 +382,10 @@ jobs:
           codesign -d --entitlements :- "$app_path" > "$entitlements_path"
           /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_URL' "$app_plist" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c 'Delete :UIRequiresFullScreen' "$app_plist" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_URL string $TEST_SUPABASE_URL" "$app_plist"
           /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY string $TEST_SUPABASE_PUBLISHABLE_KEY" "$app_plist"
+          /usr/libexec/PlistBuddy -c 'Add :UIRequiresFullScreen bool true' "$app_plist"
           codesign \
             --force \
             --sign 'Apple Distribution' \
@@ -400,9 +402,11 @@ jobs:
           embedded_url="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_URL' "$app_plist")"
           embedded_key="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist")"
           embedded_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_plist")"
+          requires_full_screen="$(/usr/libexec/PlistBuddy -c 'Print :UIRequiresFullScreen' "$app_plist")"
           [[ "$embedded_url" == "$EXPECTED_TEST_SUPABASE_URL" ]]
           [[ "$embedded_key" == sb_publishable_* ]]
           [[ "$embedded_build" == "$TESTFLIGHT_BUILD_NUMBER" ]]
+          [[ "$requires_full_screen" == "true" ]]
           codesign --verify --deep --strict "$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
 
       - name: Export IPA for App Store Connect
