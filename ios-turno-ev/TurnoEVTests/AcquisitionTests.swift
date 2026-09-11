@@ -17,12 +17,17 @@ struct AcquisitionRoleAndPresentationTests {
     }
 
     @Test func acquisitionAdminWithoutTraditionalMembershipUsesAcquisition() throws {
-        let membership = try membership(role: "dori_admin", supplierID: nil)
+        let membership = try Self.membership(
+            role: "dori_admin",
+            supplierID: nil
+        )
         let route = try SupabaseSessionResolver.preferredRoute(
             hasStaffMembership: false,
             acquisitionMembership: membership
         )
-        #expect(route == .acquisition(.doriAdmin))
+        #expect(
+            route == SessionMembershipRoute.acquisition(AcquisitionRole.doriAdmin)
+        )
     }
 
     @Test func providerWithoutTraditionalMembershipUsesAcquisition() throws {
