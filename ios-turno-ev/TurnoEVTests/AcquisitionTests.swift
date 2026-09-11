@@ -171,6 +171,34 @@ struct AcquisitionRoleAndPresentationTests {
         )
     }
 
+    @Test func buildsSafeInstitutionalContactActions() {
+        let contact = Self.contact(supplierID: nil)
+        #expect(contact.callURL?.absoluteString == "tel:2220000000")
+        #expect(contact.emailURL?.absoluteString == "mailto:adquisiciones@dori.test")
+    }
+
+    @Test func presentsOnlyTheCounterpartyContactsForEachRole() throws {
+        let supplierContact = Self.contact(supplierID: Self.supplierID)
+        let doriContact = Self.contact(supplierID: nil)
+        let contacts = [supplierContact, doriContact]
+
+        let admin = try Self.membership(role: "dori_admin", supplierID: nil)
+        let provider = try Self.membership(role: "provider", supplierID: Self.supplierID)
+
+        #expect(AcquisitionContactDirectory.counterpartContacts(contacts, membership: admin) == [supplierContact])
+        #expect(AcquisitionContactDirectory.counterpartContacts(contacts, membership: provider) == [doriContact])
+    }
+
+    @Test func rejectsMalformedContactActions() {
+        let contact = AcquisitionInstitutionalContact(
+            id: UUID(), supplierID: nil, organizationName: "DORI Puebla",
+            personName: "Contacto", jobTitle: "Adquisiciones", phone: "sin teléfono",
+            email: "correo inválido", businessHours: "09:00 a 18:00", isPrimary: true
+        )
+        #expect(contact.callURL == nil)
+        #expect(contact.emailURL == nil)
+    }
+
     private static func request() -> AcquisitionRequest {
         AcquisitionRequest(
             id: UUID(uuidString: "AD500000-0000-4000-8000-000000000001")!,
@@ -184,6 +212,22 @@ struct AcquisitionRoleAndPresentationTests {
             maximumMileage: 30_000,
             deliveryCity: "Puebla",
             deadlineAt: nil
+        )
+    }
+
+    private static func contact(supplierID: UUID?) -> AcquisitionInstitutionalContact {
+        AcquisitionInstitutionalContact(
+            id: UUID(uuidString: supplierID == nil
+                ? "AD530000-0000-4000-8000-000000000001"
+                : "AD530000-0000-4000-8000-000000000002")!,
+            supplierID: supplierID,
+            organizationName: supplierID == nil ? "DORI Puebla" : "Agencia Puebla Centro",
+            personName: supplierID == nil ? "Jorge Ramos" : "Laura Méndez",
+            jobTitle: supplierID == nil ? "Supervisor de adquisiciones" : "Gerente de seminuevos",
+            phone: "222 000 0000",
+            email: supplierID == nil ? "adquisiciones@dori.test" : "ventas@agencia.test",
+            businessHours: "09:00 a 18:00",
+            isPrimary: true
         )
     }
 

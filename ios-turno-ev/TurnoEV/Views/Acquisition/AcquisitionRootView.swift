@@ -4,6 +4,7 @@ struct AcquisitionRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: AcquisitionViewModel
     @State private var selectedDestination: AcquisitionDockDestination = .home
+    @State private var showConversations = false
     private let repository: any AcquisitionRepository
 
     init(
@@ -25,6 +26,9 @@ struct AcquisitionRootView: View {
                         ToolbarItem(placement: .topBarTrailing) {
                             SessionMenuButton()
                         }
+                    }
+                    .navigationDestination(isPresented: $showConversations) {
+                        AcquisitionConversationPlaceholderView()
                     }
             }
         }
@@ -84,10 +88,7 @@ struct AcquisitionRootView: View {
                 case .vehicles:
                     vehicles(membership: membership)
                 case .contact:
-                    phasePlaceholder(
-                        title: "Contacto",
-                        message: "Personas y conversaciones estarán reunidas aquí."
-                    )
+                    contactDirectory
                 case .account:
                     account(membership: membership)
                 }
@@ -258,6 +259,53 @@ struct AcquisitionRootView: View {
         }
     }
 
+    private var contactDirectory: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 12) {
+                AcquisitionSectionHeader(title: "Personas", count: model.counterpartContacts.count)
+                if model.counterpartContacts.isEmpty {
+                    Text("Aún no hay contactos institucionales disponibles.")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.textMuted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .panelFlat()
+                } else {
+                    ForEach(model.counterpartContacts) { contact in
+                        AcquisitionInstitutionalContactCard(
+                            contact: contact,
+                            openChat: { showConversations = true }
+                        )
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                AcquisitionSectionHeader(title: "Conversaciones")
+                NavigationLink {
+                    AcquisitionConversationPlaceholderView()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Chat institucional")
+                                .font(.headline)
+                            Text("Comunicación general y por unidad")
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(Palette.volt)
+                    }
+                    .foregroundStyle(Palette.text)
+                    .padding(18)
+                    .panelFlat()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private func offerSection(
         title: String,
         offers: [AcquisitionOfferSummary],
@@ -354,6 +402,21 @@ struct AcquisitionRootView: View {
             }
         }
         .padding(28)
+    }
+}
+
+private struct AcquisitionConversationPlaceholderView: View {
+    var body: some View {
+        ZStack {
+            StationBackground()
+            ContentUnavailableView(
+                "Aún no hay conversaciones",
+                systemImage: "bubble.left.and.bubble.right",
+                description: Text("El chat institucional se habilitará en la siguiente etapa.")
+            )
+        }
+        .navigationTitle("Conversaciones")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

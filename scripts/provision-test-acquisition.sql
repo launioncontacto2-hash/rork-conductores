@@ -21,6 +21,8 @@ DECLARE
     v_admin_membership_id constant uuid := 'ad310000-0000-4000-8000-000000000001';
     v_provider_membership_id constant uuid := 'ad310000-0000-4000-8000-000000000002';
     v_request_id constant uuid := 'ad320000-0000-4000-8000-000000000001';
+    v_dori_contact_id constant uuid := 'ad330000-0000-4000-8000-000000000001';
+    v_provider_contact_id constant uuid := 'ad330000-0000-4000-8000-000000000002';
 BEGIN
     SELECT environment.id INTO STRICT v_environment_id
     FROM public.environments environment
@@ -166,6 +168,37 @@ BEGIN
         minimum_soh = EXCLUDED.minimum_soh,
         internal_price_limit_mxn = EXCLUDED.internal_price_limit_mxn;
 
+    INSERT INTO public.acquisition_contacts(
+        id, environment_id, supplier_id, organization_name, person_name,
+        job_title, phone, email, business_hours, is_primary, status,
+        created_at, updated_at
+    ) VALUES
+        (
+            v_dori_contact_id, v_environment_id, NULL, 'DORI Puebla',
+            'Jorge Ramos', 'Supervisor de adquisiciones', '222 000 0000',
+            'adquisiciones@dori.test', '09:00 a 18:00', true, 'active',
+            app.env_now(v_environment_id), app.env_now(v_environment_id)
+        ),
+        (
+            v_provider_contact_id, v_environment_id, v_supplier_id,
+            'Agencia Puebla Centro', 'Laura Méndez',
+            'Gerente de seminuevos', '222 000 0000',
+            'ventas@agenciapueblacentro.test', '09:00 a 18:00', true, 'active',
+            app.env_now(v_environment_id), app.env_now(v_environment_id)
+        )
+    ON CONFLICT (id) DO UPDATE
+    SET environment_id = EXCLUDED.environment_id,
+        supplier_id = EXCLUDED.supplier_id,
+        organization_name = EXCLUDED.organization_name,
+        person_name = EXCLUDED.person_name,
+        job_title = EXCLUDED.job_title,
+        phone = EXCLUDED.phone,
+        email = EXCLUDED.email,
+        business_hours = EXCLUDED.business_hours,
+        is_primary = EXCLUDED.is_primary,
+        status = 'active',
+        updated_at = app.env_now(v_environment_id);
+
     IF NOT EXISTS (
         SELECT 1
         FROM public.acquisition_memberships admin_membership
@@ -180,6 +213,12 @@ BEGIN
           AND provider_membership.supplier_id = v_supplier_id
           AND request.id = v_request_id
           AND request.status = 'published'
+          AND EXISTS (
+              SELECT 1 FROM public.acquisition_contacts contact
+              WHERE contact.id IN (v_dori_contact_id, v_provider_contact_id)
+                AND contact.environment_id = v_environment_id
+                AND contact.status = 'active'
+          )
     ) THEN
         RAISE EXCEPTION 'acquisition_test_provision_verification_failed'
             USING ERRCODE = 'P0001';

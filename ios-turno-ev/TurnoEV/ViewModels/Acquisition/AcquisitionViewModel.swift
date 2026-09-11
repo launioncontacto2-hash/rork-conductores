@@ -21,6 +21,7 @@ final class AcquisitionViewModel {
     var requests: [AcquisitionRequest] = []
     var offers: [AcquisitionOfferSummary] = []
     var suppliers: [AcquisitionSupplierSummary] = []
+    var contacts: [AcquisitionInstitutionalContact] = []
 
     init(principal: SessionPrincipal, repository: any AcquisitionRepository) {
         self.principal = principal
@@ -60,6 +61,11 @@ final class AcquisitionViewModel {
         AcquisitionHumanStatus.uniqueVehicles(offers)
     }
 
+    var counterpartContacts: [AcquisitionInstitutionalContact] {
+        guard let membership else { return [] }
+        return AcquisitionContactDirectory.counterpartContacts(contacts, membership: membership)
+    }
+
     func supplierName(for offer: AcquisitionOfferSummary) -> String? {
         membership?.role == .provider ? organizationName : nil
     }
@@ -87,11 +93,13 @@ final class AcquisitionViewModel {
             let loadedRequests = try await repository.loadRequests()
             let loadedOffers = try await repository.loadOffers()
             let loadedSuppliers = try await repository.loadSuppliers()
+            let loadedContacts = try await repository.loadContacts()
 
             membership = loadedMembership
             requests = loadedRequests
             offers = loadedOffers
             suppliers = loadedSuppliers
+            contacts = loadedContacts
             state = loadedRequests.isEmpty ? .empty : .content
 
             realtime.start(environmentID: loadedMembership.environmentID) { [weak self] in
@@ -102,6 +110,7 @@ final class AcquisitionViewModel {
             requests = []
             offers = []
             suppliers = []
+            contacts = []
             state = .failed
             print("[Adquisiciones] No se pudo cargar el módulo: \(error.localizedDescription)")
         }

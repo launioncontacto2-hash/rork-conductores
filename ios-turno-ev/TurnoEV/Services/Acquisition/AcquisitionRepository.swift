@@ -10,6 +10,7 @@ protocol AcquisitionRepository {
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary]
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact]
     func loadOfferDetail(
         offerID: UUID,
         membership: AcquisitionMembership
@@ -24,6 +25,7 @@ protocol AcquisitionRepository {
 
 extension AcquisitionRepository {
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary] { [] }
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] { [] }
 }
 
 nonisolated enum AcquisitionQueries {
@@ -38,6 +40,7 @@ nonisolated enum AcquisitionQueries {
     static let receptionColumns = "vin_correct, mileage_correct, chargers_complete, keys_complete, new_damage, result, issue_summary, hold_amount_mxn"
     static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
     static let supplierColumns = "id, name, city"
+    static let contactColumns = "id, supplier_id, organization_name, person_name, job_title, phone, email, business_hours, is_primary"
 }
 
 @MainActor
@@ -182,6 +185,18 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let id: UUID
         let name: String
         let city: String
+    }
+
+    nonisolated struct ContactRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID?
+        let organization_name: String
+        let person_name: String
+        let job_title: String
+        let phone: String
+        let email: String
+        let business_hours: String
+        let is_primary: Bool
     }
 
     nonisolated struct CompleteDeliveryParameters: Encodable, Sendable {
@@ -343,6 +358,34 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
         return rows.map {
             AcquisitionSupplierSummary(id: $0.id, name: $0.name, city: $0.city)
+        }
+    }
+
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [ContactRow] = try await client
+            .from("acquisition_contacts")
+            .select(AcquisitionQueries.contactColumns)
+            .order("is_primary", ascending: false)
+            .order("organization_name", ascending: true)
+            .execute()
+            .value
+
+        return rows.map {
+            AcquisitionInstitutionalContact(
+                id: $0.id,
+                supplierID: $0.supplier_id,
+                organizationName: $0.organization_name,
+                personName: $0.person_name,
+                jobTitle: $0.job_title,
+                phone: $0.phone,
+                email: $0.email,
+                businessHours: $0.business_hours,
+                isPrimary: $0.is_primary
+            )
         }
     }
 
@@ -803,6 +846,21 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
     }
     func loadRequests() async throws -> [AcquisitionRequest] { requests }
     func loadOffers() async throws -> [AcquisitionOfferSummary] { offers }
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
+        [
+            AcquisitionInstitutionalContact(
+                id: UUID(),
+                supplierID: membership.role == .doriAdmin ? UUID() : nil,
+                organizationName: membership.role == .doriAdmin ? "Agencia Puebla Centro" : "DORI Puebla",
+                personName: membership.role == .doriAdmin ? "Laura Méndez" : "Jorge Ramos",
+                jobTitle: membership.role == .doriAdmin ? "Gerente de seminuevos" : "Supervisor de adquisiciones",
+                phone: "222 000 0000",
+                email: membership.role == .doriAdmin ? "ventas@agencia.test" : "adquisiciones@dori.test",
+                businessHours: "09:00 a 18:00",
+                isPrimary: true
+            ),
+        ]
+    }
     func loadOfferDetail(
         offerID: UUID,
         membership: AcquisitionMembership

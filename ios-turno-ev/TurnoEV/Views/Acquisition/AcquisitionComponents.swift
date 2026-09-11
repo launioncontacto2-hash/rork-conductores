@@ -214,6 +214,71 @@ struct AcquisitionContactCard: View {
     }
 }
 
+struct AcquisitionInstitutionalContactCard: View {
+    @Environment(\.openURL) private var openURL
+    let contact: AcquisitionInstitutionalContact
+    var openChat: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(contact.organizationName)
+                    .font(.headline.weight(.bold))
+                Text(contact.jobTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.volt)
+            }
+
+            contactLine(label: "Nombre", value: contact.personName)
+            contactLine(label: "Teléfono", value: contact.phone)
+            contactLine(label: "Correo", value: contact.email)
+            contactLine(label: "Horario", value: contact.businessHours)
+
+            HStack(spacing: 10) {
+                contactAction("Llamar", symbol: "phone.fill", url: contact.callURL)
+                contactAction("Enviar correo", symbol: "envelope.fill", url: contact.emailURL)
+            }
+            if let openChat {
+                Button(action: openChat) {
+                    Label("Abrir chat", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.volt)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .panel()
+    }
+
+    private func contactLine(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(Palette.textMuted)
+            Text(value)
+                .font(.subheadline)
+                .foregroundStyle(Palette.text)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func contactAction(_ title: String, symbol: String, url: URL?) -> some View {
+        Button {
+            if let url { openURL(url) }
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(Palette.volt)
+        .disabled(url == nil)
+    }
+}
+
 struct AcquisitionPrimaryAction: View {
     let title: String
     let symbol: String

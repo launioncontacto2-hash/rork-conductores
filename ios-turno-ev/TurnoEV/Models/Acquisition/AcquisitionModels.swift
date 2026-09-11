@@ -42,6 +42,55 @@ nonisolated struct AcquisitionSupplierSummary: Identifiable, Equatable, Sendable
     let city: String
 }
 
+nonisolated struct AcquisitionInstitutionalContact: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let supplierID: UUID?
+    let organizationName: String
+    let personName: String
+    let jobTitle: String
+    let phone: String
+    let email: String
+    let businessHours: String
+    let isPrimary: Bool
+
+    var callURL: URL? {
+        let allowed = CharacterSet(charactersIn: "+0123456789")
+        let normalized = phone.unicodeScalars
+            .filter { allowed.contains($0) }
+            .map(String.init)
+            .joined()
+        guard normalized.contains(where: { $0.isNumber }) else { return nil }
+        return URL(string: "tel:\(normalized)")
+    }
+
+    var emailURL: URL? {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.contains("@"), !trimmed.contains(where: { $0.isWhitespace }) else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = trimmed
+        return components.url
+    }
+}
+
+nonisolated enum AcquisitionContactDirectory {
+    static func counterpartContacts(
+        _ contacts: [AcquisitionInstitutionalContact],
+        membership: AcquisitionMembership
+    ) -> [AcquisitionInstitutionalContact] {
+        contacts.filter { contact in
+            switch membership.role {
+            case .doriAdmin:
+                contact.supplierID != nil
+            case .provider:
+                contact.supplierID == nil
+            }
+        }
+    }
+}
+
 /// Public request fields only. Internal SOH and price rules deliberately have no client model.
 nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let id: UUID
