@@ -54,12 +54,12 @@ CROSS JOIN (VALUES
 INSERT INTO public.acquisition_requests(
     id, environment_id, code, title, target_quantity, model, versions,
     minimum_year, maximum_year, maximum_mileage, delivery_city,
-    status, published_by, published_at
+    status, created_by, created_at, updated_at
 )
 SELECT 'ad830000-0000-4000-8000-000000000001', scope.environment_id,
        'CHAT-REQ', 'Solicitud chat', 2, 'Dolphin Mini', ARRAY['Plus'],
        2025, 2026, 20000, 'Puebla', 'evaluating',
-       'ad800000-0000-4000-8000-000000000001', app.env_now(scope.environment_id)
+       'ad800000-0000-4000-8000-000000000001', app.env_now(scope.environment_id), app.env_now(scope.environment_id)
 FROM test_chat_scope scope;
 
 INSERT INTO public.acquisition_offers(

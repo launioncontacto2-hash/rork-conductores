@@ -690,16 +690,16 @@ SELECT results_eq(
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.command_log WHERE idempotency_key LIKE 'adq-%'),
-    17::bigint,
-    'las diecisiete decisiones exitosas quedan en command_log sin duplicados'
+    24::bigint,
+    'las veinticuatro decisiones exitosas quedan en command_log sin duplicados'
 );
 SELECT is(
     (SELECT count(*)::bigint FROM public.audit_log WHERE event_type LIKE 'acquisition.%' AND actor_profile_id IN (
         'ad200000-0000-4000-8000-000000000001'::uuid,
         'ad200000-0000-4000-8000-000000000002'::uuid
     )),
-    17::bigint,
-    'las diecisiete decisiones exitosas reutilizan audit_log'
+    24::bigint,
+    'las veinticuatro decisiones exitosas reutilizan audit_log'
 );
 
 SELECT * FROM finish();
