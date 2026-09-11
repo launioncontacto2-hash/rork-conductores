@@ -61,8 +61,7 @@ final class AcquisitionViewModel {
     }
 
     func supplierName(for offer: AcquisitionOfferSummary) -> String? {
-        guard let supplierID = offer.supplierID else { return nil }
-        return suppliers.first(where: { $0.id == supplierID })?.name
+        membership?.role == .provider ? organizationName : nil
     }
 
     func load() async {

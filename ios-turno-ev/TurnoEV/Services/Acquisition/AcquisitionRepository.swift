@@ -29,7 +29,7 @@ extension AcquisitionRepository {
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at"
     static let evidenceColumns = "id, kind, object_path, verified"
@@ -76,7 +76,6 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated struct OfferRow: Decodable, Sendable {
         let id: UUID
         let request_id: UUID
-        let supplier_id: UUID
         let status: String
         let model: String
         let version: String?
@@ -642,7 +641,6 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         AcquisitionOfferSummary(
             id: row.id,
             requestID: row.request_id,
-            supplierID: row.supplier_id,
             status: row.status,
             model: row.model,
             version: row.version,

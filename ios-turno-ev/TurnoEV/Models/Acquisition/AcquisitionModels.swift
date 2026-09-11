@@ -77,7 +77,6 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
 nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let requestID: UUID
-    let supplierID: UUID?
     let status: String
     let model: String
     let version: String?
@@ -93,7 +92,6 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         requestID: UUID,
-        supplierID: UUID? = nil,
         status: String,
         model: String = "",
         version: String? = nil,
@@ -108,7 +106,6 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.requestID = requestID
-        self.supplierID = supplierID
         self.status = status
         self.model = model
         self.version = version

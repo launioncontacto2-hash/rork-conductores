@@ -167,7 +167,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+                == "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
         )
     }
 
