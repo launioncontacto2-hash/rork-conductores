@@ -192,9 +192,9 @@ nonisolated enum AcquisitionHumanStatus {
         switch (status, role) {
         case ("submitted", .doriAdmin), ("negotiating", _),
              ("price_agreed", .doriAdmin), ("accepted_with_condition", _):
-            .attention
+            return .attention
         default:
-            .inProgress
+            return .inProgress
         }
     }
 
