@@ -208,6 +208,17 @@ struct AcquisitionRoleAndPresentationTests {
         )
 
         #expect(request.detailedRequirements == [requirement])
+        #expect(request.visibleRequirements == [requirement])
+    }
+
+    @Test func sharedRequestPresentationContainsTheApprovedPublicRequirements() {
+        let requirements = Self.request().visibleRequirements
+        #expect(requirements.count == 12)
+        #expect(requirements.contains { $0.id == "charger_110v" && $0.value == "Incluido" })
+        #expect(requirements.contains { $0.id == "ownership" })
+        #expect(requirements.contains { $0.id == "battery" })
+        #expect(requirements.contains { $0.id == "byd_warranty" && $0.value.contains("Remanente") })
+        #expect(!requirements.map(\.value).joined().contains("8 años"))
     }
 
     @Test func providerQueriesContainNoInternalRulesOrAssessmentFields() {

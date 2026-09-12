@@ -64,6 +64,11 @@ BEGIN
       AND supplier.code = 'PROV-PUE-A'
       AND supplier.status = 'active';
 
+    UPDATE public.acquisition_suppliers
+    SET name = 'BYD Iztacalco', city = 'Ciudad de México', updated_at = app.env_now(v_environment_id)
+    WHERE id = v_supplier_id
+      AND environment_id = v_environment_id;
+
     IF EXISTS (
         SELECT 1 FROM public.profiles profile
         WHERE profile.auth_user_id IN (v_admin_auth_user_id, v_provider_auth_user_id)
@@ -98,7 +103,7 @@ BEGIN
         ),
         (
             v_provider_profile_id, v_environment_id, v_provider_auth_user_id,
-            'ADQ-TEST-PROV-001', 'Agencia Puebla Centro', 'active'
+            'ADQ-TEST-PROV-001', 'BYD Iztacalco', 'active'
         )
     ON CONFLICT (id) DO UPDATE
     SET environment_id = EXCLUDED.environment_id,
@@ -181,7 +186,7 @@ BEGIN
         ),
         (
             v_provider_contact_id, v_environment_id, v_supplier_id,
-            'Agencia Puebla Centro', 'Laura Méndez',
+            'BYD Iztacalco', 'Laura Méndez',
             'Gerente de seminuevos', '222 000 0000',
             'byd.iztacalco@dori.mx', '09:00 a 18:00', true, 'active',
             app.env_now(v_environment_id), app.env_now(v_environment_id)

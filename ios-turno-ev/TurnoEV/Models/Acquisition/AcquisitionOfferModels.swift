@@ -43,6 +43,32 @@ nonisolated struct AcquisitionEvidenceUpload: Equatable, Sendable {
     let data: Data
 }
 
+nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Identifiable, Sendable {
+    case charger110
+    case charger220
+    case originalInvoice
+    case reinvoice
+    case plates
+    case ownershipTransfer
+    case bydWarranty
+    case usedWarranty
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .charger110: "Cargador 110V incluido"
+        case .charger220: "Cargador 220V incluido"
+        case .originalInvoice: "Factura de origen BYD México"
+        case .reinvoice: "Refactura a título de DORI"
+        case .plates: "Placas incluidas"
+        case .ownershipTransfer: "Cambio de propietario incluido"
+        case .bydWarranty: "Garantía BYD remanente y comprobable"
+        case .usedWarranty: "Garantía seminuevos de 90 días"
+        }
+    }
+}
+
 nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
     let offerID: UUID
     let requestID: UUID
@@ -68,6 +94,7 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
     var transferIncluded = false
     var batteryKnowledge: AcquisitionBatteryKnowledge = .requiresDORIVerification
     var soh = ""
+    var confirmedRequirements: Set<AcquisitionOfferRequirement> = []
     var evidence: [AcquisitionEvidenceKind: Data] = [:]
 
     func makeSubmission(
@@ -98,6 +125,10 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
 
         let normalizedColor = color.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedColor.isEmpty else { throw AcquisitionOfferFormIssue.colorRequired }
+
+        guard confirmedRequirements.count == AcquisitionOfferRequirement.allCases.count else {
+            throw AcquisitionOfferFormIssue.requirementsRequired
+        }
 
         let parsedSoh: Int?
         switch batteryKnowledge {
@@ -152,6 +183,7 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
     case invalidPrice
     case colorRequired
     case invalidSoh
+    case requirementsRequired
     case evidenceRequired(AcquisitionEvidenceKind)
 
     var message: String {
@@ -163,6 +195,7 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
         case .invalidPrice: "Captura un precio válido."
         case .colorRequired: "Captura el color de la unidad."
         case .invalidSoh: "Captura un diagnóstico de batería entre 0 y 100 %."
+        case .requirementsRequired: "Confirma que la unidad cumple todos los requisitos."
         case .evidenceRequired(let kind): "Falta \(kind.title.lowercased())."
         }
     }

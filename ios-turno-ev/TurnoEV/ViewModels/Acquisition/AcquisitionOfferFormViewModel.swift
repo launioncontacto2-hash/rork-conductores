@@ -50,6 +50,15 @@ final class AcquisitionOfferFormViewModel {
         if case .needsData = state { state = .editing }
     }
 
+    func toggleRequirement(_ requirement: AcquisitionOfferRequirement) {
+        if form.confirmedRequirements.contains(requirement) {
+            form.confirmedRequirements.remove(requirement)
+        } else {
+            form.confirmedRequirements.insert(requirement)
+        }
+        if case .needsData = state { state = .editing }
+    }
+
     func submit() async {
         guard !isSubmitting else { return }
 

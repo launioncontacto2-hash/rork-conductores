@@ -42,6 +42,14 @@ struct AcquisitionOfferFormTests {
         }
     }
 
+    @Test func refusesAnOfferUntilAllPublicRequirementsAreConfirmed() {
+        var form = Self.validForm()
+        form.confirmedRequirements.remove(.charger220)
+        #expect(throws: AcquisitionOfferFormIssue.requirementsRequired) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
     @Test func buildsTheImmutablePrivateStoragePath() {
         let path = AcquisitionEvidencePath.make(
             environmentID: Self.environmentID,
@@ -124,6 +132,7 @@ struct AcquisitionOfferFormTests {
         form.color = "Blanco"
         form.transferIncluded = true
         form.batteryKnowledge = .requiresDORIVerification
+        form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
         form.evidence = [
             .vin: Data([1]),
             .dashboard: Data([2]),

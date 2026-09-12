@@ -34,6 +34,7 @@ struct AcquisitionIdentityHeader: View {
     let name: String
     let subtitle: String
     var stationName: String? = nil
+    var contextLine: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -72,15 +73,132 @@ struct AcquisitionIdentityHeader: View {
                         Text(stationName)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Palette.text)
-                        Text("Compra segura. Más unidades en ruta.")
-                            .font(.caption)
-                            .foregroundStyle(Palette.textMuted)
+                        if let contextLine {
+                            Text(contextLine)
+                                .font(.caption)
+                                .foregroundStyle(Palette.textMuted)
+                        }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct AcquisitionProviderRequestCard: View {
+    let summary: AcquisitionRequestSummary
+
+    private var progress: Double {
+        guard summary.request.targetQuantity > 0 else { return 0 }
+        return min(Double(summary.securedCount) / Double(summary.request.targetQuantity), 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 13) {
+                Image(systemName: "doc.text.fill")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(Palette.volt)
+                    .frame(width: 42, height: 42)
+                    .background(Palette.volt.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("DORI \(summary.request.deliveryCity) busca \(summary.request.modelAndVersions)")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                    Text("\(summary.request.yearRange) · Máx. \(summary.request.maximumMileageText) km")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.textMuted)
+                }
+                Spacer(minLength: 0)
+                Label("Activa", systemImage: "circle.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Palette.volt)
+            }
+
+            HStack(spacing: 13) {
+                AcquisitionVehicleVisual(compact: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(summary.request.targetQuantity) vehículos requeridos")
+                        .font(.headline.weight(.bold))
+                    Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.textMuted)
+                }
+            }
+
+            ProgressView(value: progress)
+                .tint(Palette.volt)
+                .scaleEffect(x: 1, y: 1.5, anchor: .center)
+        }
+        .padding(18)
+        .background {
+            LinearGradient(
+                colors: [Palette.volt.opacity(0.14), Palette.surface.opacity(0.97)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Palette.volt.opacity(0.34), lineWidth: 1)
+        }
+    }
+}
+
+struct AcquisitionRequirementsGrid: View {
+    let request: AcquisitionRequest
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            ForEach(request.visibleRequirements) { requirement in
+                VStack(alignment: .leading, spacing: 7) {
+                    Image(systemName: symbol(for: requirement.id))
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(tint(for: requirement.id))
+                    Text(requirement.title)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                    Text(requirement.value)
+                        .font(.caption)
+                        .foregroundStyle(Palette.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                .padding(12)
+                .background(Palette.surface.opacity(0.88), in: RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Palette.hairline, lineWidth: 1)
+                }
+            }
+        }
+    }
+
+    private func symbol(for id: String) -> String {
+        switch id {
+        case "model_year": "calendar"
+        case "mileage": "gauge.with.dots.needle.67percent"
+        case "color": "paintpalette.fill"
+        case "charger_110v": "powerplug.fill"
+        case "charger_220v": "bolt.fill"
+        case "battery": "battery.75percent"
+        case "original_invoice": "doc.text.fill"
+        case "reinvoice": "doc.badge.arrow.up.fill"
+        case "plates": "rectangle.and.text.magnifyingglass"
+        case "ownership": "arrow.left.arrow.right"
+        case "byd_warranty": "shield.lefthalf.filled"
+        case "used_warranty": "checkmark.shield.fill"
+        default: "checkmark.circle.fill"
+        }
+    }
+
+    private func tint(for id: String) -> Color {
+        id == "color" ? Palette.amber : Palette.volt
     }
 }
 

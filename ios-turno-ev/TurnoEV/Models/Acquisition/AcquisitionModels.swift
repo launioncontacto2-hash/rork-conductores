@@ -165,6 +165,28 @@ nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Senda
     }
 }
 
+nonisolated extension AcquisitionRequest {
+    /// Public, role-neutral requirements used by both experiences. Sensitive
+    /// valuation rules are intentionally excluded from this projection.
+    var visibleRequirements: [AcquisitionRequestRequirement] {
+        if !detailedRequirements.isEmpty { return detailedRequirements }
+        return [
+            .init(id: "model_year", title: "Año modelo", value: yearRange),
+            .init(id: "mileage", title: "Kilometraje", value: "0–\(maximumMileageText) km"),
+            .init(id: "color", title: "Color", value: "Indiferente"),
+            .init(id: "charger_110v", title: "Cargador 110V", value: "Incluido"),
+            .init(id: "charger_220v", title: "Cargador 220V", value: "Incluido"),
+            .init(id: "battery", title: "Estado de batería", value: "Diagnóstico vigente o verificación DORI"),
+            .init(id: "original_invoice", title: "Factura de origen", value: "BYD México"),
+            .init(id: "reinvoice", title: "Refactura", value: "A título de DORI"),
+            .init(id: "plates", title: "Placas", value: "Incluidas"),
+            .init(id: "ownership", title: "Cambio de propietario", value: "Incluido en el precio"),
+            .init(id: "byd_warranty", title: "Garantía de origen BYD", value: "Remanente vigente y comprobable"),
+            .init(id: "used_warranty", title: "Garantía seminuevos", value: "90 días comprobables"),
+        ]
+    }
+}
+
 /// Public commercial fields shared by the offer owner and DORI. Internal
 /// assessment remains in a separate administrator-only projection.
 nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {

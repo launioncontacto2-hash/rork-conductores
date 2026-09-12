@@ -1129,7 +1129,7 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
             AcquisitionInstitutionalContact(
                 id: UUID(),
                 supplierID: membership.role == .doriAdmin ? UUID() : nil,
-                organizationName: membership.role == .doriAdmin ? "Agencia Puebla Centro" : "DORI Puebla",
+                organizationName: membership.role == .doriAdmin ? "BYD Iztacalco" : "DORI Puebla",
                 personName: membership.role == .doriAdmin ? "Laura Méndez" : "Jorge Ramos",
                 jobTitle: membership.role == .doriAdmin ? "Gerente de seminuevos" : "Supervisor de adquisiciones",
                 phone: "222 000 0000",

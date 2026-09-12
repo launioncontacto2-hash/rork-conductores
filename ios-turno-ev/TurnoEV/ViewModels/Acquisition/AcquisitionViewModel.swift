@@ -34,7 +34,7 @@ final class AcquisitionViewModel {
     }
 
     var activeSummary: AcquisitionRequestSummary? {
-        activeRequest.map { AcquisitionRequestSummary(request: $0, offers: offers) }
+        activeRequest.map { AcquisitionRequestSummary(request: $0, offers: uniqueOffers) }
     }
 
     var destination: AcquisitionDestination? {
@@ -58,6 +58,24 @@ final class AcquisitionViewModel {
         destination == .administrator ? "Adquisiciones activas" : "Portal de proveedor"
     }
 
+    var organizationLocation: String? {
+        switch destination {
+        case .administrator:
+            return activeRequest.map { "Estación \($0.deliveryCity)" }
+        case .provider:
+            guard let supplierID = membership?.supplierID else { return nil }
+            return suppliers.first(where: { $0.id == supplierID })?.city
+        case nil:
+            return nil
+        }
+    }
+
+    var organizationContext: String {
+        destination == .administrator
+            ? "Compra segura. Más unidades en ruta."
+            : "Proveedor autorizado para solicitudes de DORI."
+    }
+
     var uniqueOffers: [AcquisitionOfferSummary] {
         AcquisitionHumanStatus.uniqueVehicles(offers)
     }
@@ -72,7 +90,15 @@ final class AcquisitionViewModel {
     }
 
     func supplierName(for offer: AcquisitionOfferSummary) -> String? {
-        membership?.role == .provider ? organizationName : nil
+        guard let role = membership?.role else { return nil }
+        switch role {
+        case .provider:
+            return organizationName
+        case .doriAdmin:
+            // The current public offer projection intentionally omits supplier_id.
+            // A single visible supplier can still be named without weakening RLS.
+            return suppliers.count == 1 ? suppliers[0].name : nil
+        }
     }
 
     func load() async {

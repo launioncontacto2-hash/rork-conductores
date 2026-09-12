@@ -5,6 +5,7 @@ struct AcquisitionRootView: View {
     @State private var model: AcquisitionViewModel
     @State private var selectedDestination: AcquisitionDockDestination = .home
     @State private var showConversations = false
+    @State private var navigationID = UUID()
     private let repository: any AcquisitionRepository
 
     init(
@@ -46,11 +47,12 @@ struct AcquisitionRootView: View {
                         }
                     }
             }
+            .id(navigationID)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if let role = model.membership?.role {
                 AcquisitionDock(
-                    selection: $selectedDestination,
+                    selection: dockSelection,
                     role: role,
                     badges: dockBadges(for: role)
                 )
@@ -97,9 +99,8 @@ struct AcquisitionRootView: View {
                 AcquisitionIdentityHeader(
                     name: model.organizationName,
                     subtitle: model.organizationSubtitle,
-                    stationName: membership.role == .doriAdmin
-                        ? model.activeSummary.map { "Estación \($0.request.deliveryCity)" }
-                        : nil
+                    stationName: model.organizationLocation,
+                    contextLine: model.organizationContext
                 )
 
                 switch selectedDestination {
@@ -124,6 +125,20 @@ struct AcquisitionRootView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    private var dockSelection: Binding<AcquisitionDockDestination> {
+        Binding(
+            get: { selectedDestination },
+            set: { destination in
+                guard selectedDestination != destination else { return }
+                selectedDestination = destination
+                showConversations = false
+                // The dock is intentionally global. Rebuilding the stack pops
+                // any detail that was covering the newly selected section.
+                navigationID = UUID()
+            }
+        )
+    }
+
     @ViewBuilder
     private func home(membership: AcquisitionMembership) -> some View {
         if let summary = model.activeSummary {
@@ -146,7 +161,12 @@ struct AcquisitionRootView: View {
             VStack(alignment: .leading, spacing: 12) {
                 AcquisitionSectionHeader(title: "Solicitud actual")
                 NavigationLink {
-                    AcquisitionRequestDetailView(summary: summary)
+                    AcquisitionRequestDetailView(
+                        summary: summary,
+                        membership: membership,
+                        repository: repository,
+                        onSubmitted: { Task { await model.load() } }
+                    )
                 } label: {
                     AcquisitionAdminRequestCard(summary: summary)
                 }
@@ -184,11 +204,7 @@ struct AcquisitionRootView: View {
         return VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
                 AcquisitionSectionHeader(title: "Solicitud disponible")
-                AcquisitionRequestCard(
-                    request: summary.request,
-                    progressText: nil,
-                    audience: .provider
-                )
+                AcquisitionProviderRequestCard(summary: summary)
                 NavigationLink {
                     AcquisitionOfferFormView(
                         request: summary.request,
@@ -197,12 +213,28 @@ struct AcquisitionRootView: View {
                         onSubmitted: { _ in Task { await model.load() } }
                     )
                 } label: {
-                    Label("Ofrecer un vehículo", systemImage: "car.fill")
+                    Label("Ofrecer una unidad", systemImage: "car.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(Palette.volt)
+
+                NavigationLink {
+                    AcquisitionRequestDetailView(
+                        summary: summary,
+                        membership: membership,
+                        repository: repository,
+                        onSubmitted: { Task { await model.load() } }
+                    )
+                } label: {
+                    Label("Ver requisitos completos", systemImage: "list.bullet.rectangle")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.bordered)
                 .tint(Palette.volt)
             }
 
@@ -230,7 +262,12 @@ struct AcquisitionRootView: View {
             ForEach(model.requests) { request in
                 let summary = AcquisitionRequestSummary(request: request, offers: model.uniqueOffers)
                 NavigationLink {
-                    AcquisitionRequestDetailView(summary: summary)
+                    AcquisitionRequestDetailView(
+                        summary: summary,
+                        membership: membership,
+                        repository: repository,
+                        onSubmitted: { Task { await model.load() } }
+                    )
                 } label: {
                     AcquisitionRequestCard(
                         request: request,
@@ -340,10 +377,11 @@ struct AcquisitionRootView: View {
                             onChanged: { Task { await model.load() } }
                         )
                     } label: {
-                        AcquisitionVehicleCard(
+                        AcquisitionDashboardVehicleCard(
                             offer: offer,
                             role: membership.role,
-                            supplierName: model.supplierName(for: offer)
+                            supplierName: model.supplierName(for: offer),
+                            actionTitle: actionTitle(for: offer, role: membership.role)
                         )
                     }
                     .buttonStyle(.plain)
@@ -406,6 +444,15 @@ struct AcquisitionRootView: View {
         case "submitted": "Revisar propuesta"
         case "negotiating", "price_agreed": "Resolver negociación"
         case "accepted_with_condition": "Resolver condición"
+        default: "Ver unidad"
+        }
+    }
+
+    private func actionTitle(for offer: AcquisitionOfferSummary, role: AcquisitionRole) -> String {
+        if role == .doriAdmin { return administratorActionTitle(for: offer) }
+        switch offer.status {
+        case "negotiating": "Revisar oferta"
+        case "accepted_with_condition": "Resolver"
         default: "Ver unidad"
         }
     }
@@ -482,18 +529,71 @@ struct AcquisitionRootView: View {
 
 private struct AcquisitionRequestDetailView: View {
     let summary: AcquisitionRequestSummary
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    let onSubmitted: (AcquisitionOfferSummary) -> Void
 
     var body: some View {
         ZStack {
             StationBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    AcquisitionSectionHeader(title: "Solicitud")
-                    AcquisitionRequestCard(
-                        request: summary.request,
-                        progressText: "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir",
-                        audience: .doriAdmin
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Solicitud actual")
+                                .font(.system(.title, weight: .black))
+                            Text("Detalles y requisitos")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        Label("Activa", systemImage: "circle.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Palette.volt)
+                    }
+
+                    if membership.role == .provider {
+                        AcquisitionProviderRequestCard(summary: summary)
+                    } else {
+                        AcquisitionAdminRequestCard(summary: summary)
+                    }
+
+                    AcquisitionOperationalSectionHeader(
+                        title: "Requisitos de la unidad",
+                        symbol: "checklist",
+                        tint: Palette.volt,
+                        count: summary.request.visibleRequirements.count
                     )
+                    AcquisitionRequirementsGrid(request: summary.request)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Label("Importante", systemImage: "info.circle.fill")
+                            .font(.headline)
+                            .foregroundStyle(Palette.info)
+                        Text("Solo se aceptarán unidades que cumplan con todos los requisitos. Revisa los detalles antes de enviar una propuesta.")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                    .padding(16)
+                    .background(Palette.info.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
+
+                    if membership.role == .provider {
+                        NavigationLink {
+                            AcquisitionOfferFormView(
+                                request: summary.request,
+                                membership: membership,
+                                repository: repository,
+                                onSubmitted: onSubmitted
+                            )
+                        } label: {
+                            Label("Ofrecer una unidad", systemImage: "arrow.right")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                    }
                 }
                 .padding(18)
             }
@@ -526,7 +626,7 @@ private func previewPrincipal(role: StaffRole) -> SessionPrincipal {
     SessionPrincipal(
         authUserId: UUID().uuidString,
         profileId: UUID().uuidString,
-        name: role == .provider ? "Agencia Puebla Centro" : "Administrador DORI",
+        name: role == .provider ? "BYD Iztacalco" : "Administrador DORI",
         employeeNumber: role == .provider ? "ADQ-TEST-PROV-001" : "ADQ-TEST-ADMIN",
         email: "cuenta@ejemplo.test",
         role: role,
