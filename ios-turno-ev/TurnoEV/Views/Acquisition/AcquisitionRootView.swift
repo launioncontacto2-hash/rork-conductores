@@ -165,7 +165,7 @@ struct AcquisitionRootView: View {
                         summary: summary,
                         membership: membership,
                         repository: repository,
-                        onSubmitted: { Task { await model.load() } }
+                        onSubmitted: { _ in Task { await model.load() } }
                     )
                 } label: {
                     AcquisitionAdminRequestCard(summary: summary)
@@ -226,7 +226,7 @@ struct AcquisitionRootView: View {
                         summary: summary,
                         membership: membership,
                         repository: repository,
-                        onSubmitted: { Task { await model.load() } }
+                        onSubmitted: { _ in Task { await model.load() } }
                     )
                 } label: {
                     Label("Ver requisitos completos", systemImage: "list.bullet.rectangle")
@@ -266,7 +266,7 @@ struct AcquisitionRootView: View {
                         summary: summary,
                         membership: membership,
                         repository: repository,
-                        onSubmitted: { Task { await model.load() } }
+                        onSubmitted: { _ in Task { await model.load() } }
                     )
                 } label: {
                     AcquisitionRequestCard(
@@ -440,7 +440,7 @@ struct AcquisitionRootView: View {
     }
 
     private func administratorActionTitle(for offer: AcquisitionOfferSummary) -> String {
-        switch offer.status {
+        return switch offer.status {
         case "submitted": "Revisar propuesta"
         case "negotiating", "price_agreed": "Resolver negociación"
         case "accepted_with_condition": "Resolver condición"
