@@ -450,7 +450,7 @@ struct AcquisitionRootView: View {
 
     private func actionTitle(for offer: AcquisitionOfferSummary, role: AcquisitionRole) -> String {
         if role == .doriAdmin { return administratorActionTitle(for: offer) }
-        switch offer.status {
+        return switch offer.status {
         case "negotiating": "Revisar oferta"
         case "accepted_with_condition": "Resolver"
         default: "Ver unidad"
