@@ -43,7 +43,7 @@ nonisolated struct AcquisitionEvidenceUpload: Equatable, Sendable {
     let data: Data
 }
 
-nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Hashable, Identifiable, Sendable {
     case charger110
     case charger220
     case originalInvoice
