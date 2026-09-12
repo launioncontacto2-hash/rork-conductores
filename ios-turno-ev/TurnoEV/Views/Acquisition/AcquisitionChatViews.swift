@@ -135,27 +135,40 @@ struct AcquisitionUnitChatLauncherView: View {
                     repository: repository
                 )
             } else if failed {
-                ContentUnavailableView(
-                    "No pudimos abrir la conversación",
-                    systemImage: "bubble.left.and.exclamationmark.bubble.right",
-                    description: Text("Intenta nuevamente.")
-                )
+                VStack(spacing: 14) {
+                    ContentUnavailableView(
+                        "No pudimos abrir la conversación",
+                        systemImage: "bubble.left.and.exclamationmark.bubble.right",
+                        description: Text("Revisa tu conexión e intenta nuevamente.")
+                    )
+                    Button("Reintentar") {
+                        Task { await openConversation() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Palette.volt)
+                }
             } else {
                 ProgressView("Abriendo conversación…")
             }
         }
-        .task {
-            do {
-                thread = try await repository.ensureChatThread(
-                    supplierID: membership.supplierID,
-                    offerID: offerID
-                )
-            } catch {
-                failed = true
-            }
-        }
+        .task { await openConversation() }
         .navigationTitle("Chat de la unidad")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @MainActor
+    private func openConversation() async {
+        failed = false
+        do {
+            thread = try await AcquisitionUnitChatResolver.resolve(
+                offerID: offerID,
+                membership: membership,
+                repository: repository
+            )
+        } catch {
+            failed = true
+            print("[Adquisiciones] No se pudo resolver el chat de unidad: \(String(describing: type(of: error)))")
+        }
     }
 }
 

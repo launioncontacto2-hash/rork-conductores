@@ -165,7 +165,7 @@ struct AcquisitionOfferDetailView: View {
             Text("Unidad")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Palette.textMuted)
-            Text("\(offer.modelAndVersion) \(offer.year)")
+            Text("\(offer.modelAndVersion) \(offer.yearText)")
                 .font(.title2.weight(.black))
             Text("\(offer.mileageText) km")
             Text("Precio del proveedor: \(offer.priceText)")
@@ -274,11 +274,7 @@ struct AcquisitionOfferDetailView: View {
             Text("La negociación permite hasta 2 contraofertas por cada parte.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.textMuted)
-            HStack {
-                Text("DORI: \(detail.counterofferCount(for: .doriAdmin))/2")
-                Spacer()
-                Text("Proveedor: \(detail.counterofferCount(for: .provider))/2")
-            }
+            Text("DORI \(detail.counterofferCount(for: .doriAdmin))/2 · Proveedor \(detail.counterofferCount(for: .provider))/2")
             .font(.subheadline.weight(.bold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -354,7 +350,7 @@ struct AcquisitionOfferDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(model.membership.role == .provider ? "Unidad confirmada" : "Unidad por recibir")
                 .font(.title3.weight(.black))
-            Text("\(offer.modelAndVersion) \(offer.year)")
+            Text("\(offer.modelAndVersion) \(offer.yearText)")
             Text("VIN: \(offer.abbreviatedVin)")
                 .foregroundStyle(Palette.textMuted)
             if let supplierName = delivery.supplierName {
@@ -501,7 +497,7 @@ private struct AcquisitionAwardSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                LabeledContent("Vehículo", value: "\(detail.offer.modelAndVersion) \(detail.offer.year)")
+                LabeledContent("Vehículo", value: "\(detail.offer.modelAndVersion) \(detail.offer.yearText)")
                 LabeledContent("VIN", value: detail.offer.abbreviatedVin)
                 LabeledContent(
                     "Precio acordado",

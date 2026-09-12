@@ -276,6 +276,27 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated struct EnsureChatThreadParameters: Encodable, Sendable {
         let p_supplier_id: UUID?
         let p_offer_id: UUID?
+
+        enum CodingKeys: String, CodingKey {
+            case p_supplier_id
+            case p_offer_id
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            if let p_supplier_id {
+                try container.encode(p_supplier_id, forKey: .p_supplier_id)
+            } else {
+                // The administrator intentionally has no supplier membership.
+                // PostgREST still needs this required RPC argument as JSON null.
+                try container.encodeNil(forKey: .p_supplier_id)
+            }
+            if let p_offer_id {
+                try container.encode(p_offer_id, forKey: .p_offer_id)
+            } else {
+                try container.encodeNil(forKey: .p_offer_id)
+            }
+        }
     }
 
     nonisolated struct SendChatMessageParameters: Encodable, Sendable {
@@ -1112,7 +1133,7 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
                 personName: membership.role == .doriAdmin ? "Laura Méndez" : "Jorge Ramos",
                 jobTitle: membership.role == .doriAdmin ? "Gerente de seminuevos" : "Supervisor de adquisiciones",
                 phone: "222 000 0000",
-                email: membership.role == .doriAdmin ? "ventas@agencia.test" : "adquisiciones@dori.test",
+                email: membership.role == .doriAdmin ? "byd.iztacalco@dori.mx" : "adquisiciones.pue@dori.mx",
                 businessHours: "09:00 a 18:00",
                 isPrimary: true
             ),

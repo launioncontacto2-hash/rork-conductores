@@ -3,6 +3,20 @@ import Testing
 @testable import TurnoEV
 
 struct AcquisitionChatModelTests {
+    @Test func administratorEncodesTheRequiredSupplierArgumentAsNull() throws {
+        let parameters = SupabaseAcquisitionRepository.EnsureChatThreadParameters(
+            p_supplier_id: nil,
+            p_offer_id: Self.offerID
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters)) as? [String: Any]
+        )
+
+        #expect(object.keys.contains("p_supplier_id"))
+        #expect(object["p_supplier_id"] is NSNull)
+        #expect(object["p_offer_id"] as? String == Self.offerID.uuidString)
+    }
+
     @Test func buildsAPrivateImmutableAttachmentPath() {
         let path = AcquisitionChatAttachmentPath.make(
             environmentID: Self.environmentID,
@@ -28,6 +42,7 @@ struct AcquisitionChatModelTests {
     static let supplierID = UUID(uuidString: "AD900000-0000-4000-8000-000000000002")!
     static let threadID = UUID(uuidString: "AD900000-0000-4000-8000-000000000003")!
     static let profileID = UUID(uuidString: "AD900000-0000-4000-8000-000000000004")!
+    static let offerID = UUID(uuidString: "AD900000-0000-4000-8000-000000000005")!
 
     static func thread(
         lastMessage: String? = "Mensaje de prueba",
@@ -111,6 +126,38 @@ struct AcquisitionChatFlowTests {
         #expect(model.attachment == nil)
     }
 
+    @Test func administratorResolvesARealUnitConversationWithoutASupplierScope() async throws {
+        let repository = Repository()
+        repository.threadToEnsure = AcquisitionChatThreadSummary(
+            id: AcquisitionChatModelTests.threadID,
+            supplierID: AcquisitionChatModelTests.supplierID,
+            offerID: AcquisitionChatModelTests.offerID,
+            scope: .unit,
+            title: "Unidad 000011",
+            supplierName: "BYD Iztacalco",
+            lastMessage: nil,
+            lastMessageKind: nil,
+            lastMessageAt: nil,
+            unreadCount: 0
+        )
+        let admin = AcquisitionMembership(
+            id: UUID(), environmentID: AcquisitionChatModelTests.environmentID,
+            profileID: AcquisitionChatModelTests.profileID,
+            supplierID: nil, role: .doriAdmin
+        )
+
+        let thread = try await AcquisitionUnitChatResolver.resolve(
+            offerID: AcquisitionChatModelTests.offerID,
+            membership: admin,
+            repository: repository
+        )
+
+        #expect(repository.ensuredSupplierID == nil)
+        #expect(repository.ensuredOfferID == AcquisitionChatModelTests.offerID)
+        #expect(thread.scope == .unit)
+        #expect(thread.offerID == AcquisitionChatModelTests.offerID)
+    }
+
     private static func model(repository: Repository) -> AcquisitionChatViewModel {
         AcquisitionChatViewModel(
             thread: AcquisitionChatModelTests.thread(),
@@ -128,6 +175,7 @@ struct AcquisitionChatFlowTests {
         var sentBody: String?
         var sentAttachment: AcquisitionChatAttachment?
         var lastReadSequence: Int64?
+        var threadToEnsure: AcquisitionChatThreadSummary?
 
         func loadMembership(profileID: UUID, environmentID: UUID) async throws -> AcquisitionMembership {
             AcquisitionChatModelTests.membership
@@ -156,7 +204,7 @@ struct AcquisitionChatFlowTests {
         ) async throws -> AcquisitionChatThreadSummary {
             ensuredSupplierID = supplierID
             ensuredOfferID = offerID
-            return AcquisitionChatModelTests.thread()
+            return threadToEnsure ?? AcquisitionChatModelTests.thread()
         }
         func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage] { messages }
         func sendChatMessage(

@@ -1,8 +1,8 @@
 -- Provisiona las dos identidades y la solicitud simulada de DORI Adquisicion.
 --
 -- Requisitos previos, exclusivamente en el proyecto TEST:
---   1. Crear y confirmar test.acquisition.admin@joramza.test en Supabase Auth.
---   2. Crear y confirmar test.acquisition.provider@joramza.test en Supabase Auth.
+--   1. Crear y confirmar adquisiciones.pue@dori.mx en Supabase Auth.
+--   2. Crear y confirmar byd.iztacalco@dori.mx en Supabase Auth.
 --
 -- Las contrasenas nunca deben copiarse a este archivo ni al repositorio.
 -- Este script no se ejecuta automaticamente desde una migracion y se niega a
@@ -35,11 +35,11 @@ BEGIN
 
     SELECT auth_user.id INTO v_admin_auth_user_id
     FROM auth.users auth_user
-    WHERE lower(auth_user.email) = 'test.acquisition.admin@joramza.test';
+    WHERE lower(auth_user.email) = 'adquisiciones.pue@dori.mx';
 
     SELECT auth_user.id INTO v_provider_auth_user_id
     FROM auth.users auth_user
-    WHERE lower(auth_user.email) = 'test.acquisition.provider@joramza.test';
+    WHERE lower(auth_user.email) = 'byd.iztacalco@dori.mx';
 
     IF v_admin_auth_user_id IS NULL THEN
         RAISE EXCEPTION 'auth_user_test_acquisition_admin_required'
@@ -176,14 +176,14 @@ BEGIN
         (
             v_dori_contact_id, v_environment_id, NULL, 'DORI Puebla',
             'Jorge Ramos', 'Supervisor de adquisiciones', '222 000 0000',
-            'adquisiciones@dori.test', '09:00 a 18:00', true, 'active',
+            'adquisiciones.pue@dori.mx', '09:00 a 18:00', true, 'active',
             app.env_now(v_environment_id), app.env_now(v_environment_id)
         ),
         (
             v_provider_contact_id, v_environment_id, v_supplier_id,
             'Agencia Puebla Centro', 'Laura Méndez',
             'Gerente de seminuevos', '222 000 0000',
-            'ventas@agenciapueblacentro.test', '09:00 a 18:00', true, 'active',
+            'byd.iztacalco@dori.mx', '09:00 a 18:00', true, 'active',
             app.env_now(v_environment_id), app.env_now(v_environment_id)
         )
     ON CONFLICT (id) DO UPDATE

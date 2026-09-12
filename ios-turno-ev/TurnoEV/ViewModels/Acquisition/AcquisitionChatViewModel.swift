@@ -1,6 +1,32 @@
 import Foundation
 import Observation
 
+nonisolated enum AcquisitionUnitChatResolutionError: LocalizedError, Sendable {
+    case wrongConversation
+
+    var errorDescription: String? {
+        "La conversación no corresponde a esta unidad."
+    }
+}
+
+@MainActor
+enum AcquisitionUnitChatResolver {
+    static func resolve(
+        offerID: UUID,
+        membership: AcquisitionMembership,
+        repository: any AcquisitionRepository
+    ) async throws -> AcquisitionChatThreadSummary {
+        let thread = try await repository.ensureChatThread(
+            supplierID: membership.supplierID,
+            offerID: offerID
+        )
+        guard thread.scope == .unit, thread.offerID == offerID else {
+            throw AcquisitionUnitChatResolutionError.wrongConversation
+        }
+        return thread
+    }
+}
+
 @MainActor
 @Observable
 final class AcquisitionChatListViewModel {

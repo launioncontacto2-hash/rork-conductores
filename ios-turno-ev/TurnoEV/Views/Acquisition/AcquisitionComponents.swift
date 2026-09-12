@@ -311,7 +311,7 @@ struct AcquisitionDashboardVehicleCard: View {
                             .font(.caption.weight(.bold))
                             .foregroundStyle(Palette.textMuted)
                     }
-                    Text("\(offer.modelAndVersion) \(offer.year)")
+                    Text("\(offer.modelAndVersion) \(offer.yearText)")
                         .font(.headline.weight(.bold))
                         .foregroundStyle(Palette.text)
                         .lineLimit(2)
@@ -414,7 +414,7 @@ struct AcquisitionVehicleCard: View {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(Palette.textMuted)
             }
-            Text("\(offer.modelAndVersion) \(offer.year)")
+            Text("\(offer.modelAndVersion) \(offer.yearText)")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(Palette.text)
             Text("\(offer.mileageText) km · VIN \(offer.abbreviatedVin)")

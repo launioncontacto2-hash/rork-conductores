@@ -104,6 +104,38 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let maximumMileage: Int
     let deliveryCity: String
     let deadlineAt: Date?
+    /// Prepared for the approved detailed-requirements screen. An empty array
+    /// keeps the current compact request experience unchanged until the backend
+    /// publishes these fields explicitly.
+    let detailedRequirements: [AcquisitionRequestRequirement]
+
+    init(
+        id: UUID,
+        code: String,
+        title: String,
+        targetQuantity: Int,
+        model: String,
+        versions: [String],
+        minimumYear: Int,
+        maximumYear: Int,
+        maximumMileage: Int,
+        deliveryCity: String,
+        deadlineAt: Date?,
+        detailedRequirements: [AcquisitionRequestRequirement] = []
+    ) {
+        self.id = id
+        self.code = code
+        self.title = title
+        self.targetQuantity = targetQuantity
+        self.model = model
+        self.versions = versions
+        self.minimumYear = minimumYear
+        self.maximumYear = maximumYear
+        self.maximumMileage = maximumMileage
+        self.deliveryCity = deliveryCity
+        self.deadlineAt = deadlineAt
+        self.detailedRequirements = detailedRequirements
+    }
 
     var modelAndVersions: String {
         guard !versions.isEmpty else { return model }
@@ -118,6 +150,18 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: maximumMileage)) ?? "\(maximumMileage)"
+    }
+}
+
+nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let value: String
+
+    init(id: String, title: String, value: String) {
+        self.id = id
+        self.title = title
+        self.value = value
     }
 }
 
@@ -172,6 +216,10 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         guard let version, !version.isEmpty else { return model }
         return "\(model) \(version)"
     }
+
+    /// Years are identifiers, not quantities. Returning a String prevents
+    /// SwiftUI's localized integer interpolation from rendering 2025 as 2,025.
+    var yearText: String { String(year) }
 
     var mileageText: String {
         let formatter = NumberFormatter()
@@ -245,11 +293,13 @@ nonisolated enum AcquisitionHumanStatus {
     }
 
     static func uniqueVehicles(_ offers: [AcquisitionOfferSummary]) -> [AcquisitionOfferSummary] {
-        var seen = Set<String>()
+        var seenOfferIDs = Set<UUID>()
+        var seenVINs = Set<String>()
         return offers.filter { offer in
+            guard seenOfferIDs.insert(offer.id).inserted else { return false }
             let normalizedVIN = offer.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            let key = normalizedVIN.isEmpty ? offer.id.uuidString : normalizedVIN
-            return seen.insert(key).inserted
+            guard !normalizedVIN.isEmpty else { return true }
+            return seenVINs.insert(normalizedVIN).inserted
         }
     }
 }

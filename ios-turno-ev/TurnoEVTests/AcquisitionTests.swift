@@ -158,6 +158,58 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(visible[0].status == "negotiating")
     }
 
+    @Test func deduplicatesByOfferIDAndVinInsideOnePresentationSource() {
+        let repeatedID = UUID()
+        let requestID = UUID()
+        let offers = [
+            AcquisitionOfferSummary(
+                id: repeatedID, requestID: requestID, status: "submitted",
+                year: 2025, vin: ""
+            ),
+            AcquisitionOfferSummary(
+                id: repeatedID, requestID: requestID, status: "submitted",
+                year: 2025, vin: ""
+            ),
+            AcquisitionOfferSummary(
+                id: UUID(), requestID: requestID, status: "submitted",
+                year: 2025, vin: " LGXCE6CB1S0000011 "
+            ),
+            AcquisitionOfferSummary(
+                id: UUID(), requestID: requestID, status: "submitted",
+                year: 2025, vin: "lgxce6cb1s0000011"
+            ),
+        ]
+
+        let visible = AcquisitionHumanStatus.uniqueVehicles(offers)
+
+        #expect(visible.count == 2)
+        #expect(Set(visible.map(\.id)).count == visible.count)
+    }
+
+    @Test func formatsVehicleYearWithoutAThousandsSeparator() {
+        let offer = AcquisitionOfferSummary(
+            id: UUID(), requestID: UUID(), status: "submitted", year: 2025
+        )
+
+        #expect(offer.yearText == "2025")
+        #expect(!offer.yearText.contains(","))
+    }
+
+    @Test func requestModelIsPreparedForDetailedRequirementsWithoutChangingCurrentData() {
+        let requirement = AcquisitionRequestRequirement(
+            id: "charger_110v", title: "Cargador 110V", value: "Incluido"
+        )
+        let request = AcquisitionRequest(
+            id: UUID(), code: "ADQ-TEST-001", title: "Solicitud",
+            targetQuantity: 15, model: "Dolphin Mini", versions: ["Plus"],
+            minimumYear: 2025, maximumYear: 2026, maximumMileage: 20_000,
+            deliveryCity: "Puebla", deadlineAt: nil,
+            detailedRequirements: [requirement]
+        )
+
+        #expect(request.detailedRequirements == [requirement])
+    }
+
     @Test func providerQueriesContainNoInternalRulesOrAssessmentFields() {
         let exposed = (AcquisitionQueries.requestColumns + AcquisitionQueries.offerColumns)
             .lowercased()
@@ -174,7 +226,7 @@ struct AcquisitionRoleAndPresentationTests {
     @Test func buildsSafeInstitutionalContactActions() {
         let contact = Self.contact(supplierID: nil)
         #expect(contact.callURL?.absoluteString == "tel:2220000000")
-        #expect(contact.emailURL?.absoluteString == "mailto:adquisiciones@dori.test")
+        #expect(contact.emailURL?.absoluteString == "mailto:adquisiciones.pue@dori.mx")
     }
 
     @Test func presentsOnlyTheCounterpartyContactsForEachRole() throws {
@@ -225,7 +277,7 @@ struct AcquisitionRoleAndPresentationTests {
             personName: supplierID == nil ? "Jorge Ramos" : "Laura Méndez",
             jobTitle: supplierID == nil ? "Supervisor de adquisiciones" : "Gerente de seminuevos",
             phone: "222 000 0000",
-            email: supplierID == nil ? "adquisiciones@dori.test" : "ventas@agencia.test",
+            email: supplierID == nil ? "adquisiciones.pue@dori.mx" : "byd.iztacalco@dori.mx",
             businessHours: "09:00 a 18:00",
             isPrimary: true
         )
@@ -386,6 +438,32 @@ struct AcquisitionViewModelTests {
         #expect(model.organizationName == "DORI Puebla")
     }
 
+    @Test func providerBuildsDashboardAfterResolvingItsSupplierMembership() async {
+        let supplierID = UUID()
+        let request = AcquisitionRequest(
+            id: UUID(), code: "ADQ-TEST-001", title: "15 autos requeridos",
+            targetQuantity: 15, model: "Dolphin Mini", versions: ["Plus"],
+            minimumYear: 2025, maximumYear: 2026, maximumMileage: 20_000,
+            deliveryCity: "Puebla", deadlineAt: nil
+        )
+        let repository = Repository(
+            requests: [request], membershipRole: .provider,
+            supplierID: supplierID,
+            suppliers: [AcquisitionSupplierSummary(id: supplierID, name: "BYD Iztacalco", city: "Puebla")]
+        )
+        let model = AcquisitionViewModel(
+            principal: Self.principal(role: .provider), repository: repository
+        )
+
+        await model.load()
+
+        #expect(model.state == .content)
+        #expect(model.membership?.role == .provider)
+        #expect(model.membership?.supplierID == supplierID)
+        #expect(model.organizationName == "BYD Iztacalco")
+        #expect(model.activeRequest?.code == "ADQ-TEST-001")
+    }
+
     private static func principal(role: StaffRole) -> SessionPrincipal {
         SessionPrincipal(
             authUserId: UUID().uuidString,
@@ -415,17 +493,23 @@ struct AcquisitionViewModelTests {
         let failure: Error?
         let contactFailure: Error?
         let membershipRole: AcquisitionRole
+        let supplierID: UUID?
+        let suppliers: [AcquisitionSupplierSummary]
 
         init(
             requests: [AcquisitionRequest],
             failure: Error? = nil,
             contactFailure: Error? = nil,
-            membershipRole: AcquisitionRole = .doriAdmin
+            membershipRole: AcquisitionRole = .doriAdmin,
+            supplierID: UUID? = nil,
+            suppliers: [AcquisitionSupplierSummary] = []
         ) {
             self.requests = requests
             self.failure = failure
             self.contactFailure = contactFailure
             self.membershipRole = membershipRole
+            self.supplierID = supplierID
+            self.suppliers = suppliers
         }
 
         func loadMembership(
@@ -437,7 +521,7 @@ struct AcquisitionViewModelTests {
                 id: UUID(),
                 environmentID: Self.environmentID,
                 profileID: profileID,
-                supplierID: membershipRole == .provider ? UUID() : nil,
+                supplierID: membershipRole == .provider ? supplierID ?? UUID() : nil,
                 role: membershipRole
             )
         }
@@ -450,6 +534,10 @@ struct AcquisitionViewModelTests {
         func loadOffers() async throws -> [AcquisitionOfferSummary] {
             if let failure { throw failure }
             return []
+        }
+
+        func loadSuppliers() async throws -> [AcquisitionSupplierSummary] {
+            suppliers
         }
 
         func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
