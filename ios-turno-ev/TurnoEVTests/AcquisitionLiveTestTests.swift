@@ -12,7 +12,8 @@ struct AcquisitionLiveTestTests {
         let environment = ProcessInfo.processInfo.environment
         guard environment["DORI_RUN_ACQUISITION_LIVE_TEST"] == "1" else { return }
 
-        let url = try #require(URL(string: try #require(environment["DORI_TEST_SUPABASE_URL"])))
+        let urlString = try #require(environment["DORI_TEST_SUPABASE_URL"])
+        let url = try #require(URL(string: urlString))
         let key = try #require(environment["DORI_TEST_SUPABASE_PUBLISHABLE_KEY"])
         let password = try #require(environment["DORI_TEST_ACQUISITION_PASSWORD"])
         #expect(url.host == "yyxzuiantrmoyozetswv.supabase.co")
