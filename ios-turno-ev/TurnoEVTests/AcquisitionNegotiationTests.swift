@@ -43,6 +43,20 @@ struct AcquisitionNegotiationModelTests {
         #expect(detail.counteroffersRemaining(for: .provider) == 0)
         #expect(!detail.canCounteroffer(as: .doriAdmin))
         #expect(!detail.canCounteroffer(as: .provider))
+        #expect(detail.bothPartiesReachedCounterofferLimit)
+    }
+
+    @Test func commercialHistoryIncludesInitialPriceAndEveryServerOrderedMovement() {
+        let detail = Self.detail(
+            status: "negotiating",
+            counterofferActors: [.doriAdmin, .provider, .doriAdmin]
+        )
+
+        #expect(detail.commercialHistory.count == 4)
+        #expect(detail.commercialHistory.first?.movementLabel == "Oferta inicial")
+        #expect(detail.commercialHistory.first?.actorRole == .provider)
+        #expect(detail.commercialHistory.dropFirst().map(\.sequence) == [1, 2, 3])
+        #expect(detail.commercialHistory.last?.actorRole == .doriAdmin)
     }
 
     fileprivate static let offerID = UUID(uuidString: "AD710000-0000-4000-8000-000000000001")!
@@ -61,6 +75,7 @@ struct AcquisitionNegotiationModelTests {
         let negotiations: [AcquisitionNegotiation] = actors.enumerated().map { index, actor in
                 AcquisitionNegotiation(
                     id: UUID(),
+                    sequence: index + 1,
                     actorRole: actor,
                     action: "counteroffer",
                     amountMxn: 268_000 + index,
@@ -171,7 +186,7 @@ struct AcquisitionNegotiationFlowTests {
         await model.sendCounteroffer(amountText: "272000")
 
         #expect(repository.commands.isEmpty)
-        #expect(model.feedbackMessage == "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar.")
+        #expect(model.feedbackMessage == "Se alcanzó el límite de negociación. Puedes aceptar el último precio o no continuar.")
     }
 
     @Test func providerCanStopWithoutPurchaseThroughTheRPCBoundary() async {

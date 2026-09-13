@@ -1160,6 +1160,7 @@ final class FleetStore {
             adoptDemoState()
             reloadAssignment()
             Task { @MainActor in
+                await AcquisitionPushCoordinator.shared.revokeCurrentDevice()
                 try? await SupabaseBridge.client?.auth.signOut()
             }
         }
@@ -1181,6 +1182,7 @@ final class FleetStore {
             enrolledAccountId = nil
             reloadAssignment()
             Task { @MainActor in
+                await AcquisitionPushCoordinator.shared.revokeCurrentDevice()
                 try? await SupabaseBridge.client?.auth.signOut()
             }
         }

@@ -30,6 +30,7 @@ nonisolated struct AcquisitionOfferAssessment: Equatable, Sendable {
 
 nonisolated struct AcquisitionNegotiation: Identifiable, Equatable, Sendable {
     let id: UUID
+    let sequence: Int
     let actorRole: AcquisitionRole
     let action: String
     let amountMxn: Int?
@@ -39,6 +40,26 @@ nonisolated struct AcquisitionNegotiation: Identifiable, Equatable, Sendable {
     var amountText: String? {
         amountMxn.map(AcquisitionOfferSummary.currencyText)
     }
+
+    var actorLabel: String {
+        actorRole == .doriAdmin ? "DORI" : "Proveedor"
+    }
+
+    var movementLabel: String {
+        action == "accepted" ? "Precio aceptado" : "Contraoferta"
+    }
+}
+
+nonisolated struct AcquisitionNegotiationHistoryItem: Identifiable, Equatable, Sendable {
+    let id: String
+    let sequence: Int
+    let actorRole: AcquisitionRole
+    let movementLabel: String
+    let amountMxn: Int
+    let createdAt: Date?
+
+    var actorLabel: String { actorRole == .doriAdmin ? "DORI" : "Proveedor" }
+    var amountText: String { AcquisitionOfferSummary.currencyText(amountMxn) }
 }
 
 nonisolated struct AcquisitionEvidenceItem: Identifiable, Equatable, Sendable {
@@ -58,19 +79,22 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
     let negotiations: [AcquisitionNegotiation]
     let evidence: [AcquisitionEvidenceItem]
     let delivery: AcquisitionDeliveryJourney?
+    let supplierName: String?
 
     init(
         offer: AcquisitionOfferSummary,
         assessment: AcquisitionOfferAssessment?,
         negotiations: [AcquisitionNegotiation],
         evidence: [AcquisitionEvidenceItem],
-        delivery: AcquisitionDeliveryJourney? = nil
+        delivery: AcquisitionDeliveryJourney? = nil,
+        supplierName: String? = nil
     ) {
         self.offer = offer
         self.assessment = assessment
         self.negotiations = negotiations
         self.evidence = evidence
         self.delivery = delivery
+        self.supplierName = supplierName
     }
 
     var lastCounteroffer: AcquisitionNegotiation? {
@@ -79,6 +103,36 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
 
     var commercialPriceMxn: Int {
         offer.agreedPriceMxn ?? lastCounteroffer?.amountMxn ?? offer.priceMxn
+    }
+
+    /// Shared commercial history only. The initial price comes from the
+    /// persisted offer and every later movement comes from the immutable,
+    /// server-ordered negotiation ledger.
+    var commercialHistory: [AcquisitionNegotiationHistoryItem] {
+        let initial = AcquisitionNegotiationHistoryItem(
+            id: "initial-\(offer.id.uuidString.lowercased())",
+            sequence: 0,
+            actorRole: .provider,
+            movementLabel: "Oferta inicial",
+            amountMxn: offer.priceMxn,
+            createdAt: offer.submittedAt
+        )
+        return [initial] + negotiations.compactMap { movement in
+            guard let amount = movement.amountMxn else { return nil }
+            return AcquisitionNegotiationHistoryItem(
+                id: movement.id.uuidString.lowercased(),
+                sequence: movement.sequence,
+                actorRole: movement.actorRole,
+                movementLabel: movement.movementLabel,
+                amountMxn: amount,
+                createdAt: movement.createdAt
+            )
+        }
+    }
+
+    var bothPartiesReachedCounterofferLimit: Bool {
+        counterofferCount(for: .doriAdmin) >= Self.counterofferLimit
+            && counterofferCount(for: .provider) >= Self.counterofferLimit
     }
 
     func hasPendingCounteroffer(for role: AcquisitionRole) -> Bool {

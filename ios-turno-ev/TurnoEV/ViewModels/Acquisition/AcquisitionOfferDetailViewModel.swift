@@ -22,6 +22,9 @@ final class AcquisitionOfferDetailViewModel {
     var isWorking = false
     var feedbackMessage: String?
     var confirmationMessage: String?
+    private var reloadRequested = false
+    private var isObserving = false
+    private var isLoading = false
 
     init(
         offerID: UUID,
@@ -36,32 +39,26 @@ final class AcquisitionOfferDetailViewModel {
     }
 
     func load() async {
-        if detail == nil { state = .loading }
-        do {
-            detail = try await repository.loadOfferDetail(
-                offerID: offerID,
-                membership: membership
-            )
-            state = .content
+        await reloadFromSourceOfTruth()
+        if state == .content, !isObserving {
+            isObserving = true
             realtime.startForOffer(
                 environmentID: membership.environmentID,
                 offerID: offerID
             ) { [weak self] in
                 Task { await self?.reloadFromSourceOfTruth() }
             }
-        } catch {
-            if detail == nil { state = .failed }
-            feedbackMessage = "No pudimos actualizar esta propuesta."
         }
     }
 
     func stopObserving() {
+        isObserving = false
         realtime.stop()
     }
 
     func sendCounteroffer(amountText: String) async {
         guard detail?.canCounteroffer(as: membership.role) == true else {
-            feedbackMessage = "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar."
+            feedbackMessage = "Se alcanzó el límite de negociación. Puedes aceptar el último precio o no continuar."
             return
         }
         guard let amount = Self.amount(from: amountText), amount > 0 else {
@@ -204,7 +201,7 @@ final class AcquisitionOfferDetailViewModel {
         } catch {
             if command.action == .counteroffer,
                error.localizedDescription.contains("acquisition_counteroffer_limit_reached") {
-                feedbackMessage = "Ya utilizaste tus 2 contraofertas. Solo puedes aceptar o no continuar."
+                feedbackMessage = "Se alcanzó el límite de negociación. Puedes aceptar el último precio o no continuar."
             } else {
                 feedbackMessage = "No pudimos completar la acción. La propuesta no cambió."
             }
@@ -234,15 +231,27 @@ final class AcquisitionOfferDetailViewModel {
     }
 
     private func reloadFromSourceOfTruth() async {
-        do {
-            detail = try await repository.loadOfferDetail(
-                offerID: offerID,
-                membership: membership
-            )
-            state = .content
-        } catch {
-            feedbackMessage = "No pudimos actualizar esta propuesta."
+        if isLoading {
+            reloadRequested = true
+            return
         }
+        repeat {
+            reloadRequested = false
+            isLoading = true
+            if detail == nil { state = .loading }
+            do {
+                detail = try await repository.loadOfferDetail(
+                    offerID: offerID,
+                    membership: membership
+                )
+                state = .content
+            await AcquisitionPushCoordinator.shared.markRead(.offer(offerID))
+            } catch {
+                if detail == nil { state = .failed }
+                feedbackMessage = "No pudimos actualizar esta propuesta."
+            }
+            isLoading = false
+        } while reloadRequested
     }
 
     nonisolated static func amount(from text: String) -> Int? {

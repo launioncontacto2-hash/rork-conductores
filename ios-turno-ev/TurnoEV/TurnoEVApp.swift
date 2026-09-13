@@ -9,6 +9,7 @@ import SwiftUI
 
 @main
 struct TurnoEVApp: App {
+    @UIApplicationDelegateAdaptor(AcquisitionAppDelegate.self) private var appDelegate
     /// Foreground state of the app. It drives the clock beat and nothing else.
     @Environment(\.scenePhase) private var scenePhase
 

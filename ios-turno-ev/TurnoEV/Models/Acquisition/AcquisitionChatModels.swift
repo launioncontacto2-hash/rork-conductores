@@ -116,11 +116,55 @@ nonisolated struct AcquisitionChatThreadSummary: Identifiable, Equatable, Sendab
     let lastMessageKind: AcquisitionChatMessageKind?
     let lastMessageAt: Date?
     let unreadCount: Int
+    let vehicle: AcquisitionChatVehicleContext?
+
+    init(
+        id: UUID,
+        supplierID: UUID,
+        offerID: UUID?,
+        scope: AcquisitionChatScope,
+        title: String,
+        supplierName: String,
+        lastMessage: String?,
+        lastMessageKind: AcquisitionChatMessageKind?,
+        lastMessageAt: Date?,
+        unreadCount: Int,
+        vehicle: AcquisitionChatVehicleContext? = nil
+    ) {
+        self.id = id
+        self.supplierID = supplierID
+        self.offerID = offerID
+        self.scope = scope
+        self.title = title
+        self.supplierName = supplierName
+        self.lastMessage = lastMessage
+        self.lastMessageKind = lastMessageKind
+        self.lastMessageAt = lastMessageAt
+        self.unreadCount = unreadCount
+        self.vehicle = vehicle
+    }
 
     var previewText: String {
         if let lastMessage, !lastMessage.isEmpty { return lastMessage }
         if lastMessageKind == .attachment { return "Adjunto" }
         return "Sin mensajes todavía"
+    }
+}
+
+nonisolated struct AcquisitionChatVehicleContext: Equatable, Sendable {
+    let model: String
+    let year: Int
+    let abbreviatedVin: String
+    let thumbnailData: Data?
+
+    var title: String { "\(model) \(String(year))" }
+}
+
+nonisolated enum AcquisitionChatOrdering {
+    static func newestFirst(_ threads: [AcquisitionChatThreadSummary]) -> [AcquisitionChatThreadSummary] {
+        threads.sorted {
+            ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast)
+        }
     }
 }
 

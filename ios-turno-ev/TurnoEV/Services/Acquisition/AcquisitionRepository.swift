@@ -9,6 +9,7 @@ protocol AcquisitionRepository {
     ) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func loadOffers() async throws -> [AcquisitionOfferSummary]
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity]
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary]
     func loadContacts() async throws -> [AcquisitionInstitutionalContact]
     func loadOfferDetail(
@@ -30,9 +31,15 @@ protocol AcquisitionRepository {
         attachment: AcquisitionChatAttachment?
     ) async throws -> AcquisitionChatMessage
     func markChatRead(threadID: UUID, sequence: Int64) async throws
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws
+    func revokePushDevice(token: String) async throws
+    func notificationBadgeCount() async throws -> Int
+    func unreadNotificationOfferIDs() async throws -> Set<UUID>
+    func markNotificationContextRead(type: String, id: UUID) async throws
 }
 
 extension AcquisitionRepository {
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity] { [:] }
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary] { [] }
     func loadContacts() async throws -> [AcquisitionInstitutionalContact] { [] }
     func loadChatThreads() async throws -> [AcquisitionChatThreadSummary] { [] }
@@ -48,12 +55,17 @@ extension AcquisitionRepository {
         throw CancellationError()
     }
     func markChatRead(threadID: UUID, sequence: Int64) async throws {}
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws {}
+    func revokePushDevice(token: String) async throws {}
+    func notificationBadgeCount() async throws -> Int { 0 }
+    func unreadNotificationOfferIDs() async throws -> Set<UUID> { [] }
+    func markNotificationContextRead(type: String, id: UUID) async throws {}
 }
 
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let offerColumns = "id, request_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at, event_sequence"
     static let evidenceColumns = "id, kind, object_path, verified"
@@ -102,6 +114,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated struct OfferRow: Decodable, Sendable {
         let id: UUID
         let request_id: UUID
+        let supplier_id: UUID
         let status: String
         let model: String
         let version: String?
@@ -132,11 +145,25 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let event_sequence: Int
     }
 
+    nonisolated struct NegotiationActivityRow: Decodable, Sendable {
+        let offer_id: UUID
+        let actor_role: AcquisitionRole
+        let action: String
+        let amount_mxn: Decimal?
+        let created_at: Date
+        let event_sequence: Int
+    }
+
     nonisolated struct EvidenceRow: Decodable, Sendable {
         let id: UUID
         let kind: AcquisitionEvidenceKind
         let object_path: String
         let verified: Bool
+    }
+
+    nonisolated struct ChatEvidenceRow: Decodable, Sendable {
+        let offer_id: UUID
+        let object_path: String
     }
 
     nonisolated struct EvidenceReference: Encodable, Sendable {
@@ -309,6 +336,22 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let attachment_filename: String?
         let attachment_size_bytes: Int?
         let created_at: Date
+    }
+
+    nonisolated struct RegisterPushDeviceParameters: Encodable, Sendable {
+        let p_device_token: String
+        let p_platform: String
+        let p_app_environment: String
+        let p_bundle_id: String
+    }
+
+    nonisolated struct RevokePushDeviceParameters: Encodable, Sendable {
+        let p_device_token: String
+    }
+
+    nonisolated struct NotificationContextParameters: Encodable, Sendable {
+        let p_context_type: String
+        let p_context_id: UUID
     }
 
     nonisolated struct EnsureChatThreadParameters: Encodable, Sendable {
@@ -506,6 +549,37 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         return rows.map { Self.offer(from: $0) }
     }
 
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let offers = try await loadOffers()
+        let originalPrices = Dictionary(uniqueKeysWithValues: offers.map { ($0.id, $0.priceMxn) })
+        let rows: [NegotiationActivityRow] = try await client
+            .from("acquisition_negotiations")
+            .select("offer_id, actor_role, action, amount_mxn, created_at, event_sequence")
+            .order("event_sequence", ascending: true)
+            .execute()
+            .value
+
+        var result: [UUID: AcquisitionOfferActivity] = [:]
+        for (offerID, movements) in Dictionary(grouping: rows, by: \.offer_id) {
+            guard let latest = movements.last else { continue }
+            let previous = movements.dropLast().reversed().compactMap(\.amount_mxn).first
+                .map(Self.integer(from:)) ?? originalPrices[offerID]
+            result[offerID] = AcquisitionOfferActivity(
+                offerID: offerID,
+                actorRole: latest.actor_role,
+                action: latest.action,
+                amountMxn: latest.amount_mxn.map(Self.integer(from:)),
+                previousAmountMxn: previous,
+                createdAt: latest.created_at,
+                sequence: latest.event_sequence
+            )
+        }
+        return result
+    }
+
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary] {
         guard let client = SupabaseBridge.client else {
             throw RepositoryError.notConfigured
@@ -616,13 +690,21 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             membership: membership,
             client: client
         )
+        let supplierRows: [SupplierRow] = try await client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .eq("id", value: offerRow.supplier_id.uuidString)
+            .limit(1)
+            .execute()
+            .value
 
         return AcquisitionOfferDetail(
             offer: Self.offer(from: offerRow),
             assessment: assessment,
             negotiations: negotiationRows.map { Self.negotiation(from: $0) },
             evidence: evidence,
-            delivery: delivery
+            delivery: delivery,
+            supplierName: supplierRows.first?.name
         )
     }
 
@@ -831,7 +913,45 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .rpc("list_acquisition_chat_threads")
             .execute()
             .value
-        return rows.map(Self.chatThread(from:))
+        let offers = try await loadOffers()
+        let offersByID = Dictionary(uniqueKeysWithValues: offers.map { ($0.id, $0) })
+
+        // Vehicle imagery is useful but secondary: a missing thumbnail must
+        // never hide the institutional conversation list.
+        let evidenceRows: [ChatEvidenceRow] = (try? await client
+            .from("acquisition_evidence")
+            .select("offer_id, object_path")
+            .eq("kind", value: AcquisitionEvidenceKind.front.rawValue)
+            .execute()
+            .value) ?? []
+        let pathByOffer = Dictionary(
+            evidenceRows.map { ($0.offer_id, $0.object_path) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let bucket = client.storage.from("acquisition-evidence")
+        var thumbnailByOffer: [UUID: Data] = [:]
+        for offerID in Set(rows.compactMap(\.offer_id)) {
+            if let path = pathByOffer[offerID], let data = try? await bucket.download(path: path) {
+                thumbnailByOffer[offerID] = data
+            }
+        }
+
+        return rows
+            .map { row in
+                let offer = row.offer_id.flatMap { offersByID[$0] }
+                let vehicle = offer.map {
+                    AcquisitionChatVehicleContext(
+                        model: $0.modelAndVersion,
+                        year: $0.year,
+                        abbreviatedVin: $0.abbreviatedVin,
+                        thumbnailData: thumbnailByOffer[$0.id]
+                    )
+                }
+                return Self.chatThread(from: row, vehicle: vehicle)
+            }
+            .sorted {
+                ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast)
+            }
     }
 
     func ensureChatThread(
@@ -980,6 +1100,49 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .value
     }
 
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let _: UUID = try await client.rpc(
+            "register_acquisition_push_device",
+            params: RegisterPushDeviceParameters(
+                p_device_token: token,
+                p_platform: "ios",
+                p_app_environment: appEnvironment,
+                p_bundle_id: bundleID
+            )
+        ).execute().value
+    }
+
+    func revokePushDevice(token: String) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        try await client.rpc(
+            "revoke_acquisition_push_device",
+            params: RevokePushDeviceParameters(p_device_token: token)
+        ).execute()
+    }
+
+    func notificationBadgeCount() async throws -> Int {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let count: Int = try await client.rpc("acquisition_notification_badge_count")
+            .execute().value
+        return count
+    }
+
+    func unreadNotificationOfferIDs() async throws -> Set<UUID> {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let ids: [UUID] = try await client.rpc("acquisition_unread_offer_ids")
+            .execute().value
+        return Set(ids)
+    }
+
+    func markNotificationContextRead(type: String, id: UUID) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let _: Int = try await client.rpc(
+            "mark_acquisition_notification_context_read",
+            params: NotificationContextParameters(p_context_type: type, p_context_id: id)
+        ).execute().value
+    }
+
     private func currentEnvironmentID() async throws -> UUID {
         guard let client = SupabaseBridge.client else {
             throw RepositoryError.notConfigured
@@ -1091,6 +1254,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         AcquisitionOfferSummary(
             id: row.id,
             requestID: row.request_id,
+            supplierID: row.supplier_id,
             status: row.status,
             model: row.model,
             version: row.version,
@@ -1117,6 +1281,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated static func negotiation(from row: NegotiationRow) -> AcquisitionNegotiation {
         AcquisitionNegotiation(
             id: row.id,
+            sequence: row.event_sequence,
             actorRole: row.actor_role,
             action: row.action,
             amountMxn: row.amount_mxn.map { Self.integer(from: $0) },
@@ -1129,7 +1294,10 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         NSDecimalNumber(decimal: value).intValue
     }
 
-    nonisolated static func chatThread(from row: ChatThreadRow) -> AcquisitionChatThreadSummary {
+    nonisolated static func chatThread(
+        from row: ChatThreadRow,
+        vehicle: AcquisitionChatVehicleContext? = nil
+    ) -> AcquisitionChatThreadSummary {
         AcquisitionChatThreadSummary(
             id: row.thread_id,
             supplierID: row.supplier_id,
@@ -1140,7 +1308,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             lastMessage: row.last_message,
             lastMessageKind: row.last_message_kind,
             lastMessageAt: row.last_message_at,
-            unreadCount: row.unread_count
+            unreadCount: row.unread_count,
+            vehicle: vehicle
         )
     }
 

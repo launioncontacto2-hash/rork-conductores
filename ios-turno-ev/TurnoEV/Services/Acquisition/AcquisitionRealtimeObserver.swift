@@ -7,17 +7,18 @@ import Supabase
 final class AcquisitionRealtimeObserver {
     private var channel: RealtimeChannelV2?
     private var listenTasks: [Task<Void, Never>] = []
-    private var observedEnvironmentID: UUID?
+    private var observationKey: String?
 
     func start(
         environmentID: UUID,
         onChange: @escaping @MainActor () -> Void
     ) {
-        guard observedEnvironmentID != environmentID else { return }
+        let key = "module:\(environmentID.uuidString.lowercased())"
+        guard observationKey != key else { return }
         stop()
         guard let client = SupabaseBridge.client else { return }
 
-        observedEnvironmentID = environmentID
+        observationKey = key
         let channel = client.channel("dori-acquisition-\(environmentID.uuidString.lowercased())")
         self.channel = channel
 
@@ -61,7 +62,12 @@ final class AcquisitionRealtimeObserver {
             schema: "public",
             table: "acquisition_chat_read_receipts"
         )
-        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges, chatChanges, readChanges].map { changes in
+        let notificationChanges = channel.postgresChange(
+            AnyAction.self,
+            schema: "public",
+            table: "acquisition_notifications"
+        )
+        listenTasks = [offerChanges, negotiationChanges, orderChanges, deliveryChanges, receptionChanges, holdChanges, chatChanges, readChanges, notificationChanges].map { changes in
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
@@ -80,25 +86,50 @@ final class AcquisitionRealtimeObserver {
         threadID: UUID? = nil,
         onChange: @escaping @MainActor () -> Void
     ) {
+        let suffix = threadID?.uuidString.lowercased() ?? environmentID.uuidString.lowercased()
+        let key = "chat:\(suffix)"
+        guard observationKey != key else { return }
         stop()
         guard let client = SupabaseBridge.client else { return }
 
-        observedEnvironmentID = environmentID
-        let suffix = threadID?.uuidString.lowercased() ?? environmentID.uuidString.lowercased()
+        observationKey = key
         let channel = client.channel("dori-acquisition-chat-\(suffix)")
         self.channel = channel
 
-        let messageChanges = channel.postgresChange(
+        let messageChanges: AsyncStream<AnyAction>
+        let readChanges: AsyncStream<AnyAction>
+        let notificationChanges = channel.postgresChange(
             AnyAction.self,
             schema: "public",
-            table: "acquisition_chat_messages"
+            table: "acquisition_notifications"
         )
-        let readChanges = channel.postgresChange(
-            AnyAction.self,
-            schema: "public",
-            table: "acquisition_chat_read_receipts"
-        )
-        listenTasks = [messageChanges, readChanges].map { changes in
+        if let threadID {
+            let value = threadID.uuidString.lowercased()
+            messageChanges = channel.postgresChange(
+                AnyAction.self,
+                schema: "public",
+                table: "acquisition_chat_messages",
+                filter: .eq("thread_id", value: value)
+            )
+            readChanges = channel.postgresChange(
+                AnyAction.self,
+                schema: "public",
+                table: "acquisition_chat_read_receipts",
+                filter: .eq("thread_id", value: value)
+            )
+        } else {
+            messageChanges = channel.postgresChange(
+                AnyAction.self,
+                schema: "public",
+                table: "acquisition_chat_messages"
+            )
+            readChanges = channel.postgresChange(
+                AnyAction.self,
+                schema: "public",
+                table: "acquisition_chat_read_receipts"
+            )
+        }
+        listenTasks = [messageChanges, readChanges, notificationChanges].map { changes in
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
@@ -116,10 +147,12 @@ final class AcquisitionRealtimeObserver {
         offerID: UUID,
         onChange: @escaping @MainActor () -> Void
     ) {
+        let key = "offer:\(offerID.uuidString.lowercased())"
+        guard observationKey != key else { return }
         stop()
         guard let client = SupabaseBridge.client else { return }
 
-        observedEnvironmentID = environmentID
+        observationKey = key
         let channel = client.channel("dori-acquisition-offer-\(offerID.uuidString.lowercased())")
         self.channel = channel
         let offerChanges = channel.postgresChange(
@@ -170,7 +203,7 @@ final class AcquisitionRealtimeObserver {
     }
 
     func stop() {
-        observedEnvironmentID = nil
+        observationKey = nil
         listenTasks.forEach { $0.cancel() }
         listenTasks = []
         if let channel {

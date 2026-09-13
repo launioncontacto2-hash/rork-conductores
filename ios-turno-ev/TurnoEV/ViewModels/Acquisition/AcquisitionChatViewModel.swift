@@ -37,6 +37,9 @@ final class AcquisitionChatListViewModel {
     var threads: [AcquisitionChatThreadSummary] = []
     var isLoading = false
     var feedbackMessage: String?
+    private var reloadRequested = false
+    private var isObserving = false
+    private var recoveryTask: Task<Void, Never>?
 
     init(membership: AcquisitionMembership, repository: any AcquisitionRepository) {
         self.membership = membership
@@ -46,28 +49,60 @@ final class AcquisitionChatListViewModel {
     var unreadCount: Int { threads.reduce(0) { $0 + $1.unreadCount } }
 
     func load() async {
-        guard !isLoading else { return }
-        isLoading = true
-        feedbackMessage = nil
-        do {
-            if membership.role == .provider,
-               let supplierID = membership.supplierID {
-                _ = try await repository.ensureChatThread(
-                    supplierID: supplierID,
-                    offerID: nil
-                )
-            }
-            threads = try await repository.loadChatThreads()
-            realtime.startForChat(environmentID: membership.environmentID) { [weak self] in
-                Task { await self?.load() }
-            }
-        } catch {
-            feedbackMessage = "No pudimos cargar las conversaciones."
+        if isLoading {
+            reloadRequested = true
+            return
         }
-        isLoading = false
+        repeat {
+            reloadRequested = false
+            isLoading = true
+            feedbackMessage = nil
+            do {
+                if membership.role == .provider,
+                   let supplierID = membership.supplierID {
+                    _ = try await repository.ensureChatThread(
+                        supplierID: supplierID,
+                        offerID: nil
+                    )
+                }
+                threads = AcquisitionChatOrdering.newestFirst(
+                    try await repository.loadChatThreads()
+                )
+            } catch {
+                feedbackMessage = "No pudimos cargar las conversaciones."
+            }
+            isLoading = false
+        } while reloadRequested
+
+        if !isObserving {
+            isObserving = true
+            realtime.startForChat(environmentID: membership.environmentID) { [weak self] in
+                Task {
+                    await self?.load()
+                    await AcquisitionPushCoordinator.shared.refreshBadge()
+                }
+            }
+            startRecoveryReload()
+        }
     }
 
-    func stop() { realtime.stop() }
+    func stop() {
+        isObserving = false
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        realtime.stop()
+    }
+
+    private func startRecoveryReload() {
+        recoveryTask?.cancel()
+        recoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.load()
+            }
+        }
+    }
 }
 
 @MainActor
@@ -85,6 +120,10 @@ final class AcquisitionChatViewModel {
     var isLoading = false
     var isSending = false
     var feedbackMessage: String?
+    private var reloadRequested = false
+    private var isObserving = false
+    private var lastMarkedReadSequence: Int64 = 0
+    private var recoveryTask: Task<Void, Never>?
 
     init(
         thread: AcquisitionChatThreadSummary,
@@ -104,24 +143,44 @@ final class AcquisitionChatViewModel {
     }
 
     func load() async {
-        guard !isLoading else { return }
-        isLoading = true
-        feedbackMessage = nil
-        do {
-            messages = try await repository.loadChatMessages(threadID: thread.id)
-            if let sequence = messages.last?.sequence {
-                try await repository.markChatRead(threadID: thread.id, sequence: sequence)
+        if isLoading {
+            reloadRequested = true
+            return
+        }
+        repeat {
+            reloadRequested = false
+            isLoading = true
+            feedbackMessage = nil
+            do {
+                messages = try await repository.loadChatMessages(threadID: thread.id)
+                if let sequence = messages.last?.sequence,
+                   sequence > lastMarkedReadSequence {
+                    try await repository.markChatRead(threadID: thread.id, sequence: sequence)
+                    lastMarkedReadSequence = sequence
+                }
+                await AcquisitionPushCoordinator.shared.markRead(.chat(
+                    threadID: thread.id,
+                    offerID: thread.offerID
+                ))
+            } catch {
+                feedbackMessage = "No pudimos actualizar esta conversación."
             }
+            isLoading = false
+        } while reloadRequested
+
+        if !isObserving {
+            isObserving = true
             realtime.startForChat(
                 environmentID: membership.environmentID,
                 threadID: thread.id
             ) { [weak self] in
-                Task { await self?.load() }
+                Task {
+                    await self?.load()
+                    await AcquisitionPushCoordinator.shared.refreshBadge()
+                }
             }
-        } catch {
-            feedbackMessage = "No pudimos actualizar esta conversación."
+            startRecoveryReload()
         }
-        isLoading = false
     }
 
     func capture(_ data: Data) {
@@ -163,5 +222,21 @@ final class AcquisitionChatViewModel {
         isSending = false
     }
 
-    func stop() { realtime.stop() }
+    func stop() {
+        isObserving = false
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        realtime.stop()
+    }
+
+    private func startRecoveryReload() {
+        recoveryTask?.cancel()
+        recoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.load()
+            }
+        }
+    }
 }

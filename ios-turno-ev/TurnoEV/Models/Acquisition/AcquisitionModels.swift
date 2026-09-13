@@ -234,6 +234,7 @@ nonisolated extension AcquisitionRequest {
 nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let requestID: UUID
+    let supplierID: UUID?
     let status: String
     let model: String
     let version: String?
@@ -249,6 +250,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     init(
         id: UUID,
         requestID: UUID,
+        supplierID: UUID? = nil,
         status: String,
         model: String = "",
         version: String? = nil,
@@ -263,6 +265,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     ) {
         self.id = id
         self.requestID = requestID
+        self.supplierID = supplierID
         self.status = status
         self.model = model
         self.version = version
@@ -315,6 +318,32 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         return formatter.string(from: amount as NSNumber) ?? "$\(amount)"
     }
 }
+
+nonisolated struct AcquisitionOfferActivity: Equatable, Sendable {
+    let offerID: UUID
+    let actorRole: AcquisitionRole
+    let action: String
+    let amountMxn: Int?
+    let previousAmountMxn: Int?
+    let createdAt: Date
+    let sequence: Int
+
+    var amountChangeText: String? {
+        guard let previousAmountMxn, let amountMxn,
+              previousAmountMxn != amountMxn else { return nil }
+        return "\(AcquisitionOfferSummary.currencyText(previousAmountMxn)) → \(AcquisitionOfferSummary.currencyText(amountMxn))"
+    }
+
+    func title(for viewer: AcquisitionRole) -> String {
+        if action == "accepted" { return "PRECIO ACORDADO" }
+        return actorRole == .doriAdmin ? "NUEVA OFERTA DE DORI" : "NUEVA CONTRAOFERTA"
+    }
+
+    func requiresResponse(for viewer: AcquisitionRole, offerStatus: String) -> Bool {
+        action == "counteroffer" && actorRole != viewer && offerStatus == "negotiating"
+    }
+}
+
 
 nonisolated enum AcquisitionHomeGroup: Equatable, Sendable {
     case attention

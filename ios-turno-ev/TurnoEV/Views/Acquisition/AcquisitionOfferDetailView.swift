@@ -136,8 +136,8 @@ struct AcquisitionOfferDetailView: View {
                     deliveryCard(delivery, offer: detail.offer)
                 }
 
-                if let last = detail.lastCounteroffer {
-                    negotiationCard(detail: detail, last: last)
+                if ["submitted", "negotiating", "price_agreed", "awarded"].contains(detail.offer.status) {
+                    negotiationHistoryCard(detail)
                 }
 
                 if ["submitted", "negotiating"].contains(detail.offer.status) {
@@ -196,6 +196,15 @@ struct AcquisitionOfferDetailView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Palette.textMuted)
             }
+            if role == .provider, detail.offer.status == "price_agreed" {
+                Text("Precio acordado · Esperando confirmación de compra de DORI.")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.info)
+            } else if role == .provider, detail.offer.status == "awarded" {
+                Text("DORI confirmó la compra")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.volt)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -249,17 +258,28 @@ struct AcquisitionOfferDetailView: View {
         }
     }
 
-    private func negotiationCard(
-        detail: AcquisitionOfferDetail,
-        last: AcquisitionNegotiation
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(last.actorRole == .doriAdmin ? "DORI hizo una oferta" : "El proveedor contraofertó")
+    private func negotiationHistoryCard(_ detail: AcquisitionOfferDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Historial de negociación")
                 .font(.headline)
-            Text("Precio original: \(detail.offer.priceText)")
-            if let amount = last.amountText {
-                Text("Última oferta: \(amount)")
-                    .font(.title3.weight(.black))
+            ForEach(detail.commercialHistory) { movement in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(movement.actorLabel) · \(movement.movementLabel)")
+                            .font(.subheadline.weight(.semibold))
+                        if let createdAt = movement.createdAt {
+                            Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                    }
+                    Spacer()
+                    Text(movement.amountText)
+                        .font(.subheadline.monospacedDigit().weight(.black))
+                }
+                if movement.id != detail.commercialHistory.last?.id {
+                    Divider().overlay(Palette.hairline)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -276,6 +296,14 @@ struct AcquisitionOfferDetailView: View {
                 .foregroundStyle(Palette.textMuted)
             Text("DORI \(detail.counterofferCount(for: .doriAdmin))/2 · Proveedor \(detail.counterofferCount(for: .provider))/2")
             .font(.subheadline.weight(.bold))
+            if detail.bothPartiesReachedCounterofferLimit {
+                Text("Se alcanzó el límite de negociación.")
+                    .font(.subheadline.weight(.black))
+                    .foregroundStyle(Palette.amber)
+                Text("Puedes aceptar el último precio o no continuar.")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.textMuted)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -294,7 +322,9 @@ struct AcquisitionOfferDetailView: View {
                         .tint(Palette.volt)
                         .frame(maxWidth: .infinity)
                 } else if detail.hasPendingCounteroffer(for: .doriAdmin) {
-                    Button("Aceptar") { Task { await model.accept() } }
+                    Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
+                        Task { await model.accept() }
+                    }
                         .buttonStyle(.borderedProminent)
                         .tint(Palette.volt)
                         .disabled(model.isWorking)
@@ -319,7 +349,7 @@ struct AcquisitionOfferDetailView: View {
                 finalStatus(detail.offer.status)
             }
         } else if detail.hasPendingCounteroffer(for: .provider) {
-            Button("Aceptar") {
+            Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
                 Task { await model.accept() }
             }
             .buttonStyle(.borderedProminent)
@@ -503,7 +533,22 @@ private struct AcquisitionAwardSheet: View {
                     "Precio acordado",
                     value: AcquisitionOfferSummary.currencyText(detail.commercialPriceMxn)
                 )
+                LabeledContent("Proveedor", value: detail.supplierName ?? "Proveedor autorizado")
                 LabeledContent("Modalidad de pago", value: "Sin pago real en esta versión")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Resumen de negociación")
+                        .font(.headline)
+                    ForEach(detail.commercialHistory) { movement in
+                        HStack {
+                            Text("\(movement.actorLabel) · \(movement.movementLabel)")
+                                .font(.caption)
+                            Spacer()
+                            Text(movement.amountText)
+                                .font(.caption.monospacedDigit().weight(.bold))
+                        }
+                    }
+                }
 
                 Button("Confirmar compra") { onConfirm() }
                     .buttonStyle(.borderedProminent)

@@ -422,3 +422,11 @@ entrypoint = "./functions/dori-copilot-events/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/dori-copilot-events/*.html" ]
+
+[functions.dispatch-acquisition-push]
+enabled = true
+# Invoked only by the database outbox trigger using a dedicated protected
+# secret. End-user JWTs are neither accepted nor forwarded to APNs.
+verify_jwt = false
+import_map = "./functions/dispatch-acquisition-push/deno.json"
+entrypoint = "./functions/dispatch-acquisition-push/index.ts"

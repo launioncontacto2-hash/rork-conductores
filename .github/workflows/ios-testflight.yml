@@ -306,11 +306,16 @@ jobs:
           profile_app_id="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist_path")"
           get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$profile_plist_path" 2>/dev/null || true)"
           beta_reports="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:beta-reports-active' "$profile_plist_path" 2>/dev/null || true)"
+          aps_environment="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist_path" 2>/dev/null || true)"
 
           [[ "$profile_team" == "$APPLE_TEAM_ID" ]]
           [[ "$profile_app_id" == "$APPLE_TEAM_ID.$BUNDLE_ID" ]]
           [[ "$get_task_allow" == "false" ]]
           [[ "$beta_reports" == "true" ]]
+          [[ "$aps_environment" == "production" ]] || {
+            echo 'The provisioning profile does not authorize production APNs for TestFlight.' >&2
+            exit 1
+          }
           if /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$profile_plist_path" >/dev/null 2>&1; then
             echo 'The provisioning profile is not an App Store Connect distribution profile.' >&2
             exit 1

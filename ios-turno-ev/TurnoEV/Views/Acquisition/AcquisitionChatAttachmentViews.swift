@@ -99,6 +99,7 @@ struct AcquisitionChatAttachmentPreview: View {
     let attachment: AcquisitionChatAttachment
     let onRemove: (() -> Void)?
     @State private var previewItem: AcquisitionFilePreviewItem?
+    @State private var shareItem: AcquisitionFilePreviewItem?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -115,13 +116,50 @@ struct AcquisitionChatAttachmentPreview: View {
             if let onRemove {
                 Button("Quitar", action: onRemove)
                     .font(.caption.weight(.bold))
+            } else {
+                Button {
+                    shareItem = AcquisitionFilePreviewItem.make(
+                        data: attachment.data,
+                        filename: attachment.filename
+                    )
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Compartir o guardar \(attachment.filename)")
             }
         }
         .padding(10)
         .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
         .sheet(item: $previewItem) { item in
-            AcquisitionQuickLookView(url: item.url)
-                .ignoresSafeArea()
+            NavigationStack {
+                Group {
+                    if attachment.kind == .image,
+                       let image = UIImage(data: attachment.data) {
+                        ZStack {
+                            Color.black.ignoresSafeArea()
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                        }
+                    } else {
+                        AcquisitionQuickLookView(url: item.url)
+                            .ignoresSafeArea()
+                    }
+                }
+                .navigationTitle(attachment.filename)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: item.url) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .accessibilityLabel("Compartir, guardar o abrir en otra app")
+                    }
+                }
+            }
+        }
+        .sheet(item: $shareItem) { item in
+            AcquisitionActivityShareView(items: [item.url])
         }
     }
 
@@ -129,11 +167,20 @@ struct AcquisitionChatAttachmentPreview: View {
     private var preview: some View {
         if attachment.kind == .image,
            let image = UIImage(data: attachment.data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 58, height: 58)
-                .clipShape(.rect(cornerRadius: 10))
+            Button {
+                previewItem = AcquisitionFilePreviewItem.make(
+                    data: attachment.data,
+                    filename: attachment.filename
+                )
+            } label: {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 58, height: 58)
+                    .clipShape(.rect(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Abrir imagen en pantalla completa")
         } else if attachment.kind == .audio {
             AcquisitionAudioPlayback(data: attachment.data)
         } else {
@@ -176,11 +223,15 @@ private struct AcquisitionAudioPlayback: View {
                 toggle()
             } label: {
                 VStack(spacing: 5) {
-                    Image(systemName: isPlaying && player?.isPlaying == true ? "pause.fill" : "play.fill")
+                    HStack(spacing: 5) {
+                        Image(systemName: isPlaying && player?.isPlaying == true ? "pause.fill" : "play.fill")
+                        Text("\(timeText(player?.currentTime ?? 0)) / \(timeText(player?.duration ?? 0))")
+                            .font(.caption2.monospacedDigit())
+                    }
                     ProgressView(value: progress)
-                        .frame(width: 46)
+                        .frame(width: 100)
                 }
-                .frame(width: 58, height: 58)
+                .frame(width: 112, height: 58)
                 .background(Palette.info.opacity(0.15), in: .rect(cornerRadius: 10))
             }
             .buttonStyle(.plain)
@@ -200,10 +251,17 @@ private struct AcquisitionAudioPlayback: View {
             player.pause()
             isPlaying = false
         } else {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.playback, mode: .spokenAudio)
+            try? session.setActive(true)
             if player.currentTime >= player.duration { player.currentTime = 0 }
-            player.play()
-            isPlaying = true
+            isPlaying = player.play()
         }
+    }
+
+    private func timeText(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 
@@ -246,4 +304,14 @@ struct AcquisitionQuickLookView: UIViewControllerRepresentable {
             previewItemAt index: Int
         ) -> QLPreviewItem { url as NSURL }
     }
+}
+
+struct AcquisitionActivityShareView: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

@@ -94,6 +94,12 @@ struct AcquisitionChatModelTests {
         #expect(attachment.size == 3)
     }
 
+    @Test func conversationsAreOrderedByLatestMessageNotThreadCreation() {
+        let old = thread(lastMessage: "Anterior", unread: 0, lastMessageAt: Date(timeIntervalSince1970: 10))
+        let new = thread(lastMessage: "Nuevo", unread: 1, lastMessageAt: Date(timeIntervalSince1970: 20))
+        #expect(AcquisitionChatOrdering.newestFirst([old, new]).map(\.lastMessage) == ["Nuevo", "Anterior"])
+    }
+
     static let environmentID = UUID(uuidString: "AD900000-0000-4000-8000-000000000001")!
     static let supplierID = UUID(uuidString: "AD900000-0000-4000-8000-000000000002")!
     static let threadID = UUID(uuidString: "AD900000-0000-4000-8000-000000000003")!
@@ -103,7 +109,8 @@ struct AcquisitionChatModelTests {
     static func thread(
         lastMessage: String? = "Mensaje de prueba",
         kind: AcquisitionChatMessageKind? = .text,
-        unread: Int = 0
+        unread: Int = 0,
+        lastMessageAt: Date? = Date()
     ) -> AcquisitionChatThreadSummary {
         AcquisitionChatThreadSummary(
             id: threadID,
@@ -114,7 +121,7 @@ struct AcquisitionChatModelTests {
             supplierName: "Agencia Puebla Centro",
             lastMessage: lastMessage,
             lastMessageKind: kind,
-            lastMessageAt: Date(),
+            lastMessageAt: lastMessageAt,
             unreadCount: unread
         )
     }

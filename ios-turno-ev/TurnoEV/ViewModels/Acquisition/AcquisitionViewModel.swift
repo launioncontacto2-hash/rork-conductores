@@ -20,9 +20,14 @@ final class AcquisitionViewModel {
     var membership: AcquisitionMembership?
     var requests: [AcquisitionRequest] = []
     var offers: [AcquisitionOfferSummary] = []
+    var offerActivities: [UUID: AcquisitionOfferActivity] = [:]
+    var unreadActivityOfferIDs: Set<UUID> = []
     var suppliers: [AcquisitionSupplierSummary] = []
     var contacts: [AcquisitionInstitutionalContact] = []
     var chatThreads: [AcquisitionChatThreadSummary] = []
+    private var reloadRequested = false
+    private var isObserving = false
+    private var isLoading = false
 
     init(principal: SessionPrincipal, repository: any AcquisitionRepository) {
         self.principal = principal
@@ -95,17 +100,39 @@ final class AcquisitionViewModel {
         case .provider:
             return organizationName
         case .doriAdmin:
-            // The current public offer projection intentionally omits supplier_id.
-            // A single visible supplier can still be named without weakening RLS.
-            return suppliers.count == 1 ? suppliers[0].name : nil
+            guard let supplierID = offer.supplierID else { return nil }
+            return suppliers.first(where: { $0.id == supplierID })?.name
         }
     }
 
-    func load() async {
-        guard state != .loading else { return }
-        state = .loading
+    func activity(for offer: AcquisitionOfferSummary) -> AcquisitionOfferActivity? {
+        offerActivities[offer.id] ?? offer.submittedAt.map {
+            AcquisitionOfferActivity(
+                offerID: offer.id,
+                actorRole: .provider,
+                action: "submitted",
+                amountMxn: offer.priceMxn,
+                previousAmountMxn: nil,
+                createdAt: $0,
+                sequence: 0
+            )
+        }
+    }
 
-        do {
+    func hasNewActivity(for offer: AcquisitionOfferSummary) -> Bool {
+        unreadActivityOfferIDs.contains(offer.id)
+    }
+
+    func load() async {
+        if isLoading {
+            reloadRequested = true
+            return
+        }
+        repeat {
+            reloadRequested = false
+            isLoading = true
+            if membership == nil { state = .loading }
+            do {
             guard let profileID = UUID(uuidString: principal.profileId),
                   let environmentID = principal.environmentId.flatMap(UUID.init(uuidString:)) else {
                 throw ViewModelError.invalidProfile
@@ -123,6 +150,14 @@ final class AcquisitionViewModel {
 
             let loadedRequests = try await repository.loadRequests()
             let loadedOffers = try await repository.loadOffers()
+            let loadedActivities: [UUID: AcquisitionOfferActivity]
+            do {
+                loadedActivities = try await repository.loadOfferActivities()
+            } catch {
+                loadedActivities = [:]
+                print("[Adquisiciones] La actividad comercial no está disponible.")
+            }
+            let loadedUnreadActivityOfferIDs = (try? await repository.unreadNotificationOfferIDs()) ?? []
             let loadedSuppliers = try await repository.loadSuppliers()
             let loadedContacts: [AcquisitionInstitutionalContact]
             do {
@@ -144,27 +179,41 @@ final class AcquisitionViewModel {
             membership = loadedMembership
             requests = loadedRequests
             offers = loadedOffers
+            offerActivities = loadedActivities
+            unreadActivityOfferIDs = loadedUnreadActivityOfferIDs
             suppliers = loadedSuppliers
             contacts = loadedContacts
             chatThreads = loadedChatThreads
             state = loadedRequests.isEmpty ? .empty : .content
 
-            realtime.start(environmentID: loadedMembership.environmentID) { [weak self] in
-                Task { await self?.load() }
-            }
         } catch {
             membership = nil
             requests = []
             offers = []
+            offerActivities = [:]
+            unreadActivityOfferIDs = []
             suppliers = []
             contacts = []
             chatThreads = []
             state = .failed
             print("[Adquisiciones] No se pudo cargar el módulo: \(error.localizedDescription)")
         }
+        isLoading = false
+        } while reloadRequested
+
+        if let membership, !isObserving {
+            isObserving = true
+            realtime.start(environmentID: membership.environmentID) { [weak self] in
+                Task {
+                    await self?.load()
+                    await AcquisitionPushCoordinator.shared.refreshBadge()
+                }
+            }
+        }
     }
 
     func stopObserving() {
+        isObserving = false
         realtime.stop()
     }
 

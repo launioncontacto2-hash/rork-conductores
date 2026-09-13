@@ -6,6 +6,8 @@ struct AcquisitionRootView: View {
     @State private var selectedDestination: AcquisitionDockDestination = .home
     @State private var showConversations = false
     @State private var navigationID = UUID()
+    @State private var push = AcquisitionPushCoordinator.shared
+    @State private var pushDestination: AcquisitionPushDestination?
     private let repository: any AcquisitionRepository
 
     init(
@@ -58,13 +60,31 @@ struct AcquisitionRootView: View {
                             .navigationBarTitleDisplayMode(.inline)
                         }
                     }
+                    .navigationDestination(isPresented: pushDestinationBinding) {
+                        if let destination = pushDestination,
+                           let membership = model.membership {
+                            pushedView(destination, membership: membership)
+                        }
+                    }
             }
             .id(navigationID)
         }
-        .task(id: model.principal.profileId) { await model.load() }
+        .task(id: model.principal.profileId) {
+            await model.load()
+            if let membership = model.membership {
+                await push.activate(membership: membership, repository: repository)
+            }
+            openPendingPushDestination()
+        }
+        .onChange(of: push.pendingDestination) { _, _ in
+            openPendingPushDestination()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
-            Task { await model.load() }
+            Task {
+                await model.load()
+                await push.refreshBadge()
+            }
         }
         .onDisappear { model.stopObserving() }
     }
@@ -140,6 +160,56 @@ struct AcquisitionRootView: View {
                 navigationID = UUID()
             }
         )
+    }
+
+    private var pushDestinationBinding: Binding<Bool> {
+        Binding(
+            get: { pushDestination != nil },
+            set: { if !$0 { pushDestination = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private func pushedView(
+        _ destination: AcquisitionPushDestination,
+        membership: AcquisitionMembership
+    ) -> some View {
+        switch destination {
+        case .offer(let offerID):
+            AcquisitionOfferDetailView(
+                offerID: offerID,
+                membership: membership,
+                repository: repository,
+                onChanged: { Task { await model.load() } }
+            )
+        case .chat(let threadID, _):
+            AcquisitionPushChatLauncherView(
+                threadID: threadID,
+                membership: membership,
+                profileID: membership.profileID,
+                repository: repository
+            )
+        case .request(let requestID):
+            if let request = model.requests.first(where: { $0.id == requestID }) {
+                AcquisitionRequestDetailView(
+                    summary: AcquisitionRequestSummary(request: request, offers: model.uniqueOffers),
+                    membership: membership,
+                    repository: repository,
+                    onSubmitted: { _ in Task { await model.load() } }
+                )
+            } else {
+                ContentUnavailableView(
+                    "La solicitud ya no está disponible",
+                    systemImage: "doc.text.magnifyingglass"
+                )
+            }
+        }
+    }
+
+    private func openPendingPushDestination() {
+        guard model.membership != nil, let destination = push.pendingDestination else { return }
+        pushDestination = destination
+        Task { await push.consume(destination) }
     }
 
     @ViewBuilder
@@ -384,7 +454,9 @@ struct AcquisitionRootView: View {
                             offer: offer,
                             role: membership.role,
                             supplierName: model.supplierName(for: offer),
-                            actionTitle: actionTitle(for: offer, role: membership.role)
+                            actionTitle: actionTitle(for: offer, role: membership.role),
+                            activity: model.activity(for: offer),
+                            showsNewActivity: model.hasNewActivity(for: offer)
                         )
                     }
                     .buttonStyle(.plain)
@@ -433,7 +505,9 @@ struct AcquisitionRootView: View {
                             offer: offer,
                             role: .doriAdmin,
                             supplierName: model.supplierName(for: offer),
-                            actionTitle: administratorActionTitle(for: offer)
+                            actionTitle: administratorActionTitle(for: offer),
+                            activity: model.activity(for: offer),
+                            showsNewActivity: model.hasNewActivity(for: offer)
                         )
                     }
                     .buttonStyle(.plain)
@@ -462,8 +536,11 @@ struct AcquisitionRootView: View {
 
     private func dockBadges(for role: AcquisitionRole) -> [AcquisitionDockDestination: Int] {
         let attention = groupedOffers(.attention, role: role).count
+        let vehicleActivity = model.unreadActivityOfferIDs.count
         var badges: [AcquisitionDockDestination: Int] = [:]
-        if attention > 0 { badges[.vehicles] = attention }
+        if max(attention, vehicleActivity) > 0 {
+            badges[.vehicles] = max(attention, vehicleActivity)
+        }
         if model.unreadChatCount > 0 { badges[.contact] = model.unreadChatCount }
         return badges
     }
@@ -491,8 +568,19 @@ struct AcquisitionRootView: View {
         _ group: AcquisitionHomeGroup,
         role: AcquisitionRole
     ) -> [AcquisitionOfferSummary] {
-        model.uniqueOffers.filter {
-            AcquisitionHumanStatus.group(for: $0.status, role: role) == group
+        model.uniqueOffers.filter { offer in
+            let effectiveGroup: AcquisitionHomeGroup
+            if offer.status == "negotiating", let activity = model.activity(for: offer) {
+                effectiveGroup = activity.requiresResponse(for: role, offerStatus: offer.status)
+                    ? .attention : .inProgress
+            } else {
+                effectiveGroup = AcquisitionHumanStatus.group(for: offer.status, role: role)
+            }
+            return effectiveGroup == group
+        }.sorted { left, right in
+            let leftDate = model.activity(for: left)?.createdAt ?? left.submittedAt ?? .distantPast
+            let rightDate = model.activity(for: right)?.createdAt ?? right.submittedAt ?? .distantPast
+            return leftDate > rightDate
         }
     }
 

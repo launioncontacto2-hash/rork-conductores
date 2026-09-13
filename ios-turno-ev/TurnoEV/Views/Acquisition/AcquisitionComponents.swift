@@ -410,6 +410,8 @@ struct AcquisitionDashboardVehicleCard: View {
     let supplierName: String?
     let actionTitle: String
     var recommendation: String? = nil
+    var activity: AcquisitionOfferActivity? = nil
+    var showsNewActivity = false
 
     private var group: AcquisitionHomeGroup {
         AcquisitionHumanStatus.group(for: offer.status, role: role)
@@ -433,6 +435,25 @@ struct AcquisitionDashboardVehicleCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
+            if showsNewActivity, let activity {
+                HStack(spacing: 7) {
+                    Text(activity.title(for: role))
+                        .font(.caption2.weight(.black))
+                    Spacer()
+                    Text(activity.requiresResponse(for: role, offerStatus: offer.status)
+                         ? "Requiere tu respuesta" : "Actualización nueva")
+                        .font(.caption2.weight(.bold))
+                }
+                .foregroundStyle(
+                    activity.requiresResponse(for: role, offerStatus: offer.status)
+                        ? Palette.amber : Palette.info
+                )
+                if let change = activity.amountChangeText {
+                    Text(change)
+                        .font(.subheadline.monospacedDigit().weight(.bold))
+                        .foregroundStyle(Palette.text)
+                }
+            }
             HStack(alignment: .top, spacing: 13) {
                 AcquisitionVehicleVisual(compact: group == .attention)
                 VStack(alignment: .leading, spacing: 4) {

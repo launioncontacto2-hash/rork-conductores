@@ -85,16 +85,16 @@ private struct AcquisitionChatThreadCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: thread.scope == .general ? "bubble.left.and.bubble.right.fill" : "car.fill")
-                .font(.title3)
-                .foregroundStyle(thread.unreadCount > 0 ? Palette.volt : Palette.info)
-                .frame(width: 42, height: 42)
-                .background(Palette.surfaceRaised, in: .circle)
+            threadVisual
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(thread.scope == .general ? thread.supplierName : thread.title)
+                Text(thread.scope == .general
+                     ? thread.supplierName
+                     : thread.vehicle?.title ?? thread.title)
                     .font(.headline)
-                Text(thread.scope.visibleLabel)
+                Text(thread.scope == .unit
+                     ? "VIN \(thread.vehicle?.abbreviatedVin ?? "no disponible")"
+                     : thread.scope.visibleLabel)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Palette.textMuted)
                 Text(thread.previewText)
@@ -103,18 +103,43 @@ private struct AcquisitionChatThreadCard: View {
                     .lineLimit(1)
             }
             Spacer()
-            if thread.unreadCount > 0 {
-                Text("\(thread.unreadCount)")
-                    .font(.caption.weight(.black))
-                    .foregroundStyle(Palette.canvas)
-                    .frame(minWidth: 24, minHeight: 24)
-                    .background(Palette.volt, in: .circle)
+            VStack(alignment: .trailing, spacing: 8) {
+                if let lastMessageAt = thread.lastMessageAt {
+                    Text(lastMessageAt.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(Palette.textMuted)
+                }
+                if thread.unreadCount > 0 {
+                    Text("\(thread.unreadCount)")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(Palette.canvas)
+                        .frame(minWidth: 24, minHeight: 24)
+                        .background(Palette.volt, in: .circle)
+                }
             }
             Image(systemName: "chevron.right")
                 .foregroundStyle(Palette.textMuted)
         }
         .padding(16)
         .panelFlat()
+    }
+
+    @ViewBuilder
+    private var threadVisual: some View {
+        if let data = thread.vehicle?.thumbnailData,
+           let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 62, height: 54)
+                .clipShape(.rect(cornerRadius: 10))
+        } else {
+            Image(systemName: thread.scope == .general ? "bubble.left.and.bubble.right.fill" : "car.fill")
+                .font(.title3)
+                .foregroundStyle(thread.unreadCount > 0 ? Palette.volt : Palette.info)
+                .frame(width: 54, height: 54)
+                .background(Palette.surfaceRaised, in: .rect(cornerRadius: 10))
+        }
     }
 }
 
@@ -171,6 +196,48 @@ struct AcquisitionUnitChatLauncherView: View {
             failed = true
             print("[Adquisiciones] No se pudo resolver el chat de unidad: \(String(describing: type(of: error)))")
         }
+    }
+}
+
+struct AcquisitionPushChatLauncherView: View {
+    let threadID: UUID
+    let membership: AcquisitionMembership
+    let profileID: UUID
+    let repository: any AcquisitionRepository
+    @State private var thread: AcquisitionChatThreadSummary?
+    @State private var failed = false
+
+    var body: some View {
+        ZStack {
+            StationBackground()
+            if let thread {
+                AcquisitionChatView(
+                    thread: thread,
+                    membership: membership,
+                    profileID: profileID,
+                    repository: repository
+                )
+            } else if failed {
+                ContentUnavailableView(
+                    "No pudimos abrir la conversación",
+                    systemImage: "bubble.left.and.exclamationmark.bubble.right",
+                    description: Text("La conversación puede haber dejado de estar disponible.")
+                )
+            } else {
+                ProgressView("Abriendo conversación…")
+            }
+        }
+        .task {
+            do {
+                let threads = try await repository.loadChatThreads()
+                thread = threads.first(where: { $0.id == threadID })
+                failed = thread == nil
+            } catch {
+                failed = true
+            }
+        }
+        .navigationTitle("Conversación")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
