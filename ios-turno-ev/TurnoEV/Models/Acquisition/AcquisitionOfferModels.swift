@@ -98,32 +98,32 @@ nonisolated struct AcquisitionOfferSubmissionError: LocalizedError, Sendable {
     let technicalDescription: String
 
     var errorDescription: String? {
-        return switch stage {
+        switch stage {
         case .authorization:
-            "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
+            return "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
         case .evidenceUpload:
             let lower = technicalDescription.lowercased()
             if let evidenceKind {
                 if lower.contains("nsurlerrordomain") || lower.contains("network") || lower.contains("offline") {
-                    "No pudimos subir \(evidenceKind.title.lowercased()) por un problema de red. Intenta nuevamente."
+                    return "No pudimos subir \(evidenceKind.title.lowercased()) por un problema de red. Intenta nuevamente."
                 } else if lower.contains("401") || lower.contains("403") || lower.contains("42501")
                     || lower.contains("row-level security") {
-                    "Tu sesión no autorizó la carga de \(evidenceKind.title.lowercased()). Vuelve a iniciar sesión."
+                    return "Tu sesión no autorizó la carga de \(evidenceKind.title.lowercased()). Vuelve a iniciar sesión."
                 } else {
-                    "No pudimos guardar \(evidenceKind.title.lowercased()). Intenta nuevamente."
+                    return "No pudimos guardar \(evidenceKind.title.lowercased()). Intenta nuevamente."
                 }
             } else {
-                "No pudimos guardar las fotografías. Intenta nuevamente."
+                return "No pudimos guardar las fotografías. Intenta nuevamente."
             }
         case .rpc:
             if technicalDescription.localizedCaseInsensitiveContains("duplicate")
                 || technicalDescription.localizedCaseInsensitiveContains("unique") {
-                "Ya existe una propuesta para ese VIN. Revisa Mis vehículos."
+                return "Ya existe una propuesta para ese VIN. Revisa Mis vehículos."
             } else {
-                "Las fotografías se guardaron, pero no pudimos registrar la propuesta. Intenta nuevamente."
+                return "Las fotografías se guardaron, pero no pudimos registrar la propuesta. Intenta nuevamente."
             }
         case .persistenceCheck:
-            "La propuesta se envió, pero no pudimos confirmar su carga. Actualiza Mis vehículos."
+            return "La propuesta se envió, pero no pudimos confirmar su carga. Actualiza Mis vehículos."
         }
     }
 }
