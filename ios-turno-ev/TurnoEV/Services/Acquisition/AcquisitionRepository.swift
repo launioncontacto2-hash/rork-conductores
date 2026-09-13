@@ -115,7 +115,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let maximum_mileage: Int
         let delivery_city: String
         let deadline_at: Date?
-        let target_delivery_date: Date?
+        /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
+        let target_delivery_date: String?
         let status: String
     }
 
@@ -194,7 +195,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let declared_soh: Decimal?
         let color: String?
         let agreed_price_mxn: Decimal?
-        let committed_delivery_date: Date?
+        /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
+        let committed_delivery_date: String?
         let submitted_at: Date?
     }
 
@@ -978,7 +980,11 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         }
 
         do {
-            let _: OfferRow = try await client
+            // The RPC returns the complete composite row. Do not decode that response
+            // here: PostgreSQL `date` fields are serialized as `YYYY-MM-DD`, while the
+            // Supabase decoder's `Date` support expects a timestamp. The authoritative
+            // projection below performs the typed read using explicit date-only parsing.
+            _ = try await client
                 .rpc(
                     "submit_acquisition_offer",
                     params: SubmitOfferParameters(
@@ -999,7 +1005,6 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     )
                 )
                 .execute()
-                .value
         } catch {
             throw AcquisitionOfferSubmissionError(
                 stage: .rpc,
@@ -1468,7 +1473,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             maximumMileage: row.maximum_mileage,
             deliveryCity: row.delivery_city,
             deadlineAt: row.deadline_at,
-            targetDeliveryDate: row.target_delivery_date,
+            targetDeliveryDate: Self.postgresDate(from: row.target_delivery_date),
             status: row.status,
             detailedRequirements: requirements
         )
@@ -1490,7 +1495,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             declaredSoh: row.declared_soh.map { Self.integer(from: $0) },
             color: row.color,
             agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
-            committedDeliveryDate: row.committed_delivery_date,
+            committedDeliveryDate: Self.postgresDate(from: row.committed_delivery_date),
             submittedAt: row.submitted_at
         )
     }
@@ -1518,6 +1523,21 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
     nonisolated static func integer(from value: Decimal) -> Int {
         NSDecimalNumber(decimal: value).intValue
+    }
+
+    /// Converts the wire representation of a PostgreSQL `date` without treating
+    /// it as a timestamp or depending on the device time zone.
+    nonisolated static func postgresDate(from value: String?) -> Date? {
+        guard let value else { return nil }
+        let parts = value.split(separator: "-")
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
     }
 
     nonisolated static func chatThread(

@@ -102,13 +102,20 @@ struct AcquisitionRoleAndPresentationTests {
             maximum_mileage: 30_000,
             delivery_city: "Puebla",
             deadline_at: nil,
-            target_delivery_date: nil,
+            target_delivery_date: "2026-10-15",
             status: "published"
         )
         let request = SupabaseAcquisitionRepository.request(from: row)
         #expect(request.modelAndVersions == "Dolphin Mini / Plus")
         #expect(request.yearRange == "2024–2026")
         #expect(request.maximumMileageText == "30,000")
+        let deliveryParts = Calendar(identifier: .gregorian).dateComponents(
+            [.year, .month, .day],
+            from: try #require(request.targetDeliveryDate)
+        )
+        #expect(deliveryParts.year == 2026)
+        #expect(deliveryParts.month == 10)
+        #expect(deliveryParts.day == 15)
     }
 
     @Test func derivesOnlyActionableDashboardCounts() {

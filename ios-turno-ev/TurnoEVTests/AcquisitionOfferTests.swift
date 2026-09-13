@@ -125,7 +125,7 @@ struct AcquisitionOfferFormTests {
             declared_soh: 96,
             color: "Blanco",
             agreed_price_mxn: nil,
-            committed_delivery_date: nil,
+            committed_delivery_date: "2026-10-20",
             submitted_at: nil
         )
         let offer = SupabaseAcquisitionRepository.offer(from: row)
@@ -135,6 +135,13 @@ struct AcquisitionOfferFormTests {
         #expect(offer.mileage == 8_400)
         #expect(offer.priceMxn == 274_000)
         #expect(offer.transferIncluded)
+        let commitmentParts = Calendar(identifier: .gregorian).dateComponents(
+            [.year, .month, .day],
+            from: try #require(offer.committedDeliveryDate)
+        )
+        #expect(commitmentParts.year == 2026)
+        #expect(commitmentParts.month == 10)
+        #expect(commitmentParts.day == 20)
     }
 
     @Test func offerProjectionKeepsItsSupplierIdentityButExcludesInternalAssessment() {
