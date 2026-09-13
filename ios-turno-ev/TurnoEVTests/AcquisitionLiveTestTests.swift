@@ -34,7 +34,7 @@ private final class AcquisitionTestLocalStorage: AuthLocalStorage, @unchecked Se
 /// CI injects its values into the simulator process only for an authorized TEST run.
 @MainActor
 struct AcquisitionLiveTestTests {
-    @Test func providerUploadsThreeRealJpegsAndBothRolesPersistChat() async throws {
+    @Test func providerUploadsRequiredRealJpegsAndBothRolesPersistChat() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["DORI_RUN_ACQUISITION_LIVE_TEST"] == "1" else { return }
 
@@ -86,7 +86,9 @@ struct AcquisitionLiveTestTests {
         form.color = "Blanco"
         form.transferIncluded = true
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
-        form.evidence = [.vin: jpeg, .dashboard: jpeg, .front: jpeg]
+        form.evidence = Dictionary(
+            uniqueKeysWithValues: request.requiredEvidenceKinds.map { ($0, jpeg) }
+        )
         let submission = try form.makeSubmission(
             request: request,
             offerID: offerID,
