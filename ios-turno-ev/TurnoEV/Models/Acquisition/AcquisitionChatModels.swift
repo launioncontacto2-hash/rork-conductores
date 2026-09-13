@@ -160,9 +160,16 @@ nonisolated struct AcquisitionChatVehicleContext: Equatable, Sendable {
     let model: String
     let year: Int
     let abbreviatedVin: String
+    let mileage: Int
+    let currentPriceMxn: Int
+    let status: String
     let thumbnailData: Data?
 
     var title: String { "\(model) \(String(year))" }
+    var mileageText: String {
+        mileage.formatted(.number.locale(Locale(identifier: "es_MX"))) + " km"
+    }
+    var priceText: String { AcquisitionOfferSummary.currencyText(currentPriceMxn) }
 }
 
 nonisolated enum AcquisitionChatOrdering {

@@ -8,6 +8,9 @@ struct AcquisitionRootView: View {
     @State private var navigationID = UUID()
     @State private var push = AcquisitionPushCoordinator.shared
     @State private var pushDestination: AcquisitionPushDestination?
+    @State private var showsTestReset = false
+    @State private var resetConfirmation = ""
+    @State private var resetFeedback: String?
     private let repository: any AcquisitionRepository
 
     init(
@@ -470,6 +473,53 @@ struct AcquisitionRootView: View {
                  : "Tu acceso corresponde a esta operación de DORI.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.textMuted)
+
+            NavigationLink {
+                AcquisitionCounterpartDirectoryView(
+                    title: membership.role == .doriAdmin ? "Directorio de proveedores" : "Contactos DORI",
+                    contacts: model.counterpartContacts,
+                    openChat: { showConversations = true }
+                )
+            } label: {
+                Label(
+                    membership.role == .doriAdmin ? "Directorio de proveedores" : "Contactos DORI",
+                    systemImage: "person.2.crop.square.stack.fill"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16).panelFlat()
+            }
+            .buttonStyle(.plain)
+
+            if LabRuntime.isTest, membership.role == .doriAdmin {
+                Button(role: .destructive) { showsTestReset = true } label: {
+                    Label("Limpiar entorno TEST", systemImage: "trash.fill")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16).panelFlat()
+                }
+                if let resetFeedback { Text(resetFeedback).font(.caption).foregroundStyle(Palette.amber) }
+            }
+        }
+        .alert("¿Limpiar el entorno TEST?", isPresented: $showsTestReset) {
+            TextField("Escribe LIMPIAR TEST", text: $resetConfirmation)
+            Button("Cancelar", role: .cancel) { resetConfirmation = "" }
+            Button("Limpiar datos de prueba", role: .destructive) {
+                Task {
+                    guard resetConfirmation == "LIMPIAR TEST" else {
+                        resetFeedback = "Escribe LIMPIAR TEST exactamente para continuar."
+                        return
+                    }
+                    do {
+                        try await repository.resetTestEnvironment(confirmation: resetConfirmation)
+                        resetFeedback = "El entorno TEST quedó limpio."
+                        resetConfirmation = ""
+                        await model.load()
+                    } catch {
+                        resetFeedback = "No pudimos limpiar el entorno TEST. No se modificaron usuarios ni accesos."
+                    }
+                }
+            }
+        } message: {
+            Text("Se eliminarán únicamente solicitudes, ofertas, operaciones y conversaciones de prueba. Usuarios y membresías permanecerán intactos.")
         }
     }
 
@@ -486,31 +536,6 @@ struct AcquisitionRootView: View {
                 }
             }
 
-            if let membership = model.membership {
-                NavigationLink {
-                    AcquisitionCounterpartDirectoryView(
-                        title: membership.role == .doriAdmin
-                            ? "Directorio de proveedores" : "Contactos DORI",
-                        contacts: model.counterpartContacts,
-                        openChat: { showConversations = true }
-                    )
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.2.crop.square.stack.fill")
-                            .foregroundStyle(Palette.volt)
-                        Text(membership.role == .doriAdmin
-                             ? "Directorio de proveedores" : "Contactos DORI")
-                            .font(.headline)
-                        Spacer()
-                        Text("\(model.counterpartContacts.count)")
-                            .font(.caption.weight(.bold))
-                        Image(systemName: "chevron.right")
-                    }
-                    .padding(16)
-                    .panelFlat()
-                }
-                .buttonStyle(.plain)
-            }
         }
     }
 

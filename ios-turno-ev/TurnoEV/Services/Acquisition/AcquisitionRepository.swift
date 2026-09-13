@@ -37,6 +37,7 @@ protocol AcquisitionRepository {
     func notificationBadgeCount() async throws -> Int
     func unreadNotificationOfferIDs() async throws -> Set<UUID>
     func markNotificationContextRead(type: String, id: UUID) async throws
+    func resetTestEnvironment(confirmation: String) async throws
 }
 
 extension AcquisitionRepository {
@@ -64,13 +65,14 @@ extension AcquisitionRepository {
     func notificationBadgeCount() async throws -> Int { 0 }
     func unreadNotificationOfferIDs() async throws -> Set<UUID> { [] }
     func markNotificationContextRead(type: String, id: UUID) async throws {}
+    func resetTestEnvironment(confirmation: String) async throws { throw CancellationError() }
 }
 
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
-    static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, status"
-    static let requestRequirementColumns = "request_id, code, category, title, value, required, display_order"
-    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, submitted_at"
+    static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, target_delivery_date, status"
+    static let requestRequirementColumns = "request_id, code, category, title, value, required, display_order, response_type, requires_dori_verification"
+    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at, event_sequence"
     static let evidenceColumns = "id, kind, object_path, verified"
@@ -113,6 +115,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let maximum_mileage: Int
         let delivery_city: String
         let deadline_at: Date?
+        let target_delivery_date: Date?
         let status: String
     }
 
@@ -124,6 +127,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let value: String
         let required: Bool
         let display_order: Int
+        let response_type: AcquisitionRequirementResponseType
+        let requires_dori_verification: Bool
     }
 
     nonisolated struct PublishRequestRequirement: Encodable, Sendable {
@@ -133,6 +138,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let value: String
         let required: Bool
         let display_order: Int
+        let response_type: String
+        let requires_dori_verification: Bool
     }
 
     nonisolated struct PublishRequestParameters: Encodable, Sendable {
@@ -144,13 +151,14 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_maximum_mileage: Int
         let p_delivery_city: String
         let p_deadline_at: Date?
+        let p_target_delivery_date: Date?
         let p_requirements: [PublishRequestRequirement]
         let p_idempotency_key: String
 
         enum CodingKeys: String, CodingKey {
             case p_model, p_versions, p_target_quantity, p_minimum_year
             case p_maximum_year, p_maximum_mileage, p_delivery_city
-            case p_deadline_at, p_requirements, p_idempotency_key
+            case p_deadline_at, p_target_delivery_date, p_requirements, p_idempotency_key
         }
 
         func encode(to encoder: Encoder) throws {
@@ -164,6 +172,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             try container.encode(p_delivery_city, forKey: .p_delivery_city)
             if let p_deadline_at { try container.encode(p_deadline_at, forKey: .p_deadline_at) }
             else { try container.encodeNil(forKey: .p_deadline_at) }
+            if let p_target_delivery_date { try container.encode(p_target_delivery_date, forKey: .p_target_delivery_date) }
+            else { try container.encodeNil(forKey: .p_target_delivery_date) }
             try container.encode(p_requirements, forKey: .p_requirements)
             try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
         }
@@ -184,6 +194,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let declared_soh: Decimal?
         let color: String?
         let agreed_price_mxn: Decimal?
+        let committed_delivery_date: Date?
         let submitted_at: Date?
     }
 
@@ -242,6 +253,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_color: String
         let p_price_mxn: Int
         let p_transfer_included: Bool
+        let p_committed_delivery_date: Date
         let p_evidence: [EvidenceReference]
         let p_idempotency_key: String
 
@@ -257,6 +269,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             case p_color
             case p_price_mxn
             case p_transfer_included
+            case p_committed_delivery_date
             case p_evidence
             case p_idempotency_key
         }
@@ -276,6 +289,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             try container.encode(p_color, forKey: .p_color)
             try container.encode(p_price_mxn, forKey: .p_price_mxn)
             try container.encode(p_transfer_included, forKey: .p_transfer_included)
+            try container.encode(p_committed_delivery_date, forKey: .p_committed_delivery_date)
             try container.encode(p_evidence, forKey: .p_evidence)
             try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
         }
@@ -306,6 +320,14 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             if p_message == nil { try container.encodeNil(forKey: .p_message) }
             try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
         }
+    }
+
+    nonisolated struct ResetTestParameters: Encodable, Sendable {
+        let p_confirmation: String
+    }
+    nonisolated struct ResetTestResult: Decodable, Sendable {
+        let environment_id: UUID
+        let deleted_requests: Int
     }
 
     nonisolated struct RespondOfferRow: Decodable, Sendable {
@@ -628,7 +650,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                             title: $0.title,
                             value: $0.value,
                             required: $0.required,
-                            displayOrder: $0.display_order
+                            displayOrder: $0.display_order,
+                            responseType: $0.response_type,
+                            requiresDORIVerification: $0.requires_dori_verification
                         )
                     }
                 )
@@ -650,6 +674,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     p_maximum_mileage: publication.maximumMileage,
                     p_delivery_city: publication.deliveryCity,
                     p_deadline_at: publication.deadlineAt,
+                    p_target_delivery_date: publication.targetDeliveryDate,
                     p_requirements: publication.requirements.enumerated().map { index, item in
                         PublishRequestRequirement(
                             code: item.id,
@@ -657,7 +682,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                             title: item.title,
                             value: item.value,
                             required: item.required,
-                            display_order: item.displayOrder == 0 ? index : item.displayOrder
+                            display_order: item.displayOrder == 0 ? index : item.displayOrder,
+                            response_type: item.responseType.rawValue,
+                            requires_dori_verification: item.requiresDORIVerification
                         )
                     },
                     p_idempotency_key: publication.idempotencyKey
@@ -852,7 +879,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     title: $0.title,
                     value: $0.value,
                     required: $0.required,
-                    displayOrder: $0.display_order
+                    displayOrder: $0.display_order,
+                    responseType: $0.response_type,
+                    requiresDORIVerification: $0.requires_dori_verification
                 )
             },
             delivery: delivery,
@@ -964,6 +993,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                         p_color: submission.color,
                         p_price_mxn: submission.priceMxn,
                         p_transfer_included: submission.transferIncluded,
+                        p_committed_delivery_date: submission.committedDeliveryDate,
                         p_evidence: references,
                         p_idempotency_key: submission.idempotencyKey
                     )
@@ -1004,19 +1034,35 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             throw RepositoryError.notConfigured
         }
 
-        let row: RespondOfferRow = try await client
-            .rpc(
-                "respond_acquisition_offer",
-                params: RespondOfferParameters(
-                    p_offer_id: command.offerID,
-                    p_action: command.action.rawValue,
-                    p_amount_mxn: command.amountMxn,
-                    p_message: command.message,
-                    p_idempotency_key: command.idempotencyKey
+        let row: RespondOfferRow
+        do {
+            row = try await client
+                .rpc(
+                    "respond_acquisition_offer",
+                    params: RespondOfferParameters(
+                        p_offer_id: command.offerID,
+                        p_action: command.action.rawValue,
+                        p_amount_mxn: command.amountMxn,
+                        p_message: command.message,
+                        p_idempotency_key: command.idempotencyKey
+                    )
                 )
+                .execute()
+                .value
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc respond_acquisition_offer",
+                context: [
+                    "offer_id": AcquisitionRemoteDiagnostic.redact(command.offerID),
+                    "action": command.action.rawValue,
+                    "amount_present": command.amountMxn == nil ? "false" : "true",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(command.idempotencyKey),
+                ]
             )
-            .execute()
-            .value
+            print("[Adquisiciones][TEST][Negociación] \(diagnostic)")
+            throw error
+        }
 
         return AcquisitionOfferCommandResult(
             offerID: row.offer_id,
@@ -1024,6 +1070,17 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
             orderID: row.order_id
         )
+    }
+
+    func resetTestEnvironment(confirmation: String) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let _: ResetTestResult = try await client
+            .rpc(
+                "reset_test_acquisition_environment",
+                params: ResetTestParameters(p_confirmation: confirmation)
+            )
+            .execute()
+            .value
     }
 
     func completeDelivery(
@@ -1105,6 +1162,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                         model: $0.modelAndVersion,
                         year: $0.year,
                         abbreviatedVin: $0.abbreviatedVin,
+                        mileage: $0.mileage,
+                        currentPriceMxn: $0.agreedPriceMxn ?? $0.priceMxn,
+                        status: AcquisitionHumanStatus.title(for: $0.status, role: .provider),
                         thumbnailData: thumbnailByOffer[$0.id]
                     )
                 }
@@ -1408,6 +1468,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             maximumMileage: row.maximum_mileage,
             deliveryCity: row.delivery_city,
             deadlineAt: row.deadline_at,
+            targetDeliveryDate: row.target_delivery_date,
             status: row.status,
             detailedRequirements: requirements
         )
@@ -1429,6 +1490,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             declaredSoh: row.declared_soh.map { Self.integer(from: $0) },
             color: row.color,
             agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
+            committedDeliveryDate: row.committed_delivery_date,
             submittedAt: row.submitted_at
         )
     }

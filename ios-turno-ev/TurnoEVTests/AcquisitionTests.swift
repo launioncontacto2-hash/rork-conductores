@@ -226,6 +226,18 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(publication.versions == ["GL", "GS"])
         #expect(publication.maximumMileage == 15_000)
         #expect(publication.requirements.filter { $0.category == .evidence }.count == 14)
+        #expect(publication.deadlineAt != nil)
+        #expect(publication.targetDeliveryDate != nil)
+    }
+
+    @Test func requestRequirementKeepsDynamicResponseContract() {
+        let requirement = AcquisitionRequestRequirement(
+            id: "inspection_note", category: .condition,
+            title: "Observaciones", value: "Describe el estado",
+            responseType: .text, requiresDORIVerification: true
+        )
+        #expect(requirement.responseType == .text)
+        #expect(requirement.requiresDORIVerification)
     }
 
     @Test func detailedEvidenceUsesTheApprovedDriverSidePrimaryKind() {
@@ -275,7 +287,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, submitted_at"
+                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, submitted_at"
         )
     }
 

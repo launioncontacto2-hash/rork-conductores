@@ -34,6 +34,7 @@ struct AcquisitionOfferFormTests {
             p_color: "Blanco",
             p_price_mxn: 274_000,
             p_transfer_included: true,
+            p_committed_delivery_date: Date(timeIntervalSince1970: 1_800_000_000),
             p_evidence: [],
             p_idempotency_key: "offer-null-contract"
         )
@@ -42,7 +43,7 @@ struct AcquisitionOfferFormTests {
             JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters))
                 as? [String: Any]
         )
-        #expect(object.keys.count == 13)
+        #expect(object.keys.count == 14)
         #expect(object["p_version"] is NSNull)
         #expect(object["p_declared_soh"] is NSNull)
     }

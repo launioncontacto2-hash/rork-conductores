@@ -68,6 +68,23 @@ struct AcquisitionOfferFormView: View {
                     .panel()
 
                     VStack(spacing: 14) {
+                        if let target = model.request.targetDeliveryDate {
+                            summaryLine("Fecha objetivo solicitada por DORI", value: target.formatted(date: .abbreviated, time: .omitted))
+                        }
+                        DatePicker(
+                            "Fecha compromiso del proveedor",
+                            selection: $form.form.committedDeliveryDate,
+                            displayedComponents: .date
+                        )
+                        Text("Esta fecha se registrará como tu compromiso formal de entrega.")
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+                        if let target = model.request.targetDeliveryDate,
+                           model.form.committedDeliveryDate > target {
+                            Label("La fecha propuesta excede el objetivo solicitado por DORI.", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(Palette.amber)
+                        }
                         field("VIN", text: $form.form.vin, keyboard: .asciiCapable)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()

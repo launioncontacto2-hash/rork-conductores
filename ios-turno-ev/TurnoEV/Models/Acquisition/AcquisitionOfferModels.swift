@@ -131,6 +131,7 @@ nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
     let color: String
     let priceMxn: Int
     let transferIncluded: Bool
+    let committedDeliveryDate: Date = .distantFuture
     let evidence: [AcquisitionEvidenceUpload]
     let idempotencyKey: String
 }
@@ -185,6 +186,7 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
     var price = ""
     var color = ""
     var transferIncluded = false
+    var committedDeliveryDate = Date()
     var batteryKnowledge: AcquisitionBatteryKnowledge = .requiresDORIVerification
     var soh = ""
     var confirmedRequirements: Set<AcquisitionOfferRequirement> = []
@@ -253,6 +255,7 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
             color: normalizedColor,
             priceMxn: parsedPrice,
             transferIncluded: transferIncluded,
+            committedDeliveryDate: committedDeliveryDate,
             evidence: uploads,
             idempotencyKey: idempotencyKey ?? "ios-acquisition-offer-\(offerID.uuidString.lowercased())"
         )

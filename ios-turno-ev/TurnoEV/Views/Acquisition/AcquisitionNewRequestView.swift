@@ -9,6 +9,8 @@ final class AcquisitionNewRequestViewModel {
     var customTitle = ""
     var customValue = ""
     var customCategory: AcquisitionRequestRequirementCategory = .condition
+    var customResponseType: AcquisitionRequirementResponseType = .confirmation
+    var customRequiresVerification = false
     var isPublishing = false
     var feedback: String?
     var published: AcquisitionRequest?
@@ -29,10 +31,16 @@ final class AcquisitionNewRequestViewModel {
         }
         let code = "custom_\(UUID().uuidString.lowercased())"
         draft.requirements.append(
-            .init(id: code, category: customCategory, title: title, value: value)
+            .init(
+                id: code, category: customCategory, title: title, value: value,
+                responseType: customResponseType,
+                requiresDORIVerification: customRequiresVerification
+            )
         )
         customTitle = ""
         customValue = ""
+        customResponseType = .confirmation
+        customRequiresVerification = false
         feedback = nil
     }
 
@@ -59,7 +67,16 @@ final class AcquisitionNewRequestViewModel {
             onPublished(request)
         } catch {
             feedback = "No pudimos publicar la solicitud. Intenta nuevamente."
-            print("[Adquisiciones] publicación de solicitud fallida: \(error.localizedDescription)")
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc publish_acquisition_request",
+                context: [
+                    "deadline_present": draft.deadlineAt == nil ? "false" : "true",
+                    "target_delivery_present": draft.targetDeliveryDate == nil ? "false" : "true",
+                    "requirements": String(draft.requirements.count),
+                ]
+            )
+            print("[Adquisiciones][TEST][Solicitud] \(diagnostic)")
         }
     }
 }
@@ -93,7 +110,9 @@ struct AcquisitionNewRequestView: View {
                         requirements(
                             customTitle: $bindable.customTitle,
                             customValue: $bindable.customValue,
-                            customCategory: $bindable.customCategory
+                            customCategory: $bindable.customCategory,
+                            customResponseType: $bindable.customResponseType,
+                            customRequiresVerification: $bindable.customRequiresVerification
                         )
                     default: review
                     }
@@ -157,6 +176,23 @@ struct AcquisitionNewRequestView: View {
             }
             requestField("Kilometraje máximo", text: draft.maximumMileage, keyboard: .numberPad)
             requestField("Ciudad de entrega", text: draft.deliveryCity)
+            if let deadline = draft.deadlineAt.wrappedValue {
+                DatePicker(
+                    "Recibir ofertas hasta",
+                    selection: Binding(get: { deadline }, set: { draft.deadlineAt.wrappedValue = $0 }),
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+            }
+            if let target = draft.targetDeliveryDate.wrappedValue {
+                DatePicker(
+                    "Fecha objetivo de entrega",
+                    selection: Binding(get: { target }, set: { draft.targetDeliveryDate.wrappedValue = $0 }),
+                    displayedComponents: .date
+                )
+            }
+            Text("Usa una fecha realista. Esta fecha servirá como referencia formal para la operación y el seguimiento de cumplimiento.")
+                .font(.caption)
+                .foregroundStyle(Palette.textMuted)
         }
         .padding(18).panel()
     }
@@ -164,7 +200,9 @@ struct AcquisitionNewRequestView: View {
     private func requirements(
         customTitle: Binding<String>,
         customValue: Binding<String>,
-        customCategory: Binding<AcquisitionRequestRequirementCategory>
+        customCategory: Binding<AcquisitionRequestRequirementCategory>,
+        customResponseType: Binding<AcquisitionRequirementResponseType>,
+        customRequiresVerification: Binding<Bool>
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Requisitos de esta solicitud").font(.headline)
@@ -194,6 +232,12 @@ struct AcquisitionNewRequestView: View {
             }
             requestField("Nuevo requisito", text: customTitle)
             requestField("Condición o documento esperado", text: customValue)
+            Picker("Tipo de respuesta", selection: customResponseType) {
+                ForEach(AcquisitionRequirementResponseType.allCases, id: \.self) {
+                    Text($0.visibleTitle).tag($0)
+                }
+            }
+            Toggle("Requiere verificación DORI", isOn: customRequiresVerification)
             Button("Agregar requisito") { model.addRequirement() }
                 .buttonStyle(.bordered).tint(Palette.volt)
         }
@@ -208,6 +252,8 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Años", "\(model.draft.minimumYear)–\(model.draft.maximumYear)")
             reviewLine("Kilometraje", "\(model.draft.maximumMileage) km")
             reviewLine("Requisitos", "\(model.draft.requirements.count)")
+            reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
+            reviewLine("Entrega objetivo", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
             Text("La publicación será autoritativa y compartida con los proveedores del entorno TEST.")
                 .font(.caption).foregroundStyle(Palette.textMuted)
         }
@@ -231,5 +277,9 @@ struct AcquisitionNewRequestView: View {
     private func reviewLine(_ title: String, _ value: String) -> some View {
         HStack { Text(title).foregroundStyle(Palette.textMuted); Spacer(); Text(value).fontWeight(.bold) }
             .font(.subheadline)
+    }
+
+    private static func dateText(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
     }
 }

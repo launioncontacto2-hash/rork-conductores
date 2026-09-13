@@ -36,6 +36,9 @@ final class AcquisitionOfferFormViewModel {
         self.onSubmitted = onSubmitted
         self.pendingOfferID = attemptID
         self.pendingIdempotencyKey = "ios-acquisition-offer-\(attemptID.uuidString.lowercased())"
+        if let targetDate = request.targetDeliveryDate {
+            self.form.committedDeliveryDate = targetDate
+        }
     }
 
     var isSubmitting: Bool {

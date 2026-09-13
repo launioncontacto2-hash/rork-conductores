@@ -237,6 +237,7 @@ struct AcquisitionChatView: View {
     @State private var showsFiles = false
     @State private var libraryItem: PhotosPickerItem?
     @State private var audioRecorder = AcquisitionAudioRecorder()
+    @State private var showsVehicleSheet = false
 
     init(
         thread: AcquisitionChatThreadSummary,
@@ -257,6 +258,12 @@ struct AcquisitionChatView: View {
     var body: some View {
         @Bindable var bindableModel = model
         VStack(spacing: 0) {
+            if let vehicle = model.thread.vehicle {
+                Button { showsVehicleSheet = true } label: {
+                    AcquisitionChatVehicleHeader(vehicle: vehicle)
+                }
+                .buttonStyle(.plain)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -365,6 +372,21 @@ struct AcquisitionChatView: View {
         .task { await model.load() }
         .onDisappear { model.stop() }
         .onDisappear { audioRecorder.cancel() }
+        .sheet(isPresented: $showsVehicleSheet) {
+            if let vehicle = model.thread.vehicle {
+                NavigationStack {
+                    AcquisitionChatVehicleSheet(vehicle: vehicle)
+                        .navigationTitle("Unidad")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Cerrar") { showsVehicleSheet = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium, .large])
+            }
+        }
         .confirmationDialog("Adjuntar", isPresented: $showsAttachmentMenu) {
             Button("Tomar foto") { showsCamera = true }
             Button("Elegir foto o video") { showsLibrary = true }
@@ -450,6 +472,50 @@ struct AcquisitionChatView: View {
         } catch {
             model.feedbackMessage = "No pudimos leer el archivo seleccionado."
         }
+    }
+}
+
+private struct AcquisitionChatVehicleHeader: View {
+    let vehicle: AcquisitionChatVehicleContext
+
+    var body: some View {
+        HStack(spacing: 12) {
+            vehicleImage.frame(width: 72, height: 54).clipShape(.rect(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(vehicle.title).font(.subheadline.weight(.bold))
+                Text("\(vehicle.mileageText) · \(vehicle.priceText)").font(.caption)
+                Text("VIN \(vehicle.abbreviatedVin) · \(vehicle.status)")
+                    .font(.caption2).foregroundStyle(Palette.textMuted).lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.up.chevron.down").foregroundStyle(Palette.volt)
+        }
+        .padding(12)
+        .background(Palette.surfaceRaised.opacity(0.98))
+    }
+
+    @ViewBuilder private var vehicleImage: some View {
+        if let data = vehicle.thumbnailData, let image = UIImage(data: data) {
+            Image(uiImage: image).resizable().scaledToFill()
+        } else {
+            ZStack { Palette.surface; Image(systemName: "car.side.fill").foregroundStyle(Palette.volt) }
+        }
+    }
+}
+
+private struct AcquisitionChatVehicleSheet: View {
+    let vehicle: AcquisitionChatVehicleContext
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AcquisitionChatVehicleHeader(vehicle: vehicle)
+            Divider()
+            Label(vehicle.status, systemImage: "clock.fill").foregroundStyle(Palette.info)
+            Text("La conversación conserva su posición y tu borrador al cerrar esta ficha.")
+                .font(.caption).foregroundStyle(Palette.textMuted)
+            Spacer()
+        }
+        .padding(18)
+        .background(StationBackground())
     }
 }
 

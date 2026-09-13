@@ -104,6 +104,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let maximumMileage: Int
     let deliveryCity: String
     let deadlineAt: Date?
+    let targetDeliveryDate: Date?
     /// Backend lifecycle value. It is retained so every request badge is
     /// rendered from persisted state instead of assuming that it is active.
     let status: String
@@ -124,6 +125,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         maximumMileage: Int,
         deliveryCity: String,
         deadlineAt: Date?,
+        targetDeliveryDate: Date? = nil,
         status: String = "published",
         detailedRequirements: [AcquisitionRequestRequirement] = []
     ) {
@@ -138,6 +140,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         self.maximumMileage = maximumMileage
         self.deliveryCity = deliveryCity
         self.deadlineAt = deadlineAt
+        self.targetDeliveryDate = targetDeliveryDate
         self.status = status
         self.detailedRequirements = detailedRequirements
     }
@@ -202,6 +205,8 @@ nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Senda
     let value: String
     let required: Bool
     let displayOrder: Int
+    let responseType: AcquisitionRequirementResponseType
+    let requiresDORIVerification: Bool
 
     init(
         id: String,
@@ -209,7 +214,9 @@ nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Senda
         title: String,
         value: String,
         required: Bool = true,
-        displayOrder: Int = 0
+        displayOrder: Int = 0,
+        responseType: AcquisitionRequirementResponseType = .confirmation,
+        requiresDORIVerification: Bool = false
     ) {
         self.id = id
         self.category = category
@@ -217,6 +224,28 @@ nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Senda
         self.value = value
         self.required = required
         self.displayOrder = displayOrder
+        self.responseType = responseType
+        self.requiresDORIVerification = requiresDORIVerification
+    }
+}
+
+nonisolated enum AcquisitionRequirementResponseType: String, Codable, CaseIterable, Sendable {
+    case confirmation
+    case text
+    case number
+    case date
+    case document
+    case photo
+
+    var visibleTitle: String {
+        switch self {
+        case .confirmation: "Confirmación"
+        case .text: "Texto"
+        case .number: "Número"
+        case .date: "Fecha"
+        case .document: "Documento"
+        case .photo: "Fotografía"
+        }
     }
 }
 
@@ -244,7 +273,8 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     var maximumYear = ""
     var maximumMileage = ""
     var deliveryCity = "Puebla"
-    var deadlineAt: Date?
+    var deadlineAt: Date? = Calendar.current.date(byAdding: .day, value: 14, to: Date())
+    var targetDeliveryDate: Date? = Calendar.current.date(byAdding: .day, value: 30, to: Date())
     var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
 
     static let defaultRequirements: [AcquisitionRequestRequirement] = [
@@ -278,6 +308,8 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         let city = deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !city.isEmpty else { throw AcquisitionRequestDraftIssue.cityRequired }
         guard !requirements.isEmpty else { throw AcquisitionRequestDraftIssue.requirementsRequired }
+        guard let deadlineAt else { throw AcquisitionRequestDraftIssue.deadlineRequired }
+        guard let targetDeliveryDate else { throw AcquisitionRequestDraftIssue.targetDeliveryRequired }
         return AcquisitionRequestPublication(
             model: cleanModel,
             versions: versions.split(separator: ",")
@@ -289,6 +321,7 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
             maximumMileage: mileage,
             deliveryCity: city,
             deadlineAt: deadlineAt,
+            targetDeliveryDate: targetDeliveryDate,
             requirements: requirements,
             idempotencyKey: idempotencyKey
         )
@@ -304,12 +337,14 @@ nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
     let maximumMileage: Int
     let deliveryCity: String
     let deadlineAt: Date?
+    let targetDeliveryDate: Date?
     let requirements: [AcquisitionRequestRequirement]
     let idempotencyKey: String
 }
 
 nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
     case modelRequired, invalidQuantity, invalidYears, invalidMileage, cityRequired, requirementsRequired
+    case deadlineRequired, targetDeliveryRequired
 
     var message: String {
         switch self {
@@ -319,6 +354,8 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
         case .invalidMileage: "Captura un kilometraje válido."
         case .cityRequired: "Captura la ciudad de entrega."
         case .requirementsRequired: "Agrega al menos un requisito."
+        case .deadlineRequired: "Selecciona la fecha límite para recibir ofertas."
+        case .targetDeliveryRequired: "Selecciona la fecha objetivo de entrega."
         }
     }
 }
@@ -369,6 +406,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let declaredSoh: Int?
     let color: String?
     let agreedPriceMxn: Int?
+    let committedDeliveryDate: Date?
     let submittedAt: Date?
 
     init(
@@ -386,6 +424,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         declaredSoh: Int? = nil,
         color: String? = nil,
         agreedPriceMxn: Int? = nil,
+        committedDeliveryDate: Date? = nil,
         submittedAt: Date? = nil
     ) {
         self.id = id
@@ -402,6 +441,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         self.declaredSoh = declaredSoh
         self.color = color
         self.agreedPriceMxn = agreedPriceMxn
+        self.committedDeliveryDate = committedDeliveryDate
         self.submittedAt = submittedAt
     }
 
