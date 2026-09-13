@@ -26,7 +26,9 @@ SELECT table_privs_are(
 );
 
 CREATE TEMP TABLE test_dates_scope AS
-SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+SELECT id AS environment_id, app.env_now(id) AS now_at
+FROM public.environments ORDER BY created_at, id LIMIT 1;
+GRANT SELECT ON test_dates_scope TO authenticated;
 
 INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
 SELECT 'ad900000-0000-4000-8000-000000000001', environment_id,
@@ -48,7 +50,7 @@ SET LOCAL ROLE authenticated;
 SELECT throws_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini', ARRAY['Plus'], 1, 2025, 2026, 20000, 'Puebla', NULL,
-        app.env_now(app.current_environment_id()) + interval '30 days',
+        (SELECT now_at FROM test_dates_scope) + interval '30 days',
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
         'dates-null-deadline'
     ) $sql$,
@@ -58,8 +60,8 @@ SELECT throws_ok(
 SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini', ARRAY['Plus'], 1, 2025, 2026, 20000, 'Puebla',
-        app.env_now(app.current_environment_id()) + interval '14 days',
-        app.env_now(app.current_environment_id()) + interval '30 days',
+        (SELECT now_at FROM test_dates_scope) + interval '14 days',
+        (SELECT now_at FROM test_dates_scope) + interval '30 days',
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible","response_type":"photo","requires_dori_verification":true}]'::jsonb,
         'dates-valid'
     ) $sql$,
