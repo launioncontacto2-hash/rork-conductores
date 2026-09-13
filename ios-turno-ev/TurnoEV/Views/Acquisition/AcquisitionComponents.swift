@@ -112,9 +112,12 @@ struct AcquisitionProviderRequestCard: View {
                         .foregroundStyle(Palette.textMuted)
                 }
                 Spacer(minLength: 0)
-                Label("Activa", systemImage: "circle.fill")
+                Label(
+                    summary.request.visibleStatus.title,
+                    systemImage: summary.request.visibleStatus.systemImage
+                )
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(requestStatusColor(summary.request.visibleStatus.tone))
             }
 
             HStack(spacing: 13) {
@@ -144,6 +147,15 @@ struct AcquisitionProviderRequestCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Palette.volt.opacity(0.34), lineWidth: 1)
+        }
+    }
+
+    private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {
+        switch tone {
+        case .active, .complete: Palette.volt
+        case .waiting: Palette.info
+        case .neutral: Palette.textMuted
+        case .cancelled: Palette.danger
         }
     }
 }

@@ -211,6 +211,28 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(request.visibleRequirements == [requirement])
     }
 
+    @Test func mapsEveryPersistedRequestStatusToHumanLanguage() {
+        let expected = [
+            "published": "Activa",
+            "evaluating": "En evaluación",
+            "partially_awarded": "Activa · Parcialmente cubierta",
+            "awarded": "Completa",
+            "closed": "Cerrada",
+            "cancelled": "Cancelada",
+        ]
+
+        for (rawStatus, visibleTitle) in expected {
+            let request = AcquisitionRequest(
+                id: UUID(), code: "ADQ", title: "Solicitud", targetQuantity: 1,
+                model: "Dolphin Mini", versions: [], minimumYear: 2025,
+                maximumYear: 2026, maximumMileage: 20_000,
+                deliveryCity: "Puebla", deadlineAt: nil, status: rawStatus
+            )
+            #expect(request.visibleStatus.title == visibleTitle)
+            #expect(!request.visibleStatus.title.contains("_"))
+        }
+    }
+
     @Test func sharedRequestPresentationContainsTheApprovedPublicRequirements() {
         let requirements = Self.request().visibleRequirements
         #expect(requirements.count == 12)

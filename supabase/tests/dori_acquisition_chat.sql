@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(21);
+SELECT plan(28);
 
 SELECT has_table('public', 'acquisition_chat_threads', 'existen conversaciones institucionales');
 SELECT has_table('public', 'acquisition_chat_messages', 'existen mensajes institucionales');
@@ -14,6 +14,14 @@ SELECT has_function(
     'public', 'send_acquisition_chat_message', ARRAY['uuid', 'text', 'text', 'text'],
     'existe RPC para enviar mensajes inmutables'
 );
+SELECT has_function(
+    'public', 'send_acquisition_chat_message',
+    ARRAY['uuid', 'text', 'text', 'text', 'text', 'bigint', 'text'],
+    'existe RPC de adjuntos con metadatos explícitos'
+);
+SELECT has_column('public', 'acquisition_chat_messages', 'attachment_mime_type', 'mensajes conservan MIME');
+SELECT has_column('public', 'acquisition_chat_messages', 'attachment_filename', 'mensajes conservan nombre');
+SELECT has_column('public', 'acquisition_chat_messages', 'attachment_size_bytes', 'mensajes conservan tamaño');
 SELECT has_function(
     'public', 'mark_acquisition_chat_read', ARRAY['uuid', 'bigint'],
     'existe RPC para marcar lectura'
@@ -177,6 +185,29 @@ SELECT lives_ok(
     'Proveedor envia adjunto privado propio'
 );
 SELECT lives_ok(
+    $sql$ SELECT public.send_acquisition_chat_message(
+        (SELECT thread_id FROM test_chat_thread), 'Documento privado',
+        (SELECT environment_id::text
+            || '/ad810000-0000-4000-8000-000000000001/'
+            || thread_id::text || '/evidencia.jpg' FROM test_chat_thread),
+        'image/jpeg', 'Evidencia VIN.jpg', 321,
+        'chat-provider-attachment-metadata-1'
+    ) $sql$,
+    'Proveedor envia adjunto con metadatos mediante RPC'
+);
+SELECT is(
+    (SELECT attachment_mime_type FROM public.acquisition_chat_messages
+     WHERE body = 'Documento privado'),
+    'image/jpeg',
+    'RPC conserva el tipo MIME'
+);
+SELECT is(
+    (SELECT attachment_filename FROM public.acquisition_chat_messages
+     WHERE body = 'Documento privado'),
+    'Evidencia VIN.jpg',
+    'RPC conserva el nombre visible'
+);
+SELECT lives_ok(
     $sql$ SELECT public.mark_acquisition_chat_read(
         (SELECT thread_id FROM test_chat_thread), 999999
     ) $sql$,
@@ -195,8 +226,8 @@ SET LOCAL ROLE authenticated;
 SELECT is(
     (SELECT unread_count FROM public.list_acquisition_chat_threads()
      WHERE thread_id = (SELECT thread_id FROM test_chat_thread)),
-    2::bigint,
-    'DORI recibe badge por los dos mensajes del proveedor'
+    3::bigint,
+    'DORI recibe badge por los tres mensajes del proveedor'
 );
 SELECT lives_ok(
     $sql$ SELECT public.send_acquisition_chat_message(

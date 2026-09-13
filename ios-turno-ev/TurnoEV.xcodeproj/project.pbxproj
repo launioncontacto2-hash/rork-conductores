@@ -415,6 +415,7 @@
 				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_URL = "$(DORI_SUPABASE_URL)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Se usa la cámara para escanear el QR de la unidad y registrar las fotografías del turno.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Se usa el micrófono para enviar notas de voz en conversaciones de adquisición.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID te permite iniciar sesión rápidamente antes de comenzar tu turno.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Adjunta capturas de pantalla de tus ingresos y evidencias del vehículo.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -456,6 +457,7 @@
 				INFOPLIST_KEY_EXPO_PUBLIC_SUPABASE_URL = "$(DORI_SUPABASE_URL)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Se usa la cámara para escanear el QR de la unidad y registrar las fotografías del turno.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Se usa el micrófono para enviar notas de voz en conversaciones de adquisición.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID te permite iniciar sesión rápidamente antes de comenzar tu turno.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Adjunta capturas de pantalla de tus ingresos y evidencias del vehículo.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

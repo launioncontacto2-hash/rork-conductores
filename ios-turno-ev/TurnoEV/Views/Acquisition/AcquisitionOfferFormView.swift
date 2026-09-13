@@ -4,6 +4,7 @@ import UIKit
 struct AcquisitionOfferFormView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AcquisitionOfferFormViewModel
+    @FocusState private var focusedField: String?
 
     init(
         request: AcquisitionRequest,
@@ -177,24 +178,30 @@ struct AcquisitionOfferFormView: View {
                         .background(Palette.danger.opacity(0.12), in: .rect(cornerRadius: 18))
                     }
 
-                    Button {
-                        Task { await model.submit() }
-                    } label: {
-                        HStack {
-                            if model.isSubmitting { ProgressView() }
-                            Text(model.isSubmitting ? "Enviando propuesta…" : "Enviar propuesta")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
-                    .disabled(model.isSubmitting)
                 }
                 .padding(18)
             }
-            .scrollDismissesKeyboard(.interactively)
+            .scrollDismissesKeyboard(.immediately)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button {
+                focusedField = nil
+                Task { await model.submit() }
+            } label: {
+                HStack {
+                    if model.isSubmitting { ProgressView() }
+                    Text(model.isSubmitting ? "Enviando propuesta…" : "Enviar propuesta")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Palette.volt)
+            .disabled(model.isSubmitting)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(Palette.surface.opacity(0.98))
         }
         .navigationTitle("Tengo unidades")
         .navigationBarTitleDisplayMode(.inline)
@@ -253,6 +260,8 @@ struct AcquisitionOfferFormView: View {
                 .foregroundStyle(Palette.textMuted)
             TextField(title, text: text)
                 .keyboardType(keyboard)
+                .focused($focusedField, equals: title)
+                .submitLabel(.next)
                 .padding(12)
                 .background(Palette.surfaceRaised.opacity(0.7), in: .rect(cornerRadius: 12))
         }

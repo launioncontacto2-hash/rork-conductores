@@ -125,7 +125,20 @@ final class AcquisitionChatViewModel {
     }
 
     func capture(_ data: Data) {
-        attachment = AcquisitionChatAttachment(data: data)
+        capture(AcquisitionChatAttachment(data: data))
+    }
+
+    func capture(_ newAttachment: AcquisitionChatAttachment) {
+        guard !newAttachment.data.isEmpty else {
+            feedbackMessage = "El archivo seleccionado está vacío."
+            return
+        }
+        guard newAttachment.data.count <= 10 * 1_024 * 1_024 else {
+            feedbackMessage = "El archivo supera el límite de 10 MB."
+            return
+        }
+        attachment = newAttachment
+        feedbackMessage = nil
     }
 
     func removeAttachment() { attachment = nil }

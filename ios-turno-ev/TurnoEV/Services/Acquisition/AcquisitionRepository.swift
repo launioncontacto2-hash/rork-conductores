@@ -63,7 +63,7 @@ nonisolated enum AcquisitionQueries {
     static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
     static let supplierColumns = "id, name, city"
     static let contactColumns = "id, supplier_id, organization_name, person_name, job_title, phone, email, business_hours, is_primary"
-    static let chatMessageColumns = "id, event_sequence, thread_id, sender_profile_id, sender_role, message_kind, body, attachment_path, created_at"
+    static let chatMessageColumns = "id, event_sequence, thread_id, sender_profile_id, sender_role, message_kind, body, attachment_path, attachment_mime_type, attachment_filename, attachment_size_bytes, created_at"
 }
 
 @MainActor
@@ -270,6 +270,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let message_kind: AcquisitionChatMessageKind
         let body: String?
         let attachment_path: String?
+        let attachment_mime_type: String?
+        let attachment_filename: String?
+        let attachment_size_bytes: Int?
         let created_at: Date
     }
 
@@ -303,6 +306,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_thread_id: UUID
         let p_body: String?
         let p_attachment_path: String?
+        let p_attachment_mime_type: String?
+        let p_attachment_filename: String?
+        let p_attachment_size_bytes: Int?
         let p_idempotency_key: String
     }
 
@@ -572,10 +578,34 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             throw RepositoryError.notConfigured
         }
         guard membership.role == .provider, let supplierID = membership.supplierID else {
-            throw RepositoryError.invalidScope(membership.role)
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: "invalid_provider_scope"
+            )
         }
         guard submission.evidence.count == AcquisitionEvidenceKind.allCases.count else {
             throw RepositoryError.evidenceRequired
+        }
+
+        // A response can be lost after the transactional RPC commits. Checking
+        // the client-generated identifier first makes an explicit retry return
+        // the existing offer instead of uploading again or creating a duplicate.
+        do {
+            let existing: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .eq("id", value: submission.offerID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            if let row = existing.first { return Self.offer(from: row) }
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
         }
 
         let bucket = client.storage.from("acquisition-evidence")
@@ -592,37 +622,71 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                 offerID: submission.offerID,
                 kind: item.kind
             )
-            try await bucket.upload(
-                path,
-                data: item.data,
-                options: FileOptions(contentType: "image/jpeg", upsert: false)
-            )
+            do {
+                try await bucket.upload(
+                    path,
+                    data: item.data,
+                    options: FileOptions(contentType: "image/jpeg", upsert: false)
+                )
+            } catch {
+                throw AcquisitionOfferSubmissionError(
+                    stage: .evidenceUpload,
+                    evidenceKind: item.kind,
+                    technicalDescription: error.localizedDescription
+                )
+            }
             references.append(EvidenceReference(kind: item.kind.rawValue, path: path))
         }
 
-        let row: OfferRow = try await client
-            .rpc(
-                "submit_acquisition_offer",
-                params: SubmitOfferParameters(
-                    p_offer_id: submission.offerID,
-                    p_request_id: submission.requestID,
-                    p_vin: submission.vin,
-                    p_model: submission.model,
-                    p_version: submission.version,
-                    p_year: submission.year,
-                    p_mileage: submission.mileage,
-                    p_declared_soh: submission.declaredSoh,
-                    p_color: submission.color,
-                    p_price_mxn: submission.priceMxn,
-                    p_transfer_included: submission.transferIncluded,
-                    p_evidence: references,
-                    p_idempotency_key: submission.idempotencyKey
+        do {
+            let _: OfferRow = try await client
+                .rpc(
+                    "submit_acquisition_offer",
+                    params: SubmitOfferParameters(
+                        p_offer_id: submission.offerID,
+                        p_request_id: submission.requestID,
+                        p_vin: submission.vin,
+                        p_model: submission.model,
+                        p_version: submission.version,
+                        p_year: submission.year,
+                        p_mileage: submission.mileage,
+                        p_declared_soh: submission.declaredSoh,
+                        p_color: submission.color,
+                        p_price_mxn: submission.priceMxn,
+                        p_transfer_included: submission.transferIncluded,
+                        p_evidence: references,
+                        p_idempotency_key: submission.idempotencyKey
+                    )
                 )
+                .execute()
+                .value
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .rpc,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
             )
-            .execute()
-            .value
+        }
 
-        return Self.offer(from: row)
+        do {
+            let persisted: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .eq("id", value: submission.offerID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            guard let row = persisted.first else {
+                throw RepositoryError.offerNotFound
+            }
+            return Self.offer(from: row)
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .persistenceCheck,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
+        }
     }
 
     func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult {
@@ -795,6 +859,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     p_thread_id: thread.id,
                     p_body: body.trimmingCharacters(in: .whitespacesAndNewlines),
                     p_attachment_path: attachmentPath,
+                    p_attachment_mime_type: attachment?.contentType,
+                    p_attachment_filename: attachment?.filename,
+                    p_attachment_size_bytes: attachment?.size,
                     p_idempotency_key: "ios-acquisition-chat-\(UUID().uuidString.lowercased())"
                 )
             )
@@ -921,7 +988,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             maximumYear: row.maximum_year,
             maximumMileage: row.maximum_mileage,
             deliveryCity: row.delivery_city,
-            deadlineAt: row.deadline_at
+            deadlineAt: row.deadline_at,
+            status: row.status
         )
     }
 
@@ -995,6 +1063,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             kind: row.message_kind,
             body: row.body,
             attachmentPath: row.attachment_path,
+            attachmentContentType: row.attachment_mime_type,
+            attachmentFilename: row.attachment_filename,
+            attachmentSize: row.attachment_size_bytes,
             createdAt: row.created_at,
             attachmentData: attachmentData
         )

@@ -85,6 +85,41 @@ nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
     let idempotencyKey: String
 }
 
+nonisolated enum AcquisitionOfferSubmissionStage: String, Equatable, Sendable {
+    case authorization
+    case evidenceUpload
+    case rpc
+    case persistenceCheck
+}
+
+nonisolated struct AcquisitionOfferSubmissionError: LocalizedError, Sendable {
+    let stage: AcquisitionOfferSubmissionStage
+    let evidenceKind: AcquisitionEvidenceKind?
+    let technicalDescription: String
+
+    var errorDescription: String? {
+        switch stage {
+        case .authorization:
+            "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
+        case .evidenceUpload:
+            if let evidenceKind {
+                "No pudimos subir \(evidenceKind.title.lowercased()). Revisa tu conexión e intenta nuevamente."
+            } else {
+                "No pudimos subir las fotografías. Revisa tu conexión e intenta nuevamente."
+            }
+        case .rpc:
+            if technicalDescription.localizedCaseInsensitiveContains("duplicate")
+                || technicalDescription.localizedCaseInsensitiveContains("unique") {
+                "Ya existe una propuesta para ese VIN. Revisa Mis vehículos."
+            } else {
+                "Las fotografías se guardaron, pero no pudimos registrar la propuesta. Intenta nuevamente."
+            }
+        case .persistenceCheck:
+            "La propuesta se envió, pero no pudimos confirmar su carga. Actualiza Mis vehículos."
+        }
+    }
+}
+
 nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
     var vin = ""
     var year = ""

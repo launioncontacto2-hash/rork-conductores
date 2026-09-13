@@ -104,6 +104,9 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let maximumMileage: Int
     let deliveryCity: String
     let deadlineAt: Date?
+    /// Backend lifecycle value. It is retained so every request badge is
+    /// rendered from persisted state instead of assuming that it is active.
+    let status: String
     /// Prepared for the approved detailed-requirements screen. An empty array
     /// keeps the current compact request experience unchanged until the backend
     /// publishes these fields explicitly.
@@ -121,6 +124,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         maximumMileage: Int,
         deliveryCity: String,
         deadlineAt: Date?,
+        status: String = "published",
         detailedRequirements: [AcquisitionRequestRequirement] = []
     ) {
         self.id = id
@@ -134,6 +138,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         self.maximumMileage = maximumMileage
         self.deliveryCity = deliveryCity
         self.deadlineAt = deadlineAt
+        self.status = status
         self.detailedRequirements = detailedRequirements
     }
 
@@ -151,6 +156,43 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: maximumMileage)) ?? "\(maximumMileage)"
     }
+
+    var visibleStatus: AcquisitionRequestStatusPresentation {
+        AcquisitionRequestStatusPresentation(rawStatus: status)
+    }
+}
+
+nonisolated struct AcquisitionRequestStatusPresentation: Equatable, Sendable {
+    let title: String
+    let systemImage: String
+    let tone: AcquisitionRequestStatusTone
+
+    init(rawStatus: String) {
+        switch rawStatus {
+        case "published":
+            (title, systemImage, tone) = ("Activa", "circle.fill", .active)
+        case "evaluating":
+            (title, systemImage, tone) = ("En evaluación", "clock.fill", .waiting)
+        case "partially_awarded":
+            (title, systemImage, tone) = ("Activa · Parcialmente cubierta", "circle.lefthalf.filled", .active)
+        case "awarded":
+            (title, systemImage, tone) = ("Completa", "checkmark.circle.fill", .complete)
+        case "closed":
+            (title, systemImage, tone) = ("Cerrada", "lock.circle.fill", .neutral)
+        case "cancelled":
+            (title, systemImage, tone) = ("Cancelada", "xmark.circle.fill", .cancelled)
+        default:
+            (title, systemImage, tone) = ("Estado no disponible", "questionmark.circle.fill", .neutral)
+        }
+    }
+}
+
+nonisolated enum AcquisitionRequestStatusTone: Equatable, Sendable {
+    case active
+    case waiting
+    case complete
+    case neutral
+    case cancelled
 }
 
 nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Sendable {

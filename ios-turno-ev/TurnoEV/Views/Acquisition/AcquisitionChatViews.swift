@@ -1,5 +1,7 @@
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct AcquisitionChatListView: View {
     @State private var model: AcquisitionChatListViewModel
@@ -174,7 +176,12 @@ struct AcquisitionUnitChatLauncherView: View {
 
 struct AcquisitionChatView: View {
     @State private var model: AcquisitionChatViewModel
-    @State private var showsPicker = false
+    @State private var showsAttachmentMenu = false
+    @State private var showsCamera = false
+    @State private var showsLibrary = false
+    @State private var showsFiles = false
+    @State private var libraryItem: PhotosPickerItem?
+    @State private var audioRecorder = AcquisitionAudioRecorder()
 
     init(
         thread: AcquisitionChatThreadSummary,
@@ -215,22 +222,37 @@ struct AcquisitionChatView: View {
                 }
             }
 
-            if let attachment = model.attachment,
-               let image = UIImage(data: attachment.data) {
-                HStack {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 58, height: 58)
-                        .clipShape(.rect(cornerRadius: 10))
-                    Text("Imagen lista para enviar")
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Button("Quitar") { model.removeAttachment() }
-                        .font(.caption.weight(.bold))
-                }
+            if let attachment = model.attachment {
+                AcquisitionChatAttachmentPreview(
+                    attachment: attachment,
+                    onRemove: { model.removeAttachment() }
+                )
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
+            }
+
+            if audioRecorder.isRecording {
+                TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                    HStack(spacing: 12) {
+                        Button("Cancelar") { audioRecorder.cancel() }
+                            .font(.caption.weight(.bold))
+                        Image(systemName: "waveform")
+                            .foregroundStyle(Palette.danger)
+                        Text(durationText(audioRecorder.elapsed))
+                            .font(.subheadline.monospacedDigit().weight(.bold))
+                        Spacer()
+                        Button {
+                            if let attachment = audioRecorder.stop() {
+                                model.capture(attachment)
+                            }
+                        } label: {
+                            Label("Terminar", systemImage: "stop.circle.fill")
+                        }
+                        .font(.caption.weight(.bold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                }
             }
 
             if let feedback = model.feedbackMessage {
@@ -242,26 +264,37 @@ struct AcquisitionChatView: View {
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                Button { showsPicker = true } label: {
-                    Image(systemName: "paperclip")
+                Button { showsAttachmentMenu = true } label: {
+                    Image(systemName: "plus.circle.fill")
                         .font(.title3)
                 }
-                .accessibilityLabel("Adjuntar imagen")
+                .accessibilityLabel("Adjuntar archivo")
+                .disabled(audioRecorder.isRecording || model.isSending)
 
                 TextField("Mensaje", text: $bindableModel.draft, axis: .vertical)
                     .lineLimit(1...4)
                     .padding(10)
                     .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
 
-                Button {
-                    Task { await model.send() }
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title)
-                        .foregroundStyle(model.canSend ? Palette.volt : Palette.textMuted)
+                if model.canSend {
+                    Button {
+                        Task { await model.send() }
+                    } label: {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(Palette.volt)
+                    }
+                    .disabled(model.isSending)
+                    .accessibilityLabel("Enviar mensaje")
+                } else {
+                    Button { audioRecorder.start() } label: {
+                        Image(systemName: "mic.circle.fill")
+                            .font(.title)
+                            .foregroundStyle(audioRecorder.isRecording ? Palette.danger : Palette.volt)
+                    }
+                    .disabled(audioRecorder.isRecording || model.isSending)
+                    .accessibilityLabel("Grabar nota de voz")
                 }
-                .disabled(!model.canSend || model.isSending)
-                .accessibilityLabel("Enviar mensaje")
             }
             .padding(12)
             .background(Palette.surface.opacity(0.98))
@@ -271,9 +304,91 @@ struct AcquisitionChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .onDisappear { model.stop() }
-        .fullScreenCover(isPresented: $showsPicker) {
-            EvidencePicker { data in model.capture(data) }
+        .onDisappear { audioRecorder.cancel() }
+        .confirmationDialog("Adjuntar", isPresented: $showsAttachmentMenu) {
+            Button("Tomar foto") { showsCamera = true }
+            Button("Elegir foto o video") { showsLibrary = true }
+            Button("Archivo o documento") { showsFiles = true }
+            Button("Cancelar", role: .cancel) {}
+        }
+        .fullScreenCover(isPresented: $showsCamera) {
+            EvidencePicker { data in
+                model.capture(
+                    AcquisitionChatAttachment(
+                        data: data,
+                        fileExtension: "jpg",
+                        contentType: "image/jpeg",
+                        filename: "Foto.jpg"
+                    )
+                )
+            }
                 .ignoresSafeArea()
+        }
+        .photosPicker(
+            isPresented: $showsLibrary,
+            selection: $libraryItem,
+            matching: .any(of: [.images, .videos])
+        )
+        .onChange(of: libraryItem) { _, item in
+            guard let item else { return }
+            Task { await loadLibraryItem(item) }
+        }
+        .fileImporter(
+            isPresented: $showsFiles,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            loadFile(result)
+        }
+    }
+
+    private func durationText(_ duration: TimeInterval) -> String {
+        let seconds = max(0, Int(duration))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    @MainActor
+    private func loadLibraryItem(_ item: PhotosPickerItem) async {
+        defer { libraryItem = nil }
+        guard let data = try? await item.loadTransferable(type: Data.self) else {
+            model.feedbackMessage = "No pudimos leer la foto o el video."
+            return
+        }
+        let type = item.supportedContentTypes.first(where: {
+            $0.conforms(to: .image) || $0.conforms(to: .movie)
+        }) ?? .data
+        let ext = type.preferredFilenameExtension ?? (type.conforms(to: .movie) ? "mov" : "jpg")
+        model.capture(
+            AcquisitionChatAttachment(
+                data: data,
+                fileExtension: ext,
+                contentType: type.preferredMIMEType ?? "application/octet-stream",
+                filename: type.conforms(to: .movie) ? "Video.\(ext)" : "Imagen.\(ext)"
+            )
+        )
+    }
+
+    @MainActor
+    private func loadFile(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else {
+            model.feedbackMessage = "No pudimos abrir el archivo seleccionado."
+            return
+        }
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try Data(contentsOf: url)
+            let type = try url.resourceValues(forKeys: [.contentTypeKey]).contentType ?? .data
+            model.capture(
+                AcquisitionChatAttachment(
+                    data: data,
+                    fileExtension: url.pathExtension.isEmpty ? "bin" : url.pathExtension,
+                    contentType: type.preferredMIMEType ?? "application/octet-stream",
+                    filename: url.lastPathComponent
+                )
+            )
+        } catch {
+            model.feedbackMessage = "No pudimos leer el archivo seleccionado."
         }
     }
 }
@@ -294,13 +409,11 @@ private struct AcquisitionChatMessageBubble: View {
             HStack {
                 if isOwn { Spacer(minLength: 46) }
                 VStack(alignment: .leading, spacing: 6) {
-                    if let data = message.attachmentData,
-                       let image = UIImage(data: data) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 220)
-                            .clipShape(.rect(cornerRadius: 12))
+                    if let attachment = message.downloadedAttachment {
+                        AcquisitionChatAttachmentPreview(
+                            attachment: attachment,
+                            onRemove: nil
+                        )
                     }
                     if let body = message.body, !body.isEmpty {
                         Text(body)

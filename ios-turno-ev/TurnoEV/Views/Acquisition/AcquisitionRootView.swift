@@ -23,6 +23,18 @@ struct AcquisitionRootView: View {
             StationBackground()
             NavigationStack {
                 content
+                    // The custom dock belongs to section roots only. Applying
+                    // the inset to the root content keeps it out of pushed
+                    // Chat, Unit and Offer screens and away from their CTAs.
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if let role = model.membership?.role {
+                            AcquisitionDock(
+                                selection: dockSelection,
+                                role: role,
+                                badges: dockBadges(for: role)
+                            )
+                        }
+                    }
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {
                             SessionMenuButton()
@@ -48,15 +60,6 @@ struct AcquisitionRootView: View {
                     }
             }
             .id(navigationID)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let role = model.membership?.role {
-                AcquisitionDock(
-                    selection: dockSelection,
-                    role: role,
-                    badges: dockBadges(for: role)
-                )
-            }
         }
         .task(id: model.principal.profileId) { await model.load() }
         .onChange(of: scenePhase) { _, phase in
@@ -547,9 +550,12 @@ private struct AcquisitionRequestDetailView: View {
                                 .foregroundStyle(Palette.textMuted)
                         }
                         Spacer()
-                        Label("Activa", systemImage: "circle.fill")
+                        Label(
+                            summary.request.visibleStatus.title,
+                            systemImage: summary.request.visibleStatus.systemImage
+                        )
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(Palette.volt)
+                            .foregroundStyle(requestStatusColor(summary.request.visibleStatus.tone))
                     }
 
                     if membership.role == .provider {
@@ -600,6 +606,15 @@ private struct AcquisitionRequestDetailView: View {
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {
+        switch tone {
+        case .active, .complete: Palette.volt
+        case .waiting: Palette.info
+        case .neutral: Palette.textMuted
+        case .cancelled: Palette.danger
+        }
     }
 }
 

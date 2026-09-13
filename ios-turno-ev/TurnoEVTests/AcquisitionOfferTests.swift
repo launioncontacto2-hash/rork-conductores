@@ -174,6 +174,23 @@ struct AcquisitionOfferSubmissionTests {
         #expect(model.feedbackMessage == "Intenta nuevamente. Tus datos siguen en el formulario.")
     }
 
+    @Test func identifiesTheExactFailedSubmissionStageWithoutClearingTheForm() async {
+        let failure = AcquisitionOfferSubmissionError(
+            stage: .evidenceUpload,
+            evidenceKind: .dashboard,
+            technicalDescription: "network_connection_lost"
+        )
+        let repository = Repository(failure: failure)
+        let model = Self.model(repository: repository)
+        model.form = AcquisitionOfferFormTests.validForm()
+
+        await model.submit()
+
+        #expect(model.failureStage == .evidenceUpload)
+        #expect(model.feedbackMessage?.contains("tablero") == true)
+        #expect(model.form.evidence.count == 3)
+    }
+
     private static func model(
         repository: Repository,
         onSubmitted: @escaping (AcquisitionOfferSummary) -> Void = { _ in }
@@ -196,9 +213,13 @@ struct AcquisitionOfferSubmissionTests {
 
     private final class Repository: AcquisitionRepository {
         let fails: Bool
+        let failure: (any Error)?
         var submission: AcquisitionOfferSubmission?
 
-        init(fails: Bool = false) { self.fails = fails }
+        init(fails: Bool = false, failure: (any Error)? = nil) {
+            self.fails = fails
+            self.failure = failure
+        }
 
         func loadMembership(
             profileID: UUID,
@@ -220,6 +241,7 @@ struct AcquisitionOfferSubmissionTests {
             membership: AcquisitionMembership
         ) async throws -> AcquisitionOfferSummary {
             self.submission = submission
+            if let failure { throw failure }
             if fails { throw Failure.unavailable }
             return AcquisitionOfferSummary(
                 id: submission.offerID,

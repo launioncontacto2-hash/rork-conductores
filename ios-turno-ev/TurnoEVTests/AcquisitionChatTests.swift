@@ -38,6 +38,26 @@ struct AcquisitionChatModelTests {
         #expect(thread.unreadCount == 1)
     }
 
+    @Test func classifiesSupportedPrivateAttachmentTypes() {
+        #expect(AcquisitionChatAttachmentKind.resolve(contentType: "image/jpeg") == .image)
+        #expect(AcquisitionChatAttachmentKind.resolve(contentType: "video/mp4") == .video)
+        #expect(AcquisitionChatAttachmentKind.resolve(contentType: "audio/mp4") == .audio)
+        #expect(AcquisitionChatAttachmentKind.resolve(contentType: "application/pdf") == .document)
+    }
+
+    @Test func attachmentKeepsFilenameMimeAndSizeForTheRpc() {
+        let attachment = AcquisitionChatAttachment(
+            data: Data([1, 2, 3]),
+            fileExtension: "pdf",
+            contentType: "application/pdf",
+            filename: "Factura.pdf"
+        )
+        #expect(attachment.kind == .document)
+        #expect(attachment.filename == "Factura.pdf")
+        #expect(attachment.contentType == "application/pdf")
+        #expect(attachment.size == 3)
+    }
+
     static let environmentID = UUID(uuidString: "AD900000-0000-4000-8000-000000000001")!
     static let supplierID = UUID(uuidString: "AD900000-0000-4000-8000-000000000002")!
     static let threadID = UUID(uuidString: "AD900000-0000-4000-8000-000000000003")!
@@ -124,6 +144,23 @@ struct AcquisitionChatFlowTests {
 
         #expect(repository.sentAttachment?.data == Data([1, 2, 3]))
         #expect(model.attachment == nil)
+    }
+
+    @Test func rejectsAnAttachmentLargerThanTenMegabytesBeforeUpload() {
+        let repository = Repository()
+        let model = Self.model(repository: repository)
+
+        model.capture(
+            AcquisitionChatAttachment(
+                data: Data(repeating: 1, count: 10 * 1_024 * 1_024 + 1),
+                fileExtension: "mp4",
+                contentType: "video/mp4",
+                filename: "Video.mp4"
+            )
+        )
+
+        #expect(model.attachment == nil)
+        #expect(model.feedbackMessage == "El archivo supera el límite de 10 MB.")
     }
 
     @Test func administratorResolvesARealUnitConversationWithoutASupplierScope() async throws {
