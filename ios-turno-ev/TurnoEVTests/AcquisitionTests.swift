@@ -102,6 +102,7 @@ struct AcquisitionRoleAndPresentationTests {
             maximum_mileage: 30_000,
             delivery_city: "Puebla",
             deadline_at: nil,
+            target_delivery_date: nil,
             status: "published"
         )
         let request = SupabaseAcquisitionRepository.request(from: row)
