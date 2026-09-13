@@ -10,7 +10,10 @@ SELECT has_table(
 SELECT has_column('public', 'acquisition_request_requirements', 'request_id', 'cada requisito pertenece a una solicitud');
 SELECT has_column('public', 'acquisition_request_requirements', 'category', 'los requisitos admiten categorías flexibles');
 SELECT has_column('public', 'acquisition_request_requirements', 'metadata', 'los requisitos admiten metadatos extensibles');
-SELECT col_type_is('public', 'acquisition_request_requirements', 'metadata', 'jsonb');
+SELECT col_type_is(
+    'public', 'acquisition_request_requirements', 'metadata', 'jsonb',
+    'los metadatos flexibles se almacenan como jsonb'
+);
 SELECT has_function(
     'public', 'publish_acquisition_request',
     ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','jsonb','text'],
@@ -82,8 +85,8 @@ SELECT lives_ok(
     SELECT public.publish_acquisition_request(
         'BYD King', ARRAY['GL'], 4, 2025, 2026, 15000, 'Puebla', NULL,
         '[
-          {"code":"charger_110v","category":"condition","title":"Cargador 110V","value":"Incluido"},
-          {"code":"exterior_driver_side","category":"evidence","title":"Exterior lateral conductor","value":"Fotografía completa"}
+          {"code":"charger_110v","category":"condition","title":"Cargador 110V","value":"Incluido","required":true,"display_order":1},
+          {"code":"exterior_driver_side","category":"evidence","title":"Exterior lateral conductor","value":"Fotografía completa","required":true,"display_order":2}
         ]'::jsonb,
         'adq-request-requirements-1'
     )
