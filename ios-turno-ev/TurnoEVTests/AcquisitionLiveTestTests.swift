@@ -4,6 +4,32 @@ import Testing
 import UIKit
 @testable import TurnoEV
 
+/// The unsigned simulator test runner cannot write the SDK session to Keychain.
+/// Keep the real Auth session in process so PostgREST and Storage receive the same
+/// JWT that the signed app would persist in Keychain on an iPhone.
+private final class AcquisitionTestLocalStorage: AuthLocalStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: Data] = [:]
+
+    func store(key: String, value: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        values[key] = value
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key]
+    }
+
+    func remove(key: String) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        values[key] = nil
+    }
+}
+
 /// Opt-in integration proof for the exact Supabase Swift route used by iPhone.
 /// CI injects its values into the simulator process only for an authorized TEST run.
 @MainActor
@@ -19,7 +45,13 @@ struct AcquisitionLiveTestTests {
         #expect(url.host == "yyxzuiantrmoyozetswv.supabase.co")
         #expect(key.hasPrefix("sb_publishable_"))
 
-        let client = SupabaseClient(supabaseURL: url, supabaseKey: key)
+        let client = SupabaseClient(
+            supabaseURL: url,
+            supabaseKey: key,
+            options: SupabaseClientOptions(
+                auth: .init(storage: AcquisitionTestLocalStorage())
+            )
+        )
         SupabaseBridge.useIntegrationTestClient(client)
         defer { SupabaseBridge.useIntegrationTestClient(nil) }
 
