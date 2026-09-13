@@ -98,7 +98,7 @@ nonisolated struct AcquisitionOfferSubmissionError: LocalizedError, Sendable {
     let technicalDescription: String
 
     var errorDescription: String? {
-        switch stage {
+        return switch stage {
         case .authorization:
             "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
         case .evidenceUpload:
