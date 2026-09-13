@@ -100,6 +100,23 @@ struct AcquisitionChatModelTests {
         #expect(AcquisitionChatOrdering.newestFirst([old, new]).map(\.lastMessage) == ["Nuevo", "Anterior"])
     }
 
+    @Test func anEmptyUnitThreadWithNewerServerActivityOutranksGeneral() {
+        let general = Self.thread(
+            lastMessage: nil,
+            unread: 0,
+            lastMessageAt: nil,
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let unit = AcquisitionChatThreadSummary(
+            id: UUID(), supplierID: Self.supplierID, offerID: Self.offerID,
+            scope: .unit, title: "Unidad", supplierName: "Agencia",
+            lastMessage: nil, lastMessageKind: nil, lastMessageAt: nil,
+            updatedAt: Date(timeIntervalSince1970: 20), unreadCount: 0
+        )
+
+        #expect(AcquisitionChatOrdering.newestFirst([general, unit]).first?.scope == .unit)
+    }
+
     static let environmentID = UUID(uuidString: "AD900000-0000-4000-8000-000000000001")!
     static let supplierID = UUID(uuidString: "AD900000-0000-4000-8000-000000000002")!
     static let threadID = UUID(uuidString: "AD900000-0000-4000-8000-000000000003")!
@@ -110,7 +127,8 @@ struct AcquisitionChatModelTests {
         lastMessage: String? = "Mensaje de prueba",
         kind: AcquisitionChatMessageKind? = .text,
         unread: Int = 0,
-        lastMessageAt: Date? = Date()
+        lastMessageAt: Date? = Date(),
+        updatedAt: Date? = nil
     ) -> AcquisitionChatThreadSummary {
         AcquisitionChatThreadSummary(
             id: threadID,
@@ -122,6 +140,7 @@ struct AcquisitionChatModelTests {
             lastMessage: lastMessage,
             lastMessageKind: kind,
             lastMessageAt: lastMessageAt,
+            updatedAt: updatedAt,
             unreadCount: unread
         )
     }

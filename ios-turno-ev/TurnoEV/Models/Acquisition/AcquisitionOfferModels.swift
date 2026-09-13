@@ -15,9 +15,31 @@ nonisolated enum AcquisitionBatteryKnowledge: String, CaseIterable, Identifiable
 }
 
 nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identifiable, Sendable {
+    // Legacy identifiers remain decodable for offers created before this cut.
     case vin
     case dashboard
     case front
+    case exteriorFront = "exterior_front"
+    case exteriorDriverSide = "exterior_driver_side"
+    case exteriorPassengerSide = "exterior_passenger_side"
+    case exteriorRear = "exterior_rear"
+    case interiorDashboard = "interior_dashboard"
+    case steeringWheel = "steering_wheel"
+    case odometer
+    case driverSeat = "driver_seat"
+    case passengerSeat = "passenger_seat"
+    case rearSeats = "rear_seats"
+    case keys
+    case charger110V = "charger_110v"
+    case charger220V = "charger_220v"
+    case originInvoice = "origin_invoice"
+
+    static let detailedStandard: [Self] = [
+        .exteriorFront, .exteriorDriverSide, .exteriorPassengerSide,
+        .exteriorRear, .interiorDashboard, .steeringWheel, .odometer,
+        .driverSeat, .passengerSeat, .rearSeats, .keys,
+        .charger110V, .charger220V, .originInvoice,
+    ]
 
     var id: String { rawValue }
 
@@ -26,6 +48,20 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
         case .vin: "Foto del VIN"
         case .dashboard: "Tablero y kilometraje"
         case .front: "Vista general"
+        case .exteriorFront: "Exterior frontal"
+        case .exteriorDriverSide: "Exterior lateral conductor"
+        case .exteriorPassengerSide: "Exterior lateral copiloto"
+        case .exteriorRear: "Exterior trasera"
+        case .interiorDashboard: "Interior y tablero general"
+        case .steeringWheel: "Volante"
+        case .odometer: "Odómetro encendido"
+        case .driverSeat: "Asiento conductor"
+        case .passengerSeat: "Asiento copiloto"
+        case .rearSeats: "Asientos traseros"
+        case .keys: "Ambas llaves"
+        case .charger110V: "Cargador de emergencia 110V"
+        case .charger220V: "Cargador de pared 220V"
+        case .originInvoice: "Factura de origen"
         }
     }
 
@@ -34,6 +70,20 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
         case .vin: "Que el número sea legible"
         case .dashboard: "Enciende el tablero y muestra los km"
         case .front: "Fotografía completa del vehículo"
+        case .exteriorFront: "Encuadra frente y ambos faros"
+        case .exteriorDriverSide: "Muestra completo el costado del conductor"
+        case .exteriorPassengerSide: "Muestra completo el costado del copiloto"
+        case .exteriorRear: "Encuadra parte trasera y placas"
+        case .interiorDashboard: "Muestra tablero y consola completos"
+        case .steeringWheel: "Fotografía frontal del volante"
+        case .odometer: "Enciende el tablero y muestra los km"
+        case .driverSeat: "Muestra completo el asiento del conductor"
+        case .passengerSeat: "Muestra completo el asiento del copiloto"
+        case .rearSeats: "Muestra la banca trasera completa"
+        case .keys: "Coloca ambas llaves juntas y visibles"
+        case .charger110V: "Muestra cable y conectores completos"
+        case .charger220V: "Muestra cargador y conectores completos"
+        case .originInvoice: "Oculta datos sensibles no necesarios"
         }
     }
 }
@@ -184,7 +234,7 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
             parsedSoh = value
         }
 
-        let uploads = try AcquisitionEvidenceKind.allCases.map { kind in
+        let uploads = try request.requiredEvidenceKinds.map { kind in
             guard let data = evidence[kind], !data.isEmpty else {
                 throw AcquisitionOfferFormIssue.evidenceRequired(kind)
             }

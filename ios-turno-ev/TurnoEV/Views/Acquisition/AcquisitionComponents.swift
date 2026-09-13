@@ -492,6 +492,10 @@ struct AcquisitionDashboardVehicleCard: View {
                     .frame(minHeight: 66)
             }
 
+            if group == .inProgress {
+                AcquisitionOperationProgress(status: offer.status)
+            }
+
             if let recommendation {
                 Label("DORI recomienda: \(recommendation)", systemImage: "sparkles")
                     .font(.subheadline.weight(.bold))
@@ -520,6 +524,61 @@ struct AcquisitionDashboardVehicleCard: View {
         .shadow(color: Color.black.opacity(0.20), radius: 13, y: 7)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Abre el detalle de la unidad")
+    }
+}
+
+struct AcquisitionOperationProgress: View {
+    let status: String
+
+    private let steps = [
+        ("Compra", "cart.fill"),
+        ("Preparación", "wrench.and.screwdriver.fill"),
+        ("Entrega", "truck.box.fill"),
+        ("Recepción", "checklist"),
+        ("Resolución", "shield.checkered"),
+        ("Final", "checkmark.seal.fill"),
+    ]
+
+    private var currentIndex: Int {
+        switch status {
+        case "awarded": 0
+        case "ready_for_delivery": 2
+        case "received", "accepted", "accepted_with_observations": 3
+        case "accepted_with_condition": 4
+        case "closed": 5
+        default: 0
+        }
+    }
+
+    private var currentText: String { steps[currentIndex].0 }
+    private var nextText: String? {
+        steps.indices.contains(currentIndex + 1) ? steps[currentIndex + 1].0 : nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 4) {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    Image(systemName: step.1)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(index <= currentIndex ? Palette.volt : Palette.textMuted)
+                        .frame(width: 22, height: 22)
+                    if index < steps.count - 1 {
+                        Rectangle()
+                            .fill(index < currentIndex ? Palette.volt : Palette.hairline)
+                            .frame(height: 2)
+                    }
+                }
+            }
+            Text("Ahora: \(currentText)")
+                .font(.caption.weight(.bold))
+            if let nextText {
+                Text("Siguiente: \(nextText)")
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textMuted)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

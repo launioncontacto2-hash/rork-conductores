@@ -138,7 +138,7 @@ struct AcquisitionOfferFormView: View {
                             .font(.caption)
                             .foregroundStyle(Palette.textMuted)
 
-                        ForEach(AcquisitionEvidenceKind.allCases) { kind in
+                        ForEach(model.request.requiredEvidenceKinds) { kind in
                             PhotoSlotView(
                                 title: kind.title,
                                 hint: kind.hint,
@@ -155,7 +155,10 @@ struct AcquisitionOfferFormView: View {
                             .font(.headline)
                         summaryLine("VIN", value: model.form.vin.isEmpty ? "Pendiente" : model.form.vin.uppercased())
                         summaryLine("Unidad", value: model.request.modelAndVersions)
-                        summaryLine("Fotos", value: "\(model.form.evidence.count) de 3")
+                        summaryLine(
+                            "Evidencias",
+                            value: "\(model.form.evidence.count) de \(model.request.requiredEvidenceKinds.count)"
+                        )
                         summaryLine(
                             "Requisitos",
                             value: "\(model.form.confirmedRequirements.count) de \(AcquisitionOfferRequirement.allCases.count)"

@@ -231,21 +231,6 @@ struct AcquisitionRootView: View {
         let attention = groupedOffers(.attention, role: .doriAdmin)
         let inProgress = groupedOffers(.inProgress, role: .doriAdmin)
         return VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 12) {
-                AcquisitionSectionHeader(title: "Solicitud actual")
-                NavigationLink {
-                    AcquisitionRequestDetailView(
-                        summary: summary,
-                        membership: membership,
-                        repository: repository,
-                        onSubmitted: { _ in Task { await model.load() } }
-                    )
-                } label: {
-                    AcquisitionAdminRequestCard(summary: summary)
-                }
-                .buttonStyle(.plain)
-            }
-
             administratorOfferSection(
                 title: "Necesita tu atención",
                 symbol: "exclamationmark.triangle.fill",
@@ -264,6 +249,9 @@ struct AcquisitionRootView: View {
                 emptyText: "No hay compras en proceso."
             )
 
+            compactRequestsSummary(summary: summary, role: .doriAdmin)
+            recentActivity(role: .doriAdmin, membership: membership)
+
             finishedLink(membership: membership)
         }
     }
@@ -275,42 +263,6 @@ struct AcquisitionRootView: View {
         let attention = groupedOffers(.attention, role: .provider)
         let inProgress = groupedOffers(.inProgress, role: .provider)
         return VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 12) {
-                AcquisitionSectionHeader(title: "Solicitud disponible")
-                AcquisitionProviderRequestCard(summary: summary)
-                NavigationLink {
-                    AcquisitionOfferFormView(
-                        request: summary.request,
-                        membership: membership,
-                        repository: repository,
-                        onSubmitted: { _ in Task { await model.load() } }
-                    )
-                } label: {
-                    Label("Ofrecer una unidad", systemImage: "car.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
-
-                NavigationLink {
-                    AcquisitionRequestDetailView(
-                        summary: summary,
-                        membership: membership,
-                        repository: repository,
-                        onSubmitted: { _ in Task { await model.load() } }
-                    )
-                } label: {
-                    Label("Ver requisitos completos", systemImage: "list.bullet.rectangle")
-                        .font(.subheadline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.bordered)
-                .tint(Palette.volt)
-            }
-
             offerSection(
                 title: "Necesita tu atención",
                 offers: attention,
@@ -319,38 +271,168 @@ struct AcquisitionRootView: View {
             )
 
             offerSection(
-                title: "Mis vehículos",
+                title: "Mis unidades en proceso",
                 offers: inProgress,
                 membership: membership,
                 emptyText: "Aún no has ofrecido vehículos."
             )
 
+            compactRequestsSummary(summary: summary, role: .provider)
+
+            Button { selectedDestination = .contact } label: {
+                HStack {
+                    Label("Mensajes nuevos", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(model.unreadChatCount)").font(.headline.monospacedDigit())
+                    Image(systemName: "chevron.right")
+                }
+                .padding(16).panelFlat()
+            }
+            .buttonStyle(.plain)
+
             finishedLink(membership: membership)
+        }
+    }
+
+    private func compactRequestsSummary(
+        summary: AcquisitionRequestSummary,
+        role: AcquisitionRole
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            AcquisitionSectionHeader(
+                title: role == .doriAdmin ? "Solicitudes activas" : "Solicitudes disponibles",
+                count: model.requests.count
+            )
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text.fill")
+                    .font(.title2)
+                    .foregroundStyle(Palette.volt)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(summary.request.modelAndVersions).font(.headline)
+                    Text("\(summary.request.targetQuantity) vehículos · \(summary.request.yearRange)")
+                        .font(.subheadline).foregroundStyle(Palette.textMuted)
+                }
+                Spacer()
+            }
+            Button(role == .doriAdmin ? "Ver solicitudes" : "Revisar solicitudes") {
+                selectedDestination = .requests
+            }
+            .buttonStyle(.bordered).tint(Palette.volt)
+        }
+        .padding(16).panelFlat()
+    }
+
+    private func recentActivity(
+        role: AcquisitionRole,
+        membership: AcquisitionMembership
+    ) -> some View {
+        let recent = model.uniqueOffers.sorted {
+            (model.activity(for: $0)?.createdAt ?? $0.submittedAt ?? .distantPast)
+                > (model.activity(for: $1)?.createdAt ?? $1.submittedAt ?? .distantPast)
+        }.prefix(3)
+        return VStack(alignment: .leading, spacing: 10) {
+            AcquisitionSectionHeader(title: "Actividad reciente", count: recent.count)
+            ForEach(Array(recent)) { offer in
+                NavigationLink {
+                    AcquisitionOfferDetailView(
+                        offerID: offer.id,
+                        membership: membership,
+                        repository: repository,
+                        onChanged: { Task { await model.load() } }
+                    )
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(Palette.info)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(offer.modelAndVersion) \(offer.yearText)").font(.subheadline.weight(.bold))
+                            Text(AcquisitionHumanStatus.title(for: offer.status, role: role))
+                                .font(.caption).foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(Palette.textMuted)
+                    }
+                    .padding(13).panelFlat()
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
     private func requests(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            AcquisitionSectionHeader(title: "Solicitudes", count: model.requests.count)
+            HStack {
+                AcquisitionSectionHeader(title: "Solicitudes", count: model.requests.count)
+                Spacer()
+                if membership.role == .doriAdmin {
+                    NavigationLink {
+                        AcquisitionNewRequestView(
+                            repository: repository,
+                            onPublished: { _ in Task { await model.load() } }
+                        )
+                    } label: {
+                        Label("Nueva solicitud", systemImage: "plus")
+                            .font(.subheadline.weight(.bold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Palette.volt)
+                }
+            }
             ForEach(model.requests) { request in
                 let summary = AcquisitionRequestSummary(request: request, offers: model.uniqueOffers)
-                NavigationLink {
-                    AcquisitionRequestDetailView(
-                        summary: summary,
-                        membership: membership,
-                        repository: repository,
-                        onSubmitted: { _ in Task { await model.load() } }
-                    )
-                } label: {
+                if membership.role == .provider {
                     AcquisitionRequestCard(
                         request: request,
-                        progressText: membership.role == .doriAdmin
-                            ? "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir"
-                            : nil,
+                        progressText: nil,
                         audience: membership.role
                     )
+                    HStack(spacing: 10) {
+                        NavigationLink {
+                            AcquisitionRequestDetailView(
+                                summary: summary,
+                                membership: membership,
+                                repository: repository,
+                                onSubmitted: { _ in Task { await model.load() } }
+                            )
+                        } label: {
+                            Label("Ver requisitos", systemImage: "list.bullet.rectangle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Palette.volt)
+
+                        NavigationLink {
+                            AcquisitionOfferFormView(
+                                request: request,
+                                membership: membership,
+                                repository: repository,
+                                onSubmitted: { _ in Task { await model.load() } }
+                            )
+                        } label: {
+                            Label("Ofrecer una unidad", systemImage: "car.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                    }
+                } else {
+                    NavigationLink {
+                        AcquisitionRequestDetailView(
+                            summary: summary,
+                            membership: membership,
+                            repository: repository,
+                            onSubmitted: { _ in Task { await model.load() } }
+                        )
+                    } label: {
+                        AcquisitionRequestCard(
+                            request: request,
+                            progressText: "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir",
+                            audience: membership.role
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -394,25 +476,6 @@ struct AcquisitionRootView: View {
     private var contactDirectory: some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
-                AcquisitionSectionHeader(title: "Personas", count: model.counterpartContacts.count)
-                if model.counterpartContacts.isEmpty {
-                    Text("Información de contacto pendiente")
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.textMuted)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(18)
-                        .panelFlat()
-                } else {
-                    ForEach(model.counterpartContacts) { contact in
-                        AcquisitionInstitutionalContactCard(
-                            contact: contact,
-                            openChat: { showConversations = true }
-                        )
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
                 if let membership = model.membership,
                    let profileID = UUID(uuidString: model.principal.profileId) {
                     AcquisitionChatListView(
@@ -421,6 +484,32 @@ struct AcquisitionRootView: View {
                         repository: repository
                     )
                 }
+            }
+
+            if let membership = model.membership {
+                NavigationLink {
+                    AcquisitionCounterpartDirectoryView(
+                        title: membership.role == .doriAdmin
+                            ? "Directorio de proveedores" : "Contactos DORI",
+                        contacts: model.counterpartContacts,
+                        openChat: { showConversations = true }
+                    )
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "person.2.crop.square.stack.fill")
+                            .foregroundStyle(Palette.volt)
+                        Text(membership.role == .doriAdmin
+                             ? "Directorio de proveedores" : "Contactos DORI")
+                            .font(.headline)
+                        Spacer()
+                        Text("\(model.counterpartContacts.count)")
+                            .font(.caption.weight(.bold))
+                        Image(systemName: "chevron.right")
+                    }
+                    .padding(16)
+                    .panelFlat()
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -615,6 +704,38 @@ struct AcquisitionRootView: View {
             }
         }
         .padding(28)
+    }
+}
+
+private struct AcquisitionCounterpartDirectoryView: View {
+    let title: String
+    let contacts: [AcquisitionInstitutionalContact]
+    let openChat: () -> Void
+
+    var body: some View {
+        ZStack {
+            StationBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    AcquisitionSectionHeader(title: title, count: contacts.count)
+                    if contacts.isEmpty {
+                        Text("Información de contacto pendiente")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.textMuted)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(18)
+                            .panelFlat()
+                    } else {
+                        ForEach(contacts) { contact in
+                            AcquisitionInstitutionalContactCard(contact: contact, openChat: openChat)
+                        }
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

@@ -1,6 +1,12 @@
 import SwiftUI
 import UIKit
 
+private struct AcquisitionEvidenceGallerySelection: Identifiable {
+    let id = UUID()
+    let attachments: [AcquisitionChatAttachment]
+    let initialFilename: String
+}
+
 struct AcquisitionOfferDetailView: View {
     @State private var model: AcquisitionOfferDetailViewModel
     @State private var showsNegotiation = false
@@ -8,6 +14,7 @@ struct AcquisitionOfferDetailView: View {
     @State private var showsRejection = false
     @State private var showsPreparation = false
     @State private var showsReception = false
+    @State private var evidenceGallery: AcquisitionEvidenceGallerySelection?
     private let repository: any AcquisitionRepository
 
     init(
@@ -102,12 +109,18 @@ struct AcquisitionOfferDetailView: View {
         } message: {
             Text(model.confirmationMessage ?? "")
         }
+        .fullScreenCover(item: $evidenceGallery) { selection in
+            AcquisitionImageGalleryView(
+                attachments: selection.attachments,
+                initialFilename: selection.initialFilename
+            )
+        }
     }
 
     private func detailContent(_ detail: AcquisitionOfferDetail) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                vehicleCard(detail.offer)
+                vehicleCard(detail)
                 currentStateCard(detail)
 
                 if model.membership.role == .doriAdmin, let assessment = detail.assessment {
@@ -115,6 +128,7 @@ struct AcquisitionOfferDetailView: View {
                 }
 
                 evidenceCard(detail.evidence)
+                requirementsCard(detail)
 
                 NavigationLink {
                     AcquisitionUnitChatLauncherView(
@@ -160,14 +174,33 @@ struct AcquisitionOfferDetailView: View {
         .scrollIndicators(.hidden)
     }
 
-    private func vehicleCard(_ offer: AcquisitionOfferSummary) -> some View {
+    private func vehicleCard(_ detail: AcquisitionOfferDetail) -> some View {
+        let offer = detail.offer
         VStack(alignment: .leading, spacing: 8) {
+            if let primary = primaryEvidence(in: detail.evidence),
+               let data = primary.imageData,
+               let image = UIImage(data: data) {
+                Button {
+                    showEvidenceGallery(detail.evidence, initial: primary)
+                } label: {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 220)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Abrir fotografías de la unidad")
+            }
             Text("Unidad")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Palette.textMuted)
             Text("\(offer.modelAndVersion) \(offer.yearText)")
                 .font(.title2.weight(.black))
             Text("\(offer.mileageText) km")
+            Text("Color: \(offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")")
             Text("Precio del proveedor: \(offer.priceText)")
                 .font(.headline)
             Text(offer.declaredSoh.map { "Estado de batería: \($0) %" }
@@ -176,6 +209,10 @@ struct AcquisitionOfferDetailView: View {
             Text("VIN: \(offer.abbreviatedVin)")
                 .font(.caption)
                 .foregroundStyle(Palette.textMuted)
+            if let supplierName = detail.supplierName {
+                Text("Proveedor: \(supplierName)")
+                    .font(.subheadline)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -233,7 +270,10 @@ struct AcquisitionOfferDetailView: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 10) {
                     ForEach(evidence) { item in
-                        VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            showEvidenceGallery(evidence, initial: item)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
                             Group {
                                 if let data = item.imageData, let image = UIImage(data: data) {
                                     Image(uiImage: image)
@@ -250,12 +290,78 @@ struct AcquisitionOfferDetailView: View {
                             .clipShape(.rect(cornerRadius: 14))
                             Text(item.visibleTitle)
                                 .font(.caption.weight(.semibold))
+                                .foregroundStyle(Palette.text)
+                            Label(
+                                item.verified ? "Verificada" : "Pendiente de verificar",
+                                systemImage: item.verified ? "checkmark.circle.fill" : "questionmark.circle"
+                            )
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(item.verified ? Palette.volt : Palette.amber)
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
             .scrollIndicators(.hidden)
         }
+    }
+
+    private func requirementsCard(_ detail: AcquisitionOfferDetail) -> some View {
+        let requirements = detail.requirements.isEmpty
+            ? AcquisitionRequestDraft.defaultRequirements
+            : detail.requirements
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Requisitos de la solicitud").font(.headline)
+            ForEach(requirements) { requirement in
+                let evidence = detail.evidence.first { $0.kind.rawValue == requirement.id }
+                HStack(alignment: .top, spacing: 9) {
+                    Image(systemName: evidence?.verified == true
+                          ? "checkmark.circle.fill"
+                          : evidence == nil && requirement.category == .evidence
+                            ? "xmark.circle.fill" : "questionmark.circle.fill")
+                        .foregroundStyle(evidence?.verified == true
+                                         ? Palette.volt
+                                         : evidence == nil && requirement.category == .evidence
+                                            ? Palette.danger : Palette.amber)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(requirement.title).font(.subheadline.weight(.semibold))
+                        Text(requirement.value).font(.caption).foregroundStyle(Palette.textMuted)
+                    }
+                    Spacer()
+                }
+            }
+            Text("La evidencia enviada por el proveedor permanece pendiente hasta que DORI la verifique.")
+                .font(.caption)
+                .foregroundStyle(Palette.textMuted)
+        }
+        .padding(16)
+        .panelFlat()
+    }
+
+    private func primaryEvidence(in evidence: [AcquisitionEvidenceItem]) -> AcquisitionEvidenceItem? {
+        evidence.first { $0.kind == .exteriorDriverSide }
+            ?? evidence.first { $0.kind == .front }
+            ?? evidence.first
+    }
+
+    private func showEvidenceGallery(
+        _ evidence: [AcquisitionEvidenceItem],
+        initial: AcquisitionEvidenceItem
+    ) {
+        let attachments = evidence.compactMap { item -> AcquisitionChatAttachment? in
+            guard let data = item.imageData else { return nil }
+            return AcquisitionChatAttachment(
+                data: data,
+                fileExtension: "jpg",
+                contentType: "image/jpeg",
+                filename: "\(item.kind.rawValue).jpg"
+            )
+        }
+        evidenceGallery = AcquisitionEvidenceGallerySelection(
+            attachments: attachments,
+            initialFilename: "\(initial.kind.rawValue).jpg"
+        )
     }
 
     private func negotiationHistoryCard(_ detail: AcquisitionOfferDetail) -> some View {

@@ -115,6 +115,7 @@ nonisolated struct AcquisitionChatThreadSummary: Identifiable, Equatable, Sendab
     let lastMessage: String?
     let lastMessageKind: AcquisitionChatMessageKind?
     let lastMessageAt: Date?
+    let updatedAt: Date?
     let unreadCount: Int
     let vehicle: AcquisitionChatVehicleContext?
 
@@ -128,6 +129,7 @@ nonisolated struct AcquisitionChatThreadSummary: Identifiable, Equatable, Sendab
         lastMessage: String?,
         lastMessageKind: AcquisitionChatMessageKind?,
         lastMessageAt: Date?,
+        updatedAt: Date? = nil,
         unreadCount: Int,
         vehicle: AcquisitionChatVehicleContext? = nil
     ) {
@@ -140,6 +142,7 @@ nonisolated struct AcquisitionChatThreadSummary: Identifiable, Equatable, Sendab
         self.lastMessage = lastMessage
         self.lastMessageKind = lastMessageKind
         self.lastMessageAt = lastMessageAt
+        self.updatedAt = updatedAt
         self.unreadCount = unreadCount
         self.vehicle = vehicle
     }
@@ -149,6 +152,8 @@ nonisolated struct AcquisitionChatThreadSummary: Identifiable, Equatable, Sendab
         if lastMessageKind == .attachment { return "Adjunto" }
         return "Sin mensajes todavía"
     }
+
+    var activityAt: Date { lastMessageAt ?? updatedAt ?? .distantPast }
 }
 
 nonisolated struct AcquisitionChatVehicleContext: Equatable, Sendable {
@@ -163,7 +168,8 @@ nonisolated struct AcquisitionChatVehicleContext: Equatable, Sendable {
 nonisolated enum AcquisitionChatOrdering {
     static func newestFirst(_ threads: [AcquisitionChatThreadSummary]) -> [AcquisitionChatThreadSummary] {
         threads.sorted {
-            ($0.lastMessageAt ?? .distantPast) > ($1.lastMessageAt ?? .distantPast)
+            if $0.activityAt == $1.activityAt { return $0.id.uuidString < $1.id.uuidString }
+            return $0.activityAt > $1.activityAt
         }
     }
 }

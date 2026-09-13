@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import Observation
 import QuickLook
 import SwiftUI
@@ -98,8 +99,11 @@ final class AcquisitionAudioRecorder {
 struct AcquisitionChatAttachmentPreview: View {
     let attachment: AcquisitionChatAttachment
     let onRemove: (() -> Void)?
+    var imageGallery: [AcquisitionChatAttachment] = []
     @State private var previewItem: AcquisitionFilePreviewItem?
     @State private var shareItem: AcquisitionFilePreviewItem?
+    @State private var showsImageGallery = false
+    @State private var videoItem: AcquisitionFilePreviewItem?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -133,18 +137,8 @@ struct AcquisitionChatAttachmentPreview: View {
         .sheet(item: $previewItem) { item in
             NavigationStack {
                 Group {
-                    if attachment.kind == .image,
-                       let image = UIImage(data: attachment.data) {
-                        ZStack {
-                            Color.black.ignoresSafeArea()
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                        }
-                    } else {
-                        AcquisitionQuickLookView(url: item.url)
-                            .ignoresSafeArea()
-                    }
+                    AcquisitionQuickLookView(url: item.url)
+                        .ignoresSafeArea()
                 }
                 .navigationTitle(attachment.filename)
                 .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +155,26 @@ struct AcquisitionChatAttachmentPreview: View {
         .sheet(item: $shareItem) { item in
             AcquisitionActivityShareView(items: [item.url])
         }
+        .fullScreenCover(isPresented: $showsImageGallery) {
+            AcquisitionImageGalleryView(
+                attachments: imageGallery.isEmpty ? [attachment] : imageGallery,
+                initialFilename: attachment.filename
+            )
+        }
+        .fullScreenCover(item: $videoItem) { item in
+            NavigationStack {
+                VideoPlayer(player: AVPlayer(url: item.url))
+                    .background(Color.black)
+                    .ignoresSafeArea(edges: .bottom)
+                    .navigationTitle(attachment.filename)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            ShareLink(item: item.url) { Image(systemName: "square.and.arrow.up") }
+                        }
+                    }
+            }
+        }
     }
 
     @ViewBuilder
@@ -168,10 +182,7 @@ struct AcquisitionChatAttachmentPreview: View {
         if attachment.kind == .image,
            let image = UIImage(data: attachment.data) {
             Button {
-                previewItem = AcquisitionFilePreviewItem.make(
-                    data: attachment.data,
-                    filename: attachment.filename
-                )
+                showsImageGallery = true
             } label: {
                 Image(uiImage: image)
                     .resizable()
@@ -183,6 +194,20 @@ struct AcquisitionChatAttachmentPreview: View {
             .accessibilityLabel("Abrir imagen en pantalla completa")
         } else if attachment.kind == .audio {
             AcquisitionAudioPlayback(data: attachment.data)
+        } else if attachment.kind == .video {
+            Button {
+                videoItem = AcquisitionFilePreviewItem.make(
+                    data: attachment.data,
+                    filename: attachment.filename
+                )
+            } label: {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.title2)
+                    .frame(width: 58, height: 58)
+                    .background(Palette.info.opacity(0.15), in: .rect(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Reproducir \(attachment.filename)")
         } else {
             Button {
                 previewItem = AcquisitionFilePreviewItem.make(
@@ -198,6 +223,68 @@ struct AcquisitionChatAttachmentPreview: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Abrir \(attachment.filename)")
         }
+    }
+}
+
+struct AcquisitionImageGalleryView: View {
+    @Environment(\.dismiss) private var dismiss
+    let attachments: [AcquisitionChatAttachment]
+    @State private var selection: Int
+
+    init(attachments: [AcquisitionChatAttachment], initialFilename: String? = nil) {
+        self.attachments = attachments.filter { $0.kind == .image }
+        let index = self.attachments.firstIndex { $0.filename == initialFilename } ?? 0
+        _selection = State(initialValue: index)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                TabView(selection: $selection) {
+                    ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
+                        if let image = UIImage(data: attachment.data) {
+                            AcquisitionZoomableImage(image: image).tag(index)
+                        }
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .always))
+            }
+            .navigationTitle(attachments.isEmpty ? "Fotografía" : "\(selection + 1) de \(attachments.count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Volver") { dismiss() }
+                }
+                if attachments.indices.contains(selection),
+                   let item = AcquisitionFilePreviewItem.make(
+                       data: attachments[selection].data,
+                       filename: attachments[selection].filename
+                   ) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: item.url) { Image(systemName: "square.and.arrow.up") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AcquisitionZoomableImage: View {
+    let image: UIImage
+    @State private var scale: CGFloat = 1
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .scaleEffect(scale)
+            .gesture(
+                MagnifyGesture()
+                    .onChanged { scale = min(max($0.magnification, 1), 5) }
+                    .onEnded { _ in if scale < 1.05 { scale = 1 } }
+            )
+            .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2.5 } }
     }
 }
 

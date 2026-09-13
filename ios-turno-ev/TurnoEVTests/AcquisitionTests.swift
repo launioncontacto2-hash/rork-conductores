@@ -211,6 +211,29 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(request.visibleRequirements == [requirement])
     }
 
+    @Test func newRequestKeepsFlexibleRequirementsWithoutInternalRules() throws {
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD King"
+        draft.versions = "GL, GS"
+        draft.targetQuantity = "4"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "15,000"
+
+        let publication = try draft.makePublication(idempotencyKey: "request-test")
+
+        #expect(publication.model == "BYD King")
+        #expect(publication.versions == ["GL", "GS"])
+        #expect(publication.maximumMileage == 15_000)
+        #expect(publication.requirements.filter { $0.category == .evidence }.count == 14)
+    }
+
+    @Test func detailedEvidenceUsesTheApprovedDriverSidePrimaryKind() {
+        #expect(AcquisitionEvidenceKind.detailedStandard.count == 14)
+        #expect(AcquisitionEvidenceKind.detailedStandard.contains(.exteriorDriverSide))
+        #expect(AcquisitionEvidenceKind.detailedStandard.contains(.originInvoice))
+    }
+
     @Test func mapsEveryPersistedRequestStatusToHumanLanguage() {
         let expected = [
             "published": "Activa",
@@ -252,7 +275,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, agreed_price_mxn, submitted_at"
+                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, submitted_at"
         )
     }
 

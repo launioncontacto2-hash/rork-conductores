@@ -197,13 +197,129 @@ nonisolated enum AcquisitionRequestStatusTone: Equatable, Sendable {
 
 nonisolated struct AcquisitionRequestRequirement: Identifiable, Equatable, Sendable {
     let id: String
+    let category: AcquisitionRequestRequirementCategory
     let title: String
     let value: String
+    let required: Bool
+    let displayOrder: Int
 
-    init(id: String, title: String, value: String) {
+    init(
+        id: String,
+        category: AcquisitionRequestRequirementCategory = .specification,
+        title: String,
+        value: String,
+        required: Bool = true,
+        displayOrder: Int = 0
+    ) {
         self.id = id
+        self.category = category
         self.title = title
         self.value = value
+        self.required = required
+        self.displayOrder = displayOrder
+    }
+}
+
+nonisolated enum AcquisitionRequestRequirementCategory: String, Codable, CaseIterable, Sendable {
+    case specification
+    case documentation
+    case condition
+    case evidence
+
+    var visibleTitle: String {
+        switch self {
+        case .specification: "Especificación"
+        case .documentation: "Documentación"
+        case .condition: "Condición"
+        case .evidence: "Evidencia"
+        }
+    }
+}
+
+nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
+    var model = ""
+    var versions = ""
+    var targetQuantity = ""
+    var minimumYear = ""
+    var maximumYear = ""
+    var maximumMileage = ""
+    var deliveryCity = "Puebla"
+    var deadlineAt: Date?
+    var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
+
+    static let defaultRequirements: [AcquisitionRequestRequirement] = [
+        .init(id: "charger_110v", category: .condition, title: "Cargador 110V", value: "Incluido"),
+        .init(id: "charger_220v", category: .condition, title: "Cargador 220V", value: "Incluido"),
+        .init(id: "keys", category: .condition, title: "Llaves", value: "Dos llaves completas"),
+        .init(id: "origin_invoice_document", category: .documentation, title: "Factura de origen", value: "Documento legible"),
+    ] + AcquisitionEvidenceKind.detailedStandard.enumerated().map { index, kind in
+        .init(
+            id: kind.rawValue,
+            category: .evidence,
+            title: kind.title,
+            value: kind.hint,
+            displayOrder: 100 + index
+        )
+    }
+
+    func makePublication(idempotencyKey: String = "ios-acquisition-request-\(UUID().uuidString.lowercased())") throws -> AcquisitionRequestPublication {
+        let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanModel.isEmpty else { throw AcquisitionRequestDraftIssue.modelRequired }
+        guard let quantity = Int(targetQuantity), quantity > 0 else {
+            throw AcquisitionRequestDraftIssue.invalidQuantity
+        }
+        guard let minimum = Int(minimumYear), let maximum = Int(maximumYear),
+              (2000...2100).contains(minimum), maximum >= minimum else {
+            throw AcquisitionRequestDraftIssue.invalidYears
+        }
+        guard let mileage = Int(maximumMileage.replacingOccurrences(of: ",", with: "")), mileage >= 0 else {
+            throw AcquisitionRequestDraftIssue.invalidMileage
+        }
+        let city = deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !city.isEmpty else { throw AcquisitionRequestDraftIssue.cityRequired }
+        guard !requirements.isEmpty else { throw AcquisitionRequestDraftIssue.requirementsRequired }
+        return AcquisitionRequestPublication(
+            model: cleanModel,
+            versions: versions.split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            targetQuantity: quantity,
+            minimumYear: minimum,
+            maximumYear: maximum,
+            maximumMileage: mileage,
+            deliveryCity: city,
+            deadlineAt: deadlineAt,
+            requirements: requirements,
+            idempotencyKey: idempotencyKey
+        )
+    }
+}
+
+nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
+    let model: String
+    let versions: [String]
+    let targetQuantity: Int
+    let minimumYear: Int
+    let maximumYear: Int
+    let maximumMileage: Int
+    let deliveryCity: String
+    let deadlineAt: Date?
+    let requirements: [AcquisitionRequestRequirement]
+    let idempotencyKey: String
+}
+
+nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
+    case modelRequired, invalidQuantity, invalidYears, invalidMileage, cityRequired, requirementsRequired
+
+    var message: String {
+        switch self {
+        case .modelRequired: "Captura el modelo solicitado."
+        case .invalidQuantity: "Captura una cantidad válida."
+        case .invalidYears: "Revisa los años permitidos."
+        case .invalidMileage: "Captura un kilometraje válido."
+        case .cityRequired: "Captura la ciudad de entrega."
+        case .requirementsRequired: "Agrega al menos un requisito."
+        }
     }
 }
 
@@ -227,6 +343,13 @@ nonisolated extension AcquisitionRequest {
             .init(id: "used_warranty", title: "Garantía seminuevos", value: "90 días comprobables"),
         ]
     }
+
+    var requiredEvidenceKinds: [AcquisitionEvidenceKind] {
+        let configured = detailedRequirements
+            .filter { $0.category == .evidence && $0.required }
+            .compactMap { AcquisitionEvidenceKind(rawValue: $0.id) }
+        return configured.isEmpty ? AcquisitionEvidenceKind.detailedStandard : configured
+    }
 }
 
 /// Public commercial fields shared by the offer owner and DORI. Internal
@@ -244,6 +367,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let transferIncluded: Bool
     let vin: String
     let declaredSoh: Int?
+    let color: String?
     let agreedPriceMxn: Int?
     let submittedAt: Date?
 
@@ -260,6 +384,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         transferIncluded: Bool = false,
         vin: String = "",
         declaredSoh: Int? = nil,
+        color: String? = nil,
         agreedPriceMxn: Int? = nil,
         submittedAt: Date? = nil
     ) {
@@ -275,6 +400,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         self.transferIncluded = transferIncluded
         self.vin = vin
         self.declaredSoh = declaredSoh
+        self.color = color
         self.agreedPriceMxn = agreedPriceMxn
         self.submittedAt = submittedAt
     }

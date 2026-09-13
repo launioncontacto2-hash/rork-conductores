@@ -78,6 +78,7 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
     let assessment: AcquisitionOfferAssessment?
     let negotiations: [AcquisitionNegotiation]
     let evidence: [AcquisitionEvidenceItem]
+    let requirements: [AcquisitionRequestRequirement]
     let delivery: AcquisitionDeliveryJourney?
     let supplierName: String?
 
@@ -86,6 +87,7 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
         assessment: AcquisitionOfferAssessment?,
         negotiations: [AcquisitionNegotiation],
         evidence: [AcquisitionEvidenceItem],
+        requirements: [AcquisitionRequestRequirement] = [],
         delivery: AcquisitionDeliveryJourney? = nil,
         supplierName: String? = nil
     ) {
@@ -93,6 +95,7 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
         self.assessment = assessment
         self.negotiations = negotiations
         self.evidence = evidence
+        self.requirements = requirements
         self.delivery = delivery
         self.supplierName = supplierName
     }

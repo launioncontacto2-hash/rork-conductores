@@ -3,6 +3,24 @@ import Testing
 @testable import TurnoEV
 
 struct AcquisitionOfferFormTests {
+    @Test func responseRPCIncludesNullableArgumentsAsExplicitNulls() throws {
+        let parameters = SupabaseAcquisitionRepository.RespondOfferParameters(
+            p_offer_id: UUID(),
+            p_action: "accept",
+            p_amount_mxn: nil,
+            p_message: nil,
+            p_idempotency_key: "accept-null-contract"
+        )
+
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters))
+                as? [String: Any]
+        )
+        #expect(object.keys.count == 5)
+        #expect(object["p_amount_mxn"] is NSNull)
+        #expect(object["p_message"] is NSNull)
+    }
+
     @Test func offerRPCIncludesNullableArgumentsAsExplicitNulls() throws {
         let parameters = SupabaseAcquisitionRepository.SubmitOfferParameters(
             p_offer_id: UUID(),
@@ -41,7 +59,7 @@ struct AcquisitionOfferFormTests {
         #expect(submission.mileage == 8_400)
         #expect(submission.priceMxn == 274_000)
         #expect(submission.declaredSoh == nil)
-        #expect(submission.evidence.map(\.kind) == AcquisitionEvidenceKind.allCases)
+        #expect(submission.evidence.map(\.kind) == AcquisitionEvidenceKind.detailedStandard)
     }
 
     @Test func refusesAnEmptyVin() {
@@ -104,6 +122,7 @@ struct AcquisitionOfferFormTests {
             transfer_included: true,
             vin: "LGXCE6CB1S0000011",
             declared_soh: 96,
+            color: "Blanco",
             agreed_price_mxn: nil,
             submitted_at: nil
         )
@@ -160,18 +179,18 @@ struct AcquisitionOfferFormTests {
         form.transferIncluded = true
         form.batteryKnowledge = .requiresDORIVerification
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
-        form.evidence = [
-            .vin: Data([1]),
-            .dashboard: Data([2]),
-            .front: Data([3]),
-        ]
+        form.evidence = Dictionary(
+            uniqueKeysWithValues: AcquisitionEvidenceKind.detailedStandard.enumerated().map {
+                ($0.element, Data([UInt8($0.offset + 1)]))
+            }
+        )
         return form
     }
 }
 
 @MainActor
 struct AcquisitionOfferSubmissionTests {
-    @Test func uploadsThreeEvidenceItemsAndReportsSuccess() async {
+    @Test func uploadsTheFourteenRequiredEvidenceItemsAndReportsSuccess() async {
         let repository = Repository()
         var received: AcquisitionOfferSummary?
         let model = Self.model(repository: repository) { received = $0 }
@@ -179,8 +198,8 @@ struct AcquisitionOfferSubmissionTests {
 
         await model.submit()
 
-        #expect(repository.submission?.evidence.count == 3)
-        #expect(repository.submission?.evidence.map(\.kind) == AcquisitionEvidenceKind.allCases)
+        #expect(repository.submission?.evidence.count == 14)
+        #expect(repository.submission?.evidence.map(\.kind) == AcquisitionEvidenceKind.detailedStandard)
         #expect(received?.id == repository.submission?.offerID)
         if case .succeeded(let offer) = model.state {
             #expect(offer.status == "submitted")
@@ -215,7 +234,7 @@ struct AcquisitionOfferSubmissionTests {
 
         #expect(model.failureStage == .evidenceUpload)
         #expect(model.feedbackMessage?.contains("tablero") == true)
-        #expect(model.form.evidence.count == 3)
+        #expect(model.form.evidence.count == 14)
     }
 
     @Test func storageAuthorizationFailureDoesNotPretendToBeAConnectionProblem() {

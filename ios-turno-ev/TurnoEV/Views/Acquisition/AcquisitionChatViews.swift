@@ -30,18 +30,6 @@ struct AcquisitionChatListView: View {
                 count: model.threads.count
             )
 
-            if model.unreadCount > 0 {
-                Label(
-                    "\(model.unreadCount) \(model.unreadCount == 1 ? "mensaje nuevo" : "mensajes nuevos")",
-                    systemImage: "bell.badge.fill"
-                )
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(Palette.amber)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .panelFlat()
-            }
-
             if model.isLoading && model.threads.isEmpty {
                 ProgressView("Cargando conversaciones…")
                     .frame(maxWidth: .infinity)
@@ -275,7 +263,12 @@ struct AcquisitionChatView: View {
                         ForEach(model.messages) { message in
                             AcquisitionChatMessageBubble(
                                 message: message,
-                                isOwn: message.isOwn(profileID: model.profileID)
+                                isOwn: message.isOwn(profileID: model.profileID),
+                                imageGallery: model.messages.compactMap { item in
+                                    guard let attachment = item.downloadedAttachment,
+                                          attachment.kind == .image else { return nil }
+                                    return attachment
+                                }
                             )
                             .id(message.id)
                         }
@@ -463,6 +456,7 @@ struct AcquisitionChatView: View {
 private struct AcquisitionChatMessageBubble: View {
     let message: AcquisitionChatMessage
     let isOwn: Bool
+    let imageGallery: [AcquisitionChatAttachment]
 
     var body: some View {
         if message.isSystem {
@@ -479,7 +473,8 @@ private struct AcquisitionChatMessageBubble: View {
                     if let attachment = message.downloadedAttachment {
                         AcquisitionChatAttachmentPreview(
                             attachment: attachment,
-                            onRemove: nil
+                            onRemove: nil,
+                            imageGallery: imageGallery
                         )
                     }
                     if let body = message.body, !body.isEmpty {
