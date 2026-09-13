@@ -182,6 +182,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let transfer_included: Bool
         let vin: String
         let declared_soh: Decimal?
+        let color: String?
         let agreed_price_mxn: Decimal?
         let submitted_at: Date?
     }
@@ -617,7 +618,21 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         ]
         return rows
             .filter { visibleStatuses.contains($0.status) }
-            .map { Self.request(from: $0, requirements: requirementsByRequest[$0.id] ?? []) }
+            .map { row in
+                Self.request(
+                    from: row,
+                    requirements: (requirementsByRequest[row.id] ?? []).map {
+                        AcquisitionRequestRequirement(
+                            id: $0.code,
+                            category: $0.category,
+                            title: $0.title,
+                            value: $0.value,
+                            required: $0.required,
+                            displayOrder: $0.display_order
+                        )
+                    }
+                )
+            }
     }
 
     func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest {
@@ -1379,7 +1394,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
     nonisolated static func request(
         from row: RequestRow,
-        requirements: [RequestRequirementRow] = []
+        requirements: [AcquisitionRequestRequirement] = []
     ) -> AcquisitionRequest {
         AcquisitionRequest(
             id: row.id,
@@ -1394,16 +1409,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             deliveryCity: row.delivery_city,
             deadlineAt: row.deadline_at,
             status: row.status,
-            detailedRequirements: requirements.map {
-                AcquisitionRequestRequirement(
-                    id: $0.code,
-                    category: $0.category,
-                    title: $0.title,
-                    value: $0.value,
-                    required: $0.required,
-                    displayOrder: $0.display_order
-                )
-            }
+            detailedRequirements: requirements
         )
     }
 
