@@ -125,6 +125,7 @@ struct AcquisitionOfferFormTests {
             declared_soh: 96,
             color: "Blanco",
             agreed_price_mxn: nil,
+            committed_delivery_date: nil,
             submitted_at: nil
         )
         let offer = SupabaseAcquisitionRepository.offer(from: row)
