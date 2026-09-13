@@ -94,6 +94,7 @@ struct AcquisitionOfferFormTests {
         let row = SupabaseAcquisitionRepository.OfferRow(
             id: Self.offerID,
             request_id: Self.request.id,
+            supplier_id: Self.supplierID,
             status: "submitted",
             model: "Dolphin Mini",
             version: "Plus",
@@ -115,11 +116,11 @@ struct AcquisitionOfferFormTests {
         #expect(offer.transferIncluded)
     }
 
-    @Test func providerProjectionExcludesInternalAssessmentAndOtherSupplierFields() {
+    @Test func offerProjectionKeepsItsSupplierIdentityButExcludesInternalAssessment() {
         let columns = AcquisitionQueries.offerColumns.lowercased()
+        #expect(columns.contains("supplier_id"))
         #expect(!columns.contains("recommendation"))
         #expect(!columns.contains("risk"))
-        #expect(!columns.contains("supplier_id"))
         #expect(!columns.contains("internal"))
     }
 
