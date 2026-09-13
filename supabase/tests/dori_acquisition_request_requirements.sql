@@ -7,9 +7,9 @@ SELECT has_table(
     'public', 'acquisition_request_requirements',
     'existe el contrato flexible de requisitos por solicitud'
 );
-SELECT has_column('public', 'acquisition_request_requirements', 'request_id');
-SELECT has_column('public', 'acquisition_request_requirements', 'category');
-SELECT has_column('public', 'acquisition_request_requirements', 'metadata');
+SELECT has_column('public', 'acquisition_request_requirements', 'request_id', 'cada requisito pertenece a una solicitud');
+SELECT has_column('public', 'acquisition_request_requirements', 'category', 'los requisitos admiten categorías flexibles');
+SELECT has_column('public', 'acquisition_request_requirements', 'metadata', 'los requisitos admiten metadatos extensibles');
 SELECT col_type_is('public', 'acquisition_request_requirements', 'metadata', 'jsonb');
 SELECT has_function(
     'public', 'publish_acquisition_request',

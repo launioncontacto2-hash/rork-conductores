@@ -161,7 +161,7 @@ BEGIN
     END IF;
 
     v_code := 'ADQ-' || to_char(v_now, 'YYYYMMDD') || '-'
-        || upper(substr(replace(public.gen_random_uuid()::text, '-', ''), 1, 6));
+        || upper(substr(replace(extensions.gen_random_uuid()::text, '-', ''), 1, 6));
 
     INSERT INTO public.acquisition_requests(
         environment_id, code, title, target_quantity, model, versions,
@@ -265,7 +265,7 @@ BEGIN
     FROM public.acquisition_requests request
     WHERE request.id = p_request_id
       AND request.environment_id = v_environment_id
-      AND request.status IN ('published', 'evaluating')
+      AND request.status IN ('published', 'evaluating', 'partially_awarded')
     FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'active_acquisition_request_not_found' USING ERRCODE = 'P0002';
