@@ -110,7 +110,7 @@ DECLARE
     v_id uuid;
 BEGIN
     IF v_environment_id IS NULL OR v_profile_id IS NULL
-       OR NOT (app.auth_is_acquisition_admin() OR app.auth_is_acquisition_provider()) THEN
+       OR COALESCE(app.auth_acquisition_role() NOT IN ('dori_admin', 'provider'), true) THEN
         RAISE EXCEPTION 'acquisition_push_membership_required' USING ERRCODE = '42501';
     END IF;
     SELECT code INTO STRICT v_environment_code
