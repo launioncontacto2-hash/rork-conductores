@@ -48,7 +48,10 @@ nonisolated enum AcquisitionRemoteDiagnostic {
     static func redact(path: String) -> String {
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count == 4 else { return "invalid-shape(\(parts.count))" }
-        return parts.prefix(3).map(redact).joined(separator: "/") + "/" + parts[3]
+        let protectedSegments = [parts[0], parts[1], parts[2]]
+            .map { redact($0) }
+            .joined(separator: "/")
+        return protectedSegments + "/" + parts[3]
     }
 
     private static func unwrap(_ value: Any) -> String {
