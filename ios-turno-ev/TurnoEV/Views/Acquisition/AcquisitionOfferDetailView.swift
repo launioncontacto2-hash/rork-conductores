@@ -176,7 +176,7 @@ struct AcquisitionOfferDetailView: View {
 
     private func vehicleCard(_ detail: AcquisitionOfferDetail) -> some View {
         let offer = detail.offer
-        VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 8) {
             if let primary = primaryEvidence(in: detail.evidence),
                let data = primary.imageData,
                let image = UIImage(data: data) {
