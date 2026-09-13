@@ -123,7 +123,10 @@ struct SettlementCreditTests {
     /// was signed. This is the retroactive debt found in the audit: the same instalment
     /// was applied to the five previous, already frozen weeks.
     @Test func contractSignedThisWeekDoesNotChargePreviousWeeks() {
-        let now = Date()
+        // Keep the business scenario independent from the runner's clock. At the
+        // Sunday UTC boundary the former Date() landed after this model's inclusive
+        // week-end instant and made the same scenario alternate between PASS and FAIL.
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
         let driverId = "drv-001"
         let credit = Self.contract(driverId: driverId, origin: .simulated, startedAt: now)
         let currentWeek = ShiftRules.weekStart(for: now)
