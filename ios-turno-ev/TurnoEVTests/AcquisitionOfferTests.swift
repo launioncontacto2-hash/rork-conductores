@@ -135,13 +135,16 @@ struct AcquisitionOfferFormTests {
         #expect(offer.mileage == 8_400)
         #expect(offer.priceMxn == 274_000)
         #expect(offer.transferIncluded)
-        let commitmentParts = Calendar(identifier: .gregorian).dateComponents(
-            [.year, .month, .day],
-            from: try #require(offer.committedDeliveryDate)
-        )
-        #expect(commitmentParts.year == 2026)
-        #expect(commitmentParts.month == 10)
-        #expect(commitmentParts.day == 20)
+        #expect(offer.committedDeliveryDate != nil)
+        if let committedDeliveryDate = offer.committedDeliveryDate {
+            let commitmentParts = Calendar(identifier: .gregorian).dateComponents(
+                [.year, .month, .day],
+                from: committedDeliveryDate
+            )
+            #expect(commitmentParts.year == 2026)
+            #expect(commitmentParts.month == 10)
+            #expect(commitmentParts.day == 20)
+        }
     }
 
     @Test func offerProjectionKeepsItsSupplierIdentityButExcludesInternalAssessment() {

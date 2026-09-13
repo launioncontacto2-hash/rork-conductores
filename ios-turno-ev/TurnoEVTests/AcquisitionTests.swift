@@ -109,13 +109,16 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(request.modelAndVersions == "Dolphin Mini / Plus")
         #expect(request.yearRange == "2024–2026")
         #expect(request.maximumMileageText == "30,000")
-        let deliveryParts = Calendar(identifier: .gregorian).dateComponents(
-            [.year, .month, .day],
-            from: try #require(request.targetDeliveryDate)
-        )
-        #expect(deliveryParts.year == 2026)
-        #expect(deliveryParts.month == 10)
-        #expect(deliveryParts.day == 15)
+        #expect(request.targetDeliveryDate != nil)
+        if let targetDeliveryDate = request.targetDeliveryDate {
+            let deliveryParts = Calendar(identifier: .gregorian).dateComponents(
+                [.year, .month, .day],
+                from: targetDeliveryDate
+            )
+            #expect(deliveryParts.year == 2026)
+            #expect(deliveryParts.month == 10)
+            #expect(deliveryParts.day == 15)
+        }
     }
 
     @Test func derivesOnlyActionableDashboardCounts() {
