@@ -102,10 +102,18 @@ nonisolated struct AcquisitionOfferSubmissionError: LocalizedError, Sendable {
         case .authorization:
             "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
         case .evidenceUpload:
+            let lower = technicalDescription.lowercased()
             if let evidenceKind {
-                "No pudimos subir \(evidenceKind.title.lowercased()). Revisa tu conexión e intenta nuevamente."
+                if lower.contains("nsurlerrordomain") || lower.contains("network") || lower.contains("offline") {
+                    "No pudimos subir \(evidenceKind.title.lowercased()) por un problema de red. Intenta nuevamente."
+                } else if lower.contains("401") || lower.contains("403") || lower.contains("42501")
+                    || lower.contains("row-level security") {
+                    "Tu sesión no autorizó la carga de \(evidenceKind.title.lowercased()). Vuelve a iniciar sesión."
+                } else {
+                    "No pudimos guardar \(evidenceKind.title.lowercased()). Intenta nuevamente."
+                }
             } else {
-                "No pudimos subir las fotografías. Revisa tu conexión e intenta nuevamente."
+                "No pudimos guardar las fotografías. Intenta nuevamente."
             }
         case .rpc:
             if technicalDescription.localizedCaseInsensitiveContains("duplicate")

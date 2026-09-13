@@ -191,6 +191,17 @@ struct AcquisitionOfferSubmissionTests {
         #expect(model.form.evidence.count == 3)
     }
 
+    @Test func storageAuthorizationFailureDoesNotPretendToBeAConnectionProblem() {
+        let error = AcquisitionOfferSubmissionError(
+            stage: .evidenceUpload,
+            evidenceKind: .vin,
+            technicalDescription: "http_status=403 code=42501 message=row-level security policy"
+        )
+
+        #expect(error.localizedDescription.contains("sesión"))
+        #expect(!error.localizedDescription.contains("conexión"))
+    }
+
     private static func model(
         repository: Repository,
         onSubmitted: @escaping (AcquisitionOfferSummary) -> Void = { _ in }

@@ -1,5 +1,66 @@
 import Foundation
 
+nonisolated struct AcquisitionChatSendError: LocalizedError, Sendable {
+    let technicalDescription: String
+
+    var errorDescription: String? {
+        "No pudimos enviar el mensaje. Intenta nuevamente."
+    }
+}
+
+nonisolated enum AcquisitionRemoteDiagnostic {
+    static func describe(
+        _ error: any Error,
+        operation: String,
+        context: [String: String] = [:]
+    ) -> String {
+        let reflected = Mirror(reflecting: error)
+        var fields: [String: String] = [:]
+        for child in reflected.children {
+            guard let label = child.label else { continue }
+            let value = unwrap(child.value)
+            if !value.isEmpty { fields[label] = value }
+        }
+
+        let nsError = error as NSError
+        let code = fields["code"] ?? fields["error"] ?? String(nsError.code)
+        let message = fields["message"] ?? error.localizedDescription
+        let details = fields["details"] ?? fields["detail"] ?? "null"
+        let hint = fields["hint"] ?? "null"
+        let status = fields["statusCode"] ?? fields["status"]
+            ?? nsError.userInfo["statusCode"].map(String.init(describing:))
+            ?? "unknown"
+        let safeContext = context.keys.sorted().map { "\($0)=\(context[$0]!)" }.joined(separator: " ")
+        return "operation=\(operation) http_status=\(status) code=\(code) "
+            + "message=\(message) details=\(details) hint=\(hint) \(safeContext)"
+    }
+
+    static func redact(_ id: UUID) -> String {
+        let value = id.uuidString.lowercased()
+        return "…\(value.suffix(8))"
+    }
+
+    static func redact(_ value: String) -> String {
+        guard value.count > 12 else { return "…" }
+        return "…\(value.suffix(8))"
+    }
+
+    static func redact(path: String) -> String {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 4 else { return "invalid-shape(\(parts.count))" }
+        return parts.prefix(3).map(redact).joined(separator: "/") + "/" + parts[3]
+    }
+
+    private static func unwrap(_ value: Any) -> String {
+        let mirror = Mirror(reflecting: value)
+        if mirror.displayStyle == .optional {
+            guard let child = mirror.children.first else { return "null" }
+            return unwrap(child.value)
+        }
+        return String(describing: value)
+    }
+}
+
 nonisolated enum AcquisitionChatScope: String, Codable, Sendable {
     case general
     case unit

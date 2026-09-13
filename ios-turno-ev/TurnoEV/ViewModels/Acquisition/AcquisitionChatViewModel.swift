@@ -157,7 +157,8 @@ final class AcquisitionChatViewModel {
             attachment = nil
             await load()
         } catch {
-            feedbackMessage = "No pudimos enviar el mensaje. Intenta nuevamente."
+            feedbackMessage = (error as? AcquisitionChatSendError)?.localizedDescription
+                ?? "No pudimos enviar el mensaje. Intenta nuevamente."
         }
         isSending = false
     }

@@ -32,6 +32,42 @@ struct AcquisitionChatModelTests {
         #expect(path.hasSuffix(".jpg"))
     }
 
+    @Test func textMessageEncodesEveryRpcArgumentIncludingExplicitNulls() throws {
+        let parameters = SupabaseAcquisitionRepository.SendChatMessageParameters(
+            p_thread_id: Self.threadID,
+            p_body: "Prueba",
+            p_attachment_path: nil,
+            p_attachment_mime_type: nil,
+            p_attachment_filename: nil,
+            p_attachment_size_bytes: nil,
+            p_idempotency_key: "ios-acquisition-chat-test"
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters)) as? [String: Any]
+        )
+
+        #expect(object.count == 7)
+        #expect(object["p_attachment_path"] is NSNull)
+        #expect(object["p_attachment_mime_type"] is NSNull)
+        #expect(object["p_attachment_filename"] is NSNull)
+        #expect(object["p_attachment_size_bytes"] is NSNull)
+    }
+
+    @Test func technicalDiagnosticsAnonymizeOperationalIdentifiers() {
+        let path = AcquisitionChatAttachmentPath.make(
+            environmentID: Self.environmentID,
+            supplierID: Self.supplierID,
+            threadID: Self.threadID,
+            fileExtension: "jpg"
+        )
+        let diagnostic = AcquisitionRemoteDiagnostic.redact(path: path)
+
+        #expect(!diagnostic.contains(Self.environmentID.uuidString.lowercased()))
+        #expect(!diagnostic.contains(Self.supplierID.uuidString.lowercased()))
+        #expect(!diagnostic.contains(Self.threadID.uuidString.lowercased()))
+        #expect(diagnostic.hasSuffix(".jpg"))
+    }
+
     @Test func threadUsesAReadablePreviewForAnAttachment() {
         let thread = Self.thread(lastMessage: nil, kind: .attachment, unread: 1)
         #expect(thread.previewText == "Adjunto")

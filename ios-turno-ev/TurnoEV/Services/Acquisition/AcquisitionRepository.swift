@@ -310,6 +310,27 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_attachment_filename: String?
         let p_attachment_size_bytes: Int?
         let p_idempotency_key: String
+
+        enum CodingKeys: String, CodingKey {
+            case p_thread_id
+            case p_body
+            case p_attachment_path
+            case p_attachment_mime_type
+            case p_attachment_filename
+            case p_attachment_size_bytes
+            case p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_thread_id, forKey: .p_thread_id)
+            try container.encode(p_body, forKey: .p_body)
+            try container.encode(p_attachment_path, forKey: .p_attachment_path)
+            try container.encode(p_attachment_mime_type, forKey: .p_attachment_mime_type)
+            try container.encode(p_attachment_filename, forKey: .p_attachment_filename)
+            try container.encode(p_attachment_size_bytes, forKey: .p_attachment_size_bytes)
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
     }
 
     nonisolated struct MarkChatReadParameters: Encodable, Sendable {
@@ -623,16 +644,36 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                 kind: item.kind
             )
             do {
+                // Force the SDK to recover/refresh the persisted Auth session before
+                // Storage builds its authenticated request. The same client still
+                // performs the upload; no parallel authentication path is introduced.
+                _ = try await client.auth.session
                 try await bucket.upload(
                     path,
                     data: item.data,
                     options: FileOptions(contentType: "image/jpeg", upsert: false)
                 )
             } catch {
+                let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                    error,
+                    operation: "storage.upload acquisition-evidence",
+                    context: [
+                        "bucket": "acquisition-evidence",
+                        "path": AcquisitionRemoteDiagnostic.redact(path: path),
+                        "mime": "image/jpeg",
+                        "bytes": String(item.data.count),
+                        "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environmentID),
+                        "supplier_id": AcquisitionRemoteDiagnostic.redact(supplierID),
+                        "offer_id": AcquisitionRemoteDiagnostic.redact(submission.offerID),
+                        "evidence": item.kind.rawValue,
+                        "upsert": "false",
+                    ]
+                )
+                print("[Adquisiciones][TEST][Storage] \(diagnostic)")
                 throw AcquisitionOfferSubmissionError(
                     stage: .evidenceUpload,
                     evidenceKind: item.kind,
-                    technicalDescription: error.localizedDescription
+                    technicalDescription: diagnostic
                 )
             }
             references.append(EvidenceReference(kind: item.kind.rawValue, path: path))
@@ -852,22 +893,40 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             attachmentPath = nil
         }
 
-        let row: ChatMessageRow = try await client
-            .rpc(
-                "send_acquisition_chat_message",
-                params: SendChatMessageParameters(
-                    p_thread_id: thread.id,
-                    p_body: body.trimmingCharacters(in: .whitespacesAndNewlines),
-                    p_attachment_path: attachmentPath,
-                    p_attachment_mime_type: attachment?.contentType,
-                    p_attachment_filename: attachment?.filename,
-                    p_attachment_size_bytes: attachment?.size,
-                    p_idempotency_key: "ios-acquisition-chat-\(UUID().uuidString.lowercased())"
+        let idempotencyKey = "ios-acquisition-chat-\(UUID().uuidString.lowercased())"
+        do {
+            let row: ChatMessageRow = try await client
+                .rpc(
+                    "send_acquisition_chat_message",
+                    params: SendChatMessageParameters(
+                        p_thread_id: thread.id,
+                        p_body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                        p_attachment_path: attachmentPath,
+                        p_attachment_mime_type: attachment?.contentType,
+                        p_attachment_filename: attachment?.filename,
+                        p_attachment_size_bytes: attachment?.size,
+                        p_idempotency_key: idempotencyKey
+                    )
                 )
+                .execute()
+                .value
+            return Self.chatMessage(from: row, attachmentData: attachment?.data)
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc.send_acquisition_chat_message",
+                context: [
+                    "thread_id": AcquisitionRemoteDiagnostic.redact(thread.id),
+                    "supplier_id": AcquisitionRemoteDiagnostic.redact(thread.supplierID),
+                    "offer_id": thread.offerID.map(AcquisitionRemoteDiagnostic.redact) ?? "null",
+                    "scope": thread.scope.rawValue,
+                    "attachment": attachmentPath == nil ? "none" : "private",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(idempotencyKey),
+                ]
             )
-            .execute()
-            .value
-        return Self.chatMessage(from: row, attachmentData: attachment?.data)
+            print("[Adquisiciones][TEST][Chat] \(diagnostic)")
+            throw AcquisitionChatSendError(technicalDescription: diagnostic)
+        }
     }
 
     func markChatRead(threadID: UUID, sequence: Int64) async throws {

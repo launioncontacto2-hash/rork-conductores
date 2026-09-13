@@ -819,9 +819,11 @@ enum SupabaseFinancialService {
 enum SupabaseBridge {
     private static var cached: SupabaseClient?
     private static var cachedFor: SupabaseConfig.Credentials?
+    private static var integrationTestClient: SupabaseClient?
 
     /// The live client, or nil while the project is not configured.
     static var client: SupabaseClient? {
+        if let integrationTestClient { return integrationTestClient }
         guard case .success(let credentials) = SupabaseConfig.resolve() else {
             cached = nil
             cachedFor = nil
@@ -838,6 +840,12 @@ enum SupabaseBridge {
         cached = created
         cachedFor = credentials
         return created
+    }
+
+    /// Installs an ephemeral client only for the opt-in TEST integration suite.
+    /// This is internal to the app module and never selected by production code.
+    static func useIntegrationTestClient(_ client: SupabaseClient?) {
+        integrationTestClient = client
     }
 
     static var isConfigured: Bool {

@@ -12,6 +12,11 @@ on:
           - validate-only
           - archive-only
           - upload-testflight
+      run_acquisition_live_test:
+        description: Run the opt-in Supabase TEST client integration proof
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,9 +39,13 @@ jobs:
     name: Validate with Xcode 26.6
     runs-on: macos-26
     timeout-minutes: 45
+    environment: testflight
     env:
       DERIVED_DATA_PATH: ${{ github.workspace }}/DerivedData
       SOURCE_PACKAGES_PATH: ${{ github.workspace }}/SourcePackages
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+      TEST_ACQUISITION_PASSWORD: ${{ secrets.TEST_ACQUISITION_PASSWORD }}
     defaults:
       run:
         shell: bash
@@ -168,6 +177,38 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             -only-testing:TurnoEVTests \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Run acquisition Swift client integration proof against TEST
+        if: inputs.run_acquisition_live_test
+        run: |
+          set -euo pipefail
+          source selected-simulator.env
+          [[ "$TEST_SUPABASE_URL" == "$EXPECTED_TEST_SUPABASE_URL" ]]
+          [[ "$TEST_SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]]
+          [[ -n "$TEST_ACQUISITION_PASSWORD" ]]
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl setenv DORI_RUN_ACQUISITION_LIVE_TEST 1
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl setenv DORI_TEST_SUPABASE_URL "$TEST_SUPABASE_URL"
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl setenv DORI_TEST_SUPABASE_PUBLISHABLE_KEY "$TEST_SUPABASE_PUBLISHABLE_KEY"
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl setenv DORI_TEST_ACQUISITION_PASSWORD "$TEST_ACQUISITION_PASSWORD"
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVTests/AcquisitionLiveTestTests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Clear acquisition TEST process values
+        if: always() && inputs.run_acquisition_live_test
+        run: |
+          source selected-simulator.env
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl unsetenv DORI_RUN_ACQUISITION_LIVE_TEST || true
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl unsetenv DORI_TEST_SUPABASE_URL || true
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl unsetenv DORI_TEST_SUPABASE_PUBLISHABLE_KEY || true
+          xcrun simctl spawn "$SIMULATOR_UDID" launchctl unsetenv DORI_TEST_ACQUISITION_PASSWORD || true
 
       - name: Shut down simulator
         if: always() && env.SIMULATOR_UDID != ''

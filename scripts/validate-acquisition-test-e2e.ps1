@@ -149,8 +149,9 @@ Add-Result $results 'Backend TEST' 'Usuario Proveedor' 'Solicitud compartida' `
 $offerID = [guid]::NewGuid()
 $offerIDText = $offerID.ToString()
 $syntheticVIN = 'TESTDRH25PUE' + $offerID.ToString('N').Substring(0, 5).ToUpperInvariant()
+# Real JPEG bytes, matching the UIImage.jpegData payload used by the iPhone.
 $image = [Convert]::FromBase64String(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EH//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EH//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EH//2Q=='
 )
 $evidence = @()
 foreach ($kind in @('vin', 'dashboard', 'front')) {
@@ -161,10 +162,10 @@ foreach ($kind in @('vin', 'dashboard', 'front')) {
         'x-upsert'     = 'false'
         'User-Agent'   = 'DORI-TEST-E2E/1.0'
     }
-    $upload = Invoke-WebRequest -Method Post `
+    $upload = Invoke-RestMethod -Method Post `
         -Uri "$url/storage/v1/object/acquisition-evidence/$path" `
         -Headers $uploadHeaders -ContentType 'image/jpeg' -Body $image
-    if ($upload.StatusCode -notin 200, 201) {
+    if (-not $upload.Key -and -not $upload.key) {
         throw "No se pudo cargar la evidencia de prueba '$kind'."
     }
     $evidence += @{ kind = $kind; path = $path }

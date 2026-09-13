@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$CredentialPath = (Join-Path (Join-Path $env:LOCALAPPDATA 'DORI') 'adquisicion-test-credentials.txt')
+    [string]$CredentialPath = (Join-Path (Join-Path $env:LOCALAPPDATA 'DORI') 'adquisicion-test-credentials.txt'),
+    [switch]$DiagnoseOmittedNilArguments
 )
 
 $ErrorActionPreference = 'Stop'
@@ -146,11 +147,40 @@ if ($adminThread.id -ne $providerThread.id -or $adminThread.scope -ne 'unit') {
     throw 'Administrador y proveedor no resolvieron la misma conversación de unidad.'
 }
 
+if ($DiagnoseOmittedNilArguments) {
+    # Build 1031 used synthesized Encodable conformance. Swift omits nil optionals,
+    # so this is the exact text-only JSON shape produced by that binary.
+    $legacyPayload = @{
+        p_thread_id = [string]$providerThread.id
+        p_body = 'Diagnóstico sin persistir'
+        p_idempotency_key = "diagnostic-omitted-nil-$([guid]::NewGuid().ToString('N'))"
+    }
+    $legacyResponse = Invoke-WebRequest -SkipHttpErrorCheck -Method Post `
+        -Uri "$url/rest/v1/rpc/send_acquisition_chat_message" -Headers $providerHeaders `
+        -Body ($legacyPayload | ConvertTo-Json -Compress)
+    if ($legacyResponse.StatusCode -lt 400) {
+        throw 'La forma incompleta de build 1031 fue aceptada inesperadamente.'
+    }
+    $failure = $legacyResponse.Content | ConvertFrom-Json
+    [pscustomobject]@{
+        'RPC' = 'send_acquisition_chat_message'
+        'HTTP status' = $legacyResponse.StatusCode
+        'Código' = $failure.code
+        'Mensaje' = $failure.message
+        'Details' = $failure.details
+        'Hint' = $failure.hint
+        'Thread' = "…$(([string]$providerThread.id).Substring(28))"
+        'Scope' = $providerThread.scope
+        'Rol' = 'provider'
+    } | Format-List
+}
+
 $marker = [guid]::NewGuid().ToString('N').Substring(0, 8)
 $adminBody = "Prueba DORI unidad $marker"
 $providerBody = "Respuesta proveedor unidad $marker"
 $null = Invoke-Rpc $url $adminHeaders 'send_acquisition_chat_message' @{
     p_thread_id = [string]$adminThread.id; p_body = $adminBody; p_attachment_path = $null
+    p_attachment_mime_type = $null; p_attachment_filename = $null; p_attachment_size_bytes = $null
     p_idempotency_key = "test-unit-chat-admin-$marker"
 }
 $seenByProvider = @(Invoke-RestMethod -Method Get `
@@ -160,6 +190,7 @@ if ($seenByProvider.Count -ne 1) { throw 'El proveedor no recibió el mensaje DO
 
 $null = Invoke-Rpc $url $providerHeaders 'send_acquisition_chat_message' @{
     p_thread_id = [string]$providerThread.id; p_body = $providerBody; p_attachment_path = $null
+    p_attachment_mime_type = $null; p_attachment_filename = $null; p_attachment_size_bytes = $null
     p_idempotency_key = "test-unit-chat-provider-$marker"
 }
 $seenByAdmin = @(Invoke-RestMethod -Method Get `
