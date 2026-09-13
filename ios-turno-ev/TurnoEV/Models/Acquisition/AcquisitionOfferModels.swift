@@ -131,7 +131,7 @@ nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
     let color: String
     let priceMxn: Int
     let transferIncluded: Bool
-    let committedDeliveryDate: Date = .distantFuture
+    let committedDeliveryDate: Date
     let evidence: [AcquisitionEvidenceUpload]
     let idempotencyKey: String
 }

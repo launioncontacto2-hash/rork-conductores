@@ -183,6 +183,7 @@ DECLARE
     v_supplier_id uuid := app.auth_acquisition_supplier_id();
     v_now timestamptz := app.env_now(v_environment_id);
     v_offer public.acquisition_offers%ROWTYPE;
+    v_previous_date date;
     v_command public.command_log%ROWTYPE;
 BEGIN
     IF v_supplier_id IS NULL OR p_committed_date IS NULL OR btrim(COALESCE(p_reason, '')) = '' THEN
@@ -194,6 +195,7 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'acquisition_offer_access_denied' USING ERRCODE = '42501';
     END IF;
+    v_previous_date := v_offer.committed_delivery_date;
     v_command := app.begin_acquisition_command(
         'change_acquisition_delivery_commitment', p_idempotency_key,
         jsonb_build_object('offer_id', p_offer_id, 'committed_date', p_committed_date, 'reason', btrim(p_reason))
@@ -210,7 +212,7 @@ BEGIN
     PERFORM app.finish_acquisition_command(
         v_command.id, jsonb_build_object('offer_id', p_offer_id, 'committed_date', p_committed_date),
         'acquisition.offer.delivery_commitment_changed', 'acquisition_offer', p_offer_id,
-        jsonb_build_object('previous_date', v_offer.committed_delivery_date, 'reason', btrim(p_reason))
+        jsonb_build_object('previous_date', v_previous_date, 'reason', btrim(p_reason))
     );
     RETURN v_offer;
 END;
