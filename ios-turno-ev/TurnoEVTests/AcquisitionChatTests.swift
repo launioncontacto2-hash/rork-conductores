@@ -95,8 +95,8 @@ struct AcquisitionChatModelTests {
     }
 
     @Test func conversationsAreOrderedByLatestMessageNotThreadCreation() {
-        let old = thread(lastMessage: "Anterior", unread: 0, lastMessageAt: Date(timeIntervalSince1970: 10))
-        let new = thread(lastMessage: "Nuevo", unread: 1, lastMessageAt: Date(timeIntervalSince1970: 20))
+        let old = Self.thread(lastMessage: "Anterior", unread: 0, lastMessageAt: Date(timeIntervalSince1970: 10))
+        let new = Self.thread(lastMessage: "Nuevo", unread: 1, lastMessageAt: Date(timeIntervalSince1970: 20))
         #expect(AcquisitionChatOrdering.newestFirst([old, new]).map(\.lastMessage) == ["Nuevo", "Anterior"])
     }
 
