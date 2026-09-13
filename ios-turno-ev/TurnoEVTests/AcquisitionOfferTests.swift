@@ -3,6 +3,32 @@ import Testing
 @testable import TurnoEV
 
 struct AcquisitionOfferFormTests {
+    @Test func offerRPCIncludesNullableArgumentsAsExplicitNulls() throws {
+        let parameters = SupabaseAcquisitionRepository.SubmitOfferParameters(
+            p_offer_id: UUID(),
+            p_request_id: UUID(),
+            p_vin: "LGXCE6CB1S0000011",
+            p_model: "Dolphin Mini",
+            p_version: nil,
+            p_year: 2025,
+            p_mileage: 8_400,
+            p_declared_soh: nil,
+            p_color: "Blanco",
+            p_price_mxn: 274_000,
+            p_transfer_included: true,
+            p_evidence: [],
+            p_idempotency_key: "offer-null-contract"
+        )
+
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters))
+                as? [String: Any]
+        )
+        #expect(object.keys.count == 13)
+        #expect(object["p_version"] is NSNull)
+        #expect(object["p_declared_soh"] is NSNull)
+    }
+
     @Test func acceptsAValidFormWithoutKnownBatteryHealth() throws {
         let submission = try Self.validForm().makeSubmission(
             request: Self.request,

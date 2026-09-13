@@ -158,6 +158,41 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_transfer_included: Bool
         let p_evidence: [EvidenceReference]
         let p_idempotency_key: String
+
+        private enum CodingKeys: String, CodingKey {
+            case p_offer_id
+            case p_request_id
+            case p_vin
+            case p_model
+            case p_version
+            case p_year
+            case p_mileage
+            case p_declared_soh
+            case p_color
+            case p_price_mxn
+            case p_transfer_included
+            case p_evidence
+            case p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_offer_id, forKey: .p_offer_id)
+            try container.encode(p_request_id, forKey: .p_request_id)
+            try container.encode(p_vin, forKey: .p_vin)
+            try container.encode(p_model, forKey: .p_model)
+            try container.encodeIfPresent(p_version, forKey: .p_version)
+            if p_version == nil { try container.encodeNil(forKey: .p_version) }
+            try container.encode(p_year, forKey: .p_year)
+            try container.encode(p_mileage, forKey: .p_mileage)
+            try container.encodeIfPresent(p_declared_soh, forKey: .p_declared_soh)
+            if p_declared_soh == nil { try container.encodeNil(forKey: .p_declared_soh) }
+            try container.encode(p_color, forKey: .p_color)
+            try container.encode(p_price_mxn, forKey: .p_price_mxn)
+            try container.encode(p_transfer_included, forKey: .p_transfer_included)
+            try container.encode(p_evidence, forKey: .p_evidence)
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
     }
 
     nonisolated struct RespondOfferParameters: Encodable, Sendable {
