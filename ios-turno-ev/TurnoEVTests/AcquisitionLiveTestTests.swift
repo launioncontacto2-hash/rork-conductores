@@ -27,6 +27,8 @@ struct AcquisitionLiveTestTests {
             email: "byd.iztacalco@dori.mx",
             password: password
         )
+        let activeProviderSession = try await client.auth.session
+        #expect(activeProviderSession.user.id == providerSession.user.id)
         let providerProfile = try await SupabaseAuthProbe.loadProfile(
             authUserId: providerSession.user.id
         )
@@ -88,6 +90,8 @@ struct AcquisitionLiveTestTests {
             email: "adquisiciones.pue@dori.mx",
             password: password
         )
+        let activeAdminSession = try await client.auth.session
+        #expect(activeAdminSession.user.id == adminSession.user.id)
         let adminProfile = try await SupabaseAuthProbe.loadProfile(authUserId: adminSession.user.id)
         let adminMembership = try await repository.loadMembership(
             profileID: adminProfile.id,
