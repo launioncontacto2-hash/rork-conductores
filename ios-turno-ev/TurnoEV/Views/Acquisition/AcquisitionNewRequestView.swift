@@ -176,17 +176,21 @@ struct AcquisitionNewRequestView: View {
             }
             requestField("Kilometraje máximo", text: draft.maximumMileage, keyboard: .numberPad)
             requestField("Ciudad de entrega", text: draft.deliveryCity)
-            if let deadline = draft.deadlineAt.wrappedValue {
-                DatePicker(
-                    "Recibir ofertas hasta",
-                    selection: Binding(get: { deadline }, set: { draft.deadlineAt.wrappedValue = $0 }),
-                    displayedComponents: [.date, .hourAndMinute]
+            if draft.deadlineAt.wrappedValue != nil {
+                AcquisitionAutoDismissDateRow(
+                    title: "Fecha límite para recibir ofertas",
+                    selection: nonOptionalDate(draft.deadlineAt),
+                    displayedComponents: .date
+                )
+                AcquisitionAutoDismissTimeRow(
+                    title: "Hora límite",
+                    selection: nonOptionalDate(draft.deadlineAt)
                 )
             }
-            if let target = draft.targetDeliveryDate.wrappedValue {
-                DatePicker(
-                    "Fecha objetivo de entrega",
-                    selection: Binding(get: { target }, set: { draft.targetDeliveryDate.wrappedValue = $0 }),
+            if draft.targetDeliveryDate.wrappedValue != nil {
+                AcquisitionAutoDismissDateRow(
+                    title: "Fecha objetivo de entrega",
+                    selection: nonOptionalDate(draft.targetDeliveryDate),
                     displayedComponents: .date
                 )
             }
@@ -279,7 +283,96 @@ struct AcquisitionNewRequestView: View {
             .font(.subheadline)
     }
 
+    private func nonOptionalDate(_ date: Binding<Date?>) -> Binding<Date> {
+        Binding(
+            get: { date.wrappedValue ?? AcquisitionRequestDraft.defaultDate(daysFromNow: 1) ?? Date() },
+            set: { date.wrappedValue = $0 }
+        )
+    }
+
     private static func dateText(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+private struct AcquisitionAutoDismissDateRow: View {
+    let title: String
+    @Binding var selection: Date
+    let displayedComponents: DatePickerComponents
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            HStack {
+                Text(title).foregroundStyle(Palette.text)
+                Spacer()
+                Text(selection.formatted(date: .abbreviated, time: .omitted))
+                    .foregroundStyle(Palette.volt)
+                Image(systemName: "calendar")
+            }
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $isPresented) {
+            VStack(spacing: 12) {
+                Text(title).font(.headline)
+                DatePicker(
+                    title,
+                    selection: $selection,
+                    displayedComponents: displayedComponents
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .onChange(of: selection) { _, _ in isPresented = false }
+            }
+            .padding(18)
+            .presentationDetents([.medium])
+        }
+    }
+}
+
+private struct AcquisitionAutoDismissTimeRow: View {
+    let title: String
+    @Binding var selection: Date
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            HStack {
+                Text(title).foregroundStyle(Palette.text)
+                Spacer()
+                Text(selection.formatted(date: .omitted, time: .shortened))
+                    .foregroundStyle(Palette.volt)
+                Image(systemName: "clock")
+            }
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $isPresented) {
+            NavigationStack {
+                List(Self.times, id: \.self) { minuteOfDay in
+                    Button(Self.label(for: minuteOfDay)) {
+                        let calendar = Calendar.current
+                        selection = calendar.date(
+                            bySettingHour: minuteOfDay / 60,
+                            minute: minuteOfDay % 60,
+                            second: 0,
+                            of: selection
+                        ) ?? selection
+                        isPresented = false
+                    }
+                }
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private static let times = Array(stride(from: 0, through: 23 * 60 + 30, by: 30))
+
+    private static func label(for minuteOfDay: Int) -> String {
+        let date = Calendar.current.date(
+            from: DateComponents(hour: minuteOfDay / 60, minute: minuteOfDay % 60)
+        ) ?? Date()
+        return date.formatted(date: .omitted, time: .shortened)
     }
 }

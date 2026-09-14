@@ -241,6 +241,43 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(publication.targetDeliveryDate != nil)
     }
 
+    @Test func newRequestDatesDefaultToNoon() throws {
+        let fixedNow = try #require(
+            Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 14, hour: 8))
+        )
+        let date = try #require(AcquisitionRequestDraft.defaultDate(daysFromNow: 14, now: fixedNow))
+        let components = Calendar.current.dateComponents([.hour, .minute, .second], from: date)
+        #expect(components.hour == 12)
+        #expect(components.minute == 0)
+        #expect(components.second == 0)
+    }
+
+    @Test func publishRequestUsesCanonicalPostgresDateArgument() throws {
+        let target = try #require(
+            Calendar(identifier: .gregorian).date(
+                from: DateComponents(year: 2026, month: 10, day: 20, hour: 12)
+            )
+        )
+        let parameters = SupabaseAcquisitionRepository.PublishRequestParameters(
+            p_model: "Dolphin Mini",
+            p_versions: ["Plus"],
+            p_target_quantity: 2,
+            p_minimum_year: 2025,
+            p_maximum_year: 2026,
+            p_maximum_mileage: 20_000,
+            p_delivery_city: "Puebla",
+            p_deadline_at: target.addingTimeInterval(-86_400),
+            p_target_delivery_date: SupabaseAcquisitionRepository.postgresDateString(from: target),
+            p_requirements: [],
+            p_idempotency_key: "request-wire-date"
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters)) as? [String: Any]
+        )
+        #expect(object["p_target_delivery_date"] as? String == "2026-10-20")
+        #expect((object["p_target_delivery_date"] as? String)?.contains("T") == false)
+    }
+
     @Test func requestRequirementKeepsDynamicResponseContract() {
         let requirement = AcquisitionRequestRequirement(
             id: "inspection_note", category: .condition,

@@ -14,6 +14,8 @@ struct AcquisitionOfferDetailView: View {
     @State private var showsRejection = false
     @State private var showsPreparation = false
     @State private var showsReception = false
+    @State private var showsRequirements = false
+    @State private var showsNegotiationHistory = false
     @State private var evidenceGallery: AcquisitionEvidenceGallerySelection?
     private let repository: any AcquisitionRepository
 
@@ -121,9 +123,10 @@ struct AcquisitionOfferDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 vehicleCard(detail)
-                currentStateCard(detail)
 
-                if model.membership.role == .doriAdmin, let assessment = detail.assessment {
+                if model.membership.role == .doriAdmin,
+                   ["submitted", "negotiating"].contains(detail.offer.status),
+                   let assessment = detail.assessment {
                     assessmentCard(assessment)
                 }
 
@@ -146,8 +149,9 @@ struct AcquisitionOfferDetailView: View {
                 .buttonStyle(.bordered)
                 .tint(Palette.volt)
 
-                if let delivery = detail.delivery {
-                    deliveryCard(delivery, offer: detail.offer)
+                if let delivery = detail.delivery,
+                   delivery.reception != nil || delivery.hold != nil {
+                    deliveryConditionCard(delivery)
                 }
 
                 if ["submitted", "negotiating", "price_agreed", "awarded"].contains(detail.offer.status) {
@@ -213,34 +217,21 @@ struct AcquisitionOfferDetailView: View {
                 Text("Proveedor: \(supplierName)")
                     .font(.subheadline)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .panel()
-    }
-
-    private func currentStateCard(_ detail: AcquisitionOfferDetail) -> some View {
-        let role = model.membership.role
-        let title = AcquisitionHumanStatus.title(for: detail.offer.status, role: role)
-        return VStack(alignment: .leading, spacing: 8) {
-            CapsLabel(text: "Estado actual")
+            Divider().overlay(Palette.hairline)
             AcquisitionHumanStatusIndicator(
-                title: title,
-                group: AcquisitionHumanStatus.group(for: detail.offer.status, role: role)
+                title: AcquisitionHumanStatus.title(
+                    for: detail.offer.status,
+                    role: model.membership.role
+                ),
+                group: AcquisitionHumanStatus.group(
+                    for: detail.offer.status,
+                    role: model.membership.role
+                )
             )
-            if role == .doriAdmin, let assessment = detail.assessment {
-                Text("DORI recomienda: \(assessment.recommendation.visibleLabel)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.textMuted)
-            }
-            if role == .provider, detail.offer.status == "price_agreed" {
-                Text("Precio acordado · Esperando confirmación de compra de DORI.")
+            if model.membership.role == .provider, detail.offer.status == "price_agreed" {
+                Text("Esperando confirmación de compra de DORI.")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Palette.info)
-            } else if role == .provider, detail.offer.status == "awarded" {
-                Text("DORI confirmó la compra")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.volt)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -273,7 +264,6 @@ struct AcquisitionOfferDetailView: View {
                         Button {
                             showEvidenceGallery(evidence, initial: item)
                         } label: {
-                            VStack(alignment: .leading, spacing: 6) {
                             Group {
                                 if let data = item.imageData, let image = UIImage(data: data) {
                                     Image(uiImage: image)
@@ -288,16 +278,6 @@ struct AcquisitionOfferDetailView: View {
                             .frame(width: 150, height: 105)
                             .background(Palette.surfaceRaised)
                             .clipShape(.rect(cornerRadius: 14))
-                            Text(item.visibleTitle)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Palette.text)
-                            Label(
-                                item.verified ? "Verificada" : "Pendiente de verificar",
-                                systemImage: item.verified ? "checkmark.circle.fill" : "questionmark.circle"
-                            )
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(item.verified ? Palette.volt : Palette.amber)
-                            }
                         }
                         .buttonStyle(.plain)
                     }
@@ -311,32 +291,48 @@ struct AcquisitionOfferDetailView: View {
         let requirements = detail.requirements.isEmpty
             ? AcquisitionRequestDraft.defaultRequirements
             : detail.requirements
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("Requisitos de la solicitud").font(.headline)
-            ForEach(requirements) { requirement in
-                let evidence = detail.evidence.first { $0.kind.rawValue == requirement.id }
-                HStack(alignment: .top, spacing: 9) {
-                    Image(systemName: evidence?.verified == true
-                          ? "checkmark.circle.fill"
-                          : evidence == nil && requirement.category == .evidence
-                            ? "xmark.circle.fill" : "questionmark.circle.fill")
-                        .foregroundStyle(evidence?.verified == true
-                                         ? Palette.volt
-                                         : evidence == nil && requirement.category == .evidence
-                                            ? Palette.danger : Palette.amber)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(requirement.title).font(.subheadline.weight(.semibold))
-                        Text(requirement.value).font(.caption).foregroundStyle(Palette.textMuted)
-                    }
-                    Spacer()
+        let commercialRequirements = requirements.filter { $0.category != .evidence }
+        let photographicRequirements = requirements.filter { $0.category == .evidence }
+        return DisclosureGroup(isExpanded: $showsRequirements) {
+            VStack(alignment: .leading, spacing: 10) {
+                if !photographicRequirements.isEmpty {
+                    requirementRow(
+                        title: "Fotografías de la unidad",
+                        value: "\(photographicRequirements.count) evidencias requeridas",
+                        complete: photographicRequirements.allSatisfy { requirement in
+                            detail.evidence.contains { $0.kind.rawValue == requirement.id }
+                        }
+                    )
                 }
+                ForEach(commercialRequirements) { requirement in
+                    requirementRow(
+                        title: requirement.title,
+                        value: requirement.value,
+                        complete: nil
+                    )
+                }
+                Text("La evidencia permanece disponible para verificación de DORI.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.textMuted)
             }
-            Text("La evidencia enviada por el proveedor permanece pendiente hasta que DORI la verifique.")
-                .font(.caption)
-                .foregroundStyle(Palette.textMuted)
+            .padding(.top, 10)
+        } label: {
+            Text("Requisitos de la solicitud").font(.headline)
         }
         .padding(16)
         .panelFlat()
+    }
+
+    private func requirementRow(title: String, value: String, complete: Bool?) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: complete == true ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(complete == true ? Palette.volt : Palette.textMuted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(value).font(.caption).foregroundStyle(Palette.textMuted)
+            }
+            Spacer()
+        }
     }
 
     private func primaryEvidence(in evidence: [AcquisitionEvidenceItem]) -> AcquisitionEvidenceItem? {
@@ -365,28 +361,31 @@ struct AcquisitionOfferDetailView: View {
     }
 
     private func negotiationHistoryCard(_ detail: AcquisitionOfferDetail) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Historial de negociación")
-                .font(.headline)
-            ForEach(detail.commercialHistory) { movement in
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(movement.actorLabel) · \(movement.movementLabel)")
-                            .font(.subheadline.weight(.semibold))
-                        if let createdAt = movement.createdAt {
-                            Text(createdAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2)
-                                .foregroundStyle(Palette.textMuted)
+        DisclosureGroup(isExpanded: $showsNegotiationHistory) {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(detail.commercialHistory) { movement in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(movement.actorLabel) · \(movement.movementLabel)")
+                                .font(.subheadline.weight(.semibold))
+                            if let createdAt = movement.createdAt {
+                                Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption2)
+                                    .foregroundStyle(Palette.textMuted)
+                            }
                         }
+                        Spacer()
+                        Text(movement.amountText)
+                            .font(.subheadline.monospacedDigit().weight(.black))
                     }
-                    Spacer()
-                    Text(movement.amountText)
-                        .font(.subheadline.monospacedDigit().weight(.black))
-                }
-                if movement.id != detail.commercialHistory.last?.id {
-                    Divider().overlay(Palette.hairline)
+                    if movement.id != detail.commercialHistory.last?.id {
+                        Divider().overlay(Palette.hairline)
+                    }
                 }
             }
+            .padding(.top, 10)
+        } label: {
+            Text("Historial de negociación").font(.headline)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -479,20 +478,9 @@ struct AcquisitionOfferDetailView: View {
         }
     }
 
-    private func deliveryCard(
-        _ delivery: AcquisitionDeliveryJourney,
-        offer: AcquisitionOfferSummary
-    ) -> some View {
+    private func deliveryConditionCard(_ delivery: AcquisitionDeliveryJourney) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(model.membership.role == .provider ? "Unidad confirmada" : "Unidad por recibir")
-                .font(.title3.weight(.black))
-            Text("\(offer.modelAndVersion) \(offer.yearText)")
-            Text("VIN: \(offer.abbreviatedVin)")
-                .foregroundStyle(Palette.textMuted)
-            if let supplierName = delivery.supplierName {
-                Text("Proveedor: \(supplierName)")
-            }
-            Text("Precio acordado: \(delivery.finalPriceText)")
+            Text("Recepción y condiciones").font(.headline)
             if let reception = delivery.reception {
                 Text(reception.result.visibleLabel)
                     .font(.headline)

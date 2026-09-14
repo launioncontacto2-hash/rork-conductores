@@ -231,6 +231,8 @@ struct AcquisitionPushChatLauncherView: View {
 
 struct AcquisitionChatView: View {
     @State private var model: AcquisitionChatViewModel
+    private let membership: AcquisitionMembership
+    private let repository: any AcquisitionRepository
     @State private var showsAttachmentMenu = false
     @State private var showsCamera = false
     @State private var showsLibrary = false
@@ -245,6 +247,8 @@ struct AcquisitionChatView: View {
         profileID: UUID,
         repository: any AcquisitionRepository
     ) {
+        self.membership = membership
+        self.repository = repository
         _model = State(
             initialValue: AcquisitionChatViewModel(
                 thread: thread,
@@ -367,15 +371,20 @@ struct AcquisitionChatView: View {
             .background(Palette.surface.opacity(0.98))
         }
         .background(StationBackground())
-        .navigationTitle(model.thread.title)
+        .navigationTitle(model.thread.scope == .unit ? "Chat de unidad" : model.thread.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .onDisappear { model.stop() }
         .onDisappear { audioRecorder.cancel() }
         .sheet(isPresented: $showsVehicleSheet) {
-            if let vehicle = model.thread.vehicle {
+            if let vehicle = model.thread.vehicle, let offerID = model.thread.offerID {
                 NavigationStack {
-                    AcquisitionChatVehicleSheet(vehicle: vehicle)
+                    AcquisitionChatVehicleSheet(
+                        vehicle: vehicle,
+                        offerID: offerID,
+                        membership: membership,
+                        repository: repository
+                    )
                         .navigationTitle("Unidad")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
@@ -505,17 +514,85 @@ private struct AcquisitionChatVehicleHeader: View {
 
 private struct AcquisitionChatVehicleSheet: View {
     let vehicle: AcquisitionChatVehicleContext
+    let offerID: UUID
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    @State private var detail: AcquisitionOfferDetail?
+    @State private var failed = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            AcquisitionChatVehicleHeader(vehicle: vehicle)
-            Divider()
-            Label(vehicle.status, systemImage: "clock.fill").foregroundStyle(Palette.info)
-            Text("La conversación conserva su posición y tu borrador al cerrar esta ficha.")
-                .font(.caption).foregroundStyle(Palette.textMuted)
-            Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if let detail {
+                    if let primary = Self.primaryEvidence(in: detail.evidence),
+                       let data = primary.imageData,
+                       let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 220)
+                            .clipped()
+                            .clipShape(.rect(cornerRadius: 16))
+                    } else {
+                        AcquisitionChatVehicleHeader(vehicle: vehicle)
+                    }
+                    Text("\(detail.offer.modelAndVersion) \(detail.offer.yearText)")
+                        .font(.title2.weight(.black))
+                    detailLine("Kilometraje", "\(detail.offer.mileageText) km")
+                    detailLine("Color", detail.offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")
+                    detailLine("Precio actual", (detail.offer.agreedPriceText ?? detail.offer.priceText))
+                    detailLine(
+                        "Estado de batería",
+                        detail.offer.declaredSoh.map { "\($0) %" } ?? "DORI deberá verificarla"
+                    )
+                    detailLine("VIN", detail.offer.vin)
+                    detailLine("Proveedor", detail.supplierName ?? "Información pendiente")
+                    detailLine(
+                        "Estado actual",
+                        AcquisitionHumanStatus.title(for: detail.offer.status, role: membership.role)
+                    )
+                } else if failed {
+                    ContentUnavailableView(
+                        "No pudimos cargar la ficha",
+                        systemImage: "wifi.exclamationmark",
+                        description: Text("El chat permanece disponible. Intenta nuevamente.")
+                    )
+                } else {
+                    ProgressView("Cargando ficha…")
+                        .frame(maxWidth: .infinity, minHeight: 220)
+                }
+            }
+            .padding(18)
         }
-        .padding(18)
         .background(StationBackground())
+        .task {
+            do {
+                detail = try await repository.loadOfferDetail(
+                    offerID: offerID,
+                    membership: membership
+                )
+            } catch {
+                failed = true
+            }
+        }
+    }
+
+    private func detailLine(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(Palette.textMuted)
+            Spacer()
+            Text(value).fontWeight(.semibold).multilineTextAlignment(.trailing)
+        }
+        .font(.subheadline)
+    }
+
+    private static func primaryEvidence(
+        in evidence: [AcquisitionEvidenceItem]
+    ) -> AcquisitionEvidenceItem? {
+        evidence.first { $0.kind == .exteriorDriverSide }
+            ?? evidence.first { $0.kind == .front }
+            ?? evidence.first
     }
 }
 

@@ -273,8 +273,8 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     var maximumYear = ""
     var maximumMileage = ""
     var deliveryCity = "Puebla"
-    var deadlineAt: Date? = Calendar.current.date(byAdding: .day, value: 14, to: Date())
-    var targetDeliveryDate: Date? = Calendar.current.date(byAdding: .day, value: 30, to: Date())
+    var deadlineAt: Date? = Self.defaultDate(daysFromNow: 14)
+    var targetDeliveryDate: Date? = Self.defaultDate(daysFromNow: 30)
     var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
 
     static let defaultRequirements: [AcquisitionRequestRequirement] = [
@@ -583,6 +583,14 @@ nonisolated struct AcquisitionRequestSummary: Equatable, Sendable {
         "awarded", "ready_for_delivery", "received", "accepted",
         "accepted_with_observations", "accepted_with_condition",
     ]
+
+    /// Draft convenience only. The backend remains authoritative for expiry;
+    /// noon avoids surprising midnight deadlines in the creation form.
+    static func defaultDate(daysFromNow days: Int, now: Date = Date()) -> Date? {
+        let calendar = Calendar.current
+        guard let day = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
+        return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day)
+    }
 
     private static let decidingStatuses: Set<String> = [
         "submitted", "negotiating", "price_agreed",

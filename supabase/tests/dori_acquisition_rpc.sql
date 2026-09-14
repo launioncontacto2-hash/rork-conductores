@@ -5,7 +5,7 @@ SELECT plan(61);
 
 SELECT has_function(
     'public', 'publish_acquisition_request',
-    ARRAY['text','text','integer','text','text[]','integer','integer','integer','text','timestamp with time zone','numeric','numeric','numeric','text'],
+    ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','date','jsonb','text'],
     'existe el RPC para publicar solicitudes'
 );
 SELECT has_function(
@@ -24,6 +24,7 @@ SELECT has_function(
 
 CREATE TEMP TABLE test_acquisition_rpc_scope AS
 SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+GRANT SELECT ON test_acquisition_rpc_scope TO authenticated;
 
 INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
 SELECT fixture.id, scope.environment_id, fixture.employee_number, fixture.display_name, 'active'
@@ -66,22 +67,28 @@ SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000001
 SET LOCAL ROLE authenticated;
 SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
-        'ADQ-RPC-001', '15 autos requeridos', 15, 'Dolphin Mini', ARRAY['Plus'],
-        2024, 2026, 30000, 'Puebla', NULL, 95, 85, 280000, 'adq-rpc-publish-1'
+        'Dolphin Mini RPC', ARRAY['Plus'], 15, 2024, 2026, 30000, 'Puebla',
+        app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '14 days',
+        (app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '30 days')::date,
+        '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
+        'adq-rpc-publish-1'
     ) $sql$,
     'Administrador DORI publica la solicitud'
 );
 SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
-        'ADQ-RPC-001', '15 autos requeridos', 15, 'Dolphin Mini', ARRAY['Plus'],
-        2024, 2026, 30000, 'Puebla', NULL, 95, 85, 280000, 'adq-rpc-publish-1'
+        'Dolphin Mini RPC', ARRAY['Plus'], 15, 2024, 2026, 30000, 'Puebla',
+        app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '14 days',
+        (app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '30 days')::date,
+        '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
+        'adq-rpc-publish-1'
     ) $sql$,
     'publicar la misma solicitud con la misma llave es idempotente'
 );
 RESET ROLE;
 
 SELECT is(
-    (SELECT count(*)::bigint FROM public.acquisition_requests WHERE code = 'ADQ-RPC-001'),
+    (SELECT count(*)::bigint FROM public.acquisition_requests WHERE model = 'Dolphin Mini RPC'),
     1::bigint,
     'la repeticion no duplica la solicitud'
 );
@@ -93,7 +100,7 @@ SELECT request.id AS request_id,
        scope.environment_id::text || '/ad210000-0000-4000-8000-000000000001/ad240000-0000-4000-8000-000000000001/' AS path_prefix
 FROM public.acquisition_requests request
 JOIN test_acquisition_rpc_scope scope ON scope.environment_id = request.environment_id
-WHERE request.code = 'ADQ-RPC-001';
+WHERE request.model = 'Dolphin Mini RPC';
 GRANT SELECT ON test_acquisition_rpc_entities TO authenticated;
 
 INSERT INTO storage.objects(id, bucket_id, name, owner_id, metadata)

@@ -153,6 +153,41 @@ struct AcquisitionLiveTestTests {
         )
         let adminUnitMessages = try await repository.loadChatMessages(threadID: adminUnit.id)
         #expect(adminUnitMessages.contains(where: { $0.body == adminBody }))
+
+        var requestDraft = AcquisitionRequestDraft()
+        requestDraft.model = "Prueba publicación Swift \(suffix)"
+        requestDraft.versions = "TEST"
+        requestDraft.targetQuantity = "2"
+        requestDraft.minimumYear = "2025"
+        requestDraft.maximumYear = "2026"
+        requestDraft.maximumMileage = "20000"
+        requestDraft.deliveryCity = "Puebla"
+        requestDraft.deadlineAt = AcquisitionRequestDraft.defaultDate(daysFromNow: 14)
+        requestDraft.targetDeliveryDate = AcquisitionRequestDraft.defaultDate(daysFromNow: 30)
+        let publishedRequest = try await repository.publishRequest(requestDraft)
+        #expect(publishedRequest.model == requestDraft.model)
+        #expect(publishedRequest.targetDeliveryDate != nil)
+        let adminRequests = try await repository.loadRequests()
+        #expect(adminRequests.contains(where: { $0.id == publishedRequest.id }))
+
+        try await client.auth.signOut()
+        let providerReloaded = try await client.auth.signIn(
+            email: "byd.iztacalco@dori.mx",
+            password: password
+        )
+        let providerReloadedProfile = try await SupabaseAuthProbe.loadProfile(
+            authUserId: providerReloaded.user.id
+        )
+        let providerReloadedMembership = try await repository.loadMembership(
+            profileID: providerReloadedProfile.id,
+            environmentID: providerReloadedProfile.environment_id
+        )
+        #expect(providerReloadedMembership.role == .provider)
+        let providerRequests = try await repository.loadRequests()
+        let providerPublishedRequest = try #require(
+            providerRequests.first(where: { $0.id == publishedRequest.id })
+        )
+        #expect(providerPublishedRequest.detailedRequirements.count == requestDraft.requirements.count)
     }
 
     private func makeJPEG() -> Data? {

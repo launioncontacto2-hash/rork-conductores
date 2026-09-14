@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(13);
+SELECT plan(16);
 
 SELECT has_column('public', 'acquisition_requests', 'target_delivery_date', 'la solicitud conserva fecha objetivo');
 SELECT has_column('public', 'acquisition_offers', 'committed_delivery_date', 'la oferta conserva compromiso del proveedor');
@@ -10,8 +10,23 @@ SELECT has_column('public', 'acquisition_request_requirements', 'requires_dori_v
 SELECT has_table('public', 'acquisition_delivery_commitment_history', 'existe historial inmutable de compromisos');
 SELECT has_function(
     'public', 'publish_acquisition_request',
-    ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','timestamp with time zone','jsonb','text'],
+    ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','date','jsonb','text'],
     'publicación recibe vigencia y fecha objetivo'
+);
+SELECT hasnt_function(
+    'public', 'publish_acquisition_request',
+    ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','jsonb','text'],
+    'no queda la firma pública anterior sin fecha objetivo'
+);
+SELECT hasnt_function(
+    'public', 'publish_acquisition_request',
+    ARRAY['text','text[]','integer','integer','integer','integer','text','timestamp with time zone','timestamp with time zone','jsonb','text'],
+    'no queda una sobrecarga pública con fecha objetivo como timestamp'
+);
+SELECT hasnt_function(
+    'public', 'publish_acquisition_request',
+    ARRAY['text','text','integer','text','text[]','integer','integer','integer','text','timestamp with time zone','numeric','numeric','numeric','text'],
+    'no queda la firma pública legada con reglas internas'
 );
 SELECT has_function(
     'public', 'submit_acquisition_offer',
@@ -50,7 +65,7 @@ SET LOCAL ROLE authenticated;
 SELECT throws_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini', ARRAY['Plus'], 1, 2025, 2026, 20000, 'Puebla', NULL,
-        (SELECT now_at FROM test_dates_scope) + interval '30 days',
+        ((SELECT now_at FROM test_dates_scope) + interval '30 days')::date,
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
         'dates-null-deadline'
     ) $sql$,
@@ -61,7 +76,7 @@ SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini', ARRAY['Plus'], 1, 2025, 2026, 20000, 'Puebla',
         (SELECT now_at FROM test_dates_scope) + interval '14 days',
-        (SELECT now_at FROM test_dates_scope) + interval '30 days',
+        ((SELECT now_at FROM test_dates_scope) + interval '30 days')::date,
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible","response_type":"photo","requires_dori_verification":true}]'::jsonb,
         'dates-valid'
     ) $sql$,

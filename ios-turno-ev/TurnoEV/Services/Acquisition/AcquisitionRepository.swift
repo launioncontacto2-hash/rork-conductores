@@ -152,7 +152,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_maximum_mileage: Int
         let p_delivery_city: String
         let p_deadline_at: Date?
-        let p_target_delivery_date: Date?
+        /// PostgreSQL `date` travels as YYYY-MM-DD. Sending an ISO timestamp
+        /// makes the RPC contract depend on an implicit server cast.
+        let p_target_delivery_date: String?
         let p_requirements: [PublishRequestRequirement]
         let p_idempotency_key: String
 
@@ -676,7 +678,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     p_maximum_mileage: publication.maximumMileage,
                     p_delivery_city: publication.deliveryCity,
                     p_deadline_at: publication.deadlineAt,
-                    p_target_delivery_date: publication.targetDeliveryDate,
+                    p_target_delivery_date: Self.postgresDateString(
+                        from: publication.targetDeliveryDate
+                    ),
                     p_requirements: publication.requirements.enumerated().map { index, item in
                         PublishRequestRequirement(
                             code: item.id,
@@ -1538,6 +1542,17 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    nonisolated static func postgresDateString(from date: Date?) -> String? {
+        guard let date else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return nil
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
     nonisolated static func chatThread(
