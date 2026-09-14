@@ -23,7 +23,10 @@ SELECT has_function(
 );
 
 CREATE TEMP TABLE test_acquisition_rpc_scope AS
-SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+SELECT id AS environment_id, app.env_now(id) AS now_at
+FROM public.environments
+ORDER BY created_at, id
+LIMIT 1;
 GRANT SELECT ON test_acquisition_rpc_scope TO authenticated;
 
 INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
@@ -68,8 +71,8 @@ SET LOCAL ROLE authenticated;
 SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini RPC', ARRAY['Plus'], 15, 2024, 2026, 30000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_acquisition_rpc_scope) + interval '14 days',
+        ((SELECT now_at FROM test_acquisition_rpc_scope) + interval '30 days')::date,
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
         'adq-rpc-publish-1'
     ) $sql$,
@@ -78,8 +81,8 @@ SELECT lives_ok(
 SELECT lives_ok(
     $sql$ SELECT public.publish_acquisition_request(
         'Dolphin Mini RPC', ARRAY['Plus'], 15, 2024, 2026, 30000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_acquisition_rpc_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_acquisition_rpc_scope) + interval '14 days',
+        ((SELECT now_at FROM test_acquisition_rpc_scope) + interval '30 days')::date,
         '[{"code":"vin","category":"evidence","title":"VIN","value":"Legible"}]'::jsonb,
         'adq-rpc-publish-1'
     ) $sql$,

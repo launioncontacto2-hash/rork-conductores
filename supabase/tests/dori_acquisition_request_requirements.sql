@@ -31,7 +31,10 @@ SELECT table_privs_are(
 );
 
 CREATE TEMP TABLE test_request_requirement_scope AS
-SELECT id AS environment_id FROM public.environments ORDER BY created_at, id LIMIT 1;
+SELECT id AS environment_id, app.env_now(id) AS now_at
+FROM public.environments
+ORDER BY created_at, id
+LIMIT 1;
 GRANT SELECT ON test_request_requirement_scope TO authenticated;
 
 INSERT INTO public.profiles(id, environment_id, employee_number, display_name, status)
@@ -72,8 +75,8 @@ SELECT lives_ok(
     $sql$
     SELECT public.publish_acquisition_request(
         'BYD King', ARRAY['GL'], 4, 2025, 2026, 15000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_request_requirement_scope) + interval '14 days',
+        ((SELECT now_at FROM test_request_requirement_scope) + interval '30 days')::date,
         '[
           {"code":"charger_110v","category":"condition","title":"Cargador 110V","value":"Incluido","required":true,"display_order":1},
           {"code":"exterior_driver_side","category":"evidence","title":"Exterior lateral conductor","value":"Fotografía completa","required":true,"display_order":2}
@@ -87,8 +90,8 @@ SELECT lives_ok(
     $sql$
     SELECT public.publish_acquisition_request(
         'BYD King', ARRAY['GL'], 4, 2025, 2026, 15000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_request_requirement_scope) + interval '14 days',
+        ((SELECT now_at FROM test_request_requirement_scope) + interval '30 days')::date,
         '[
           {"code":"charger_110v","category":"condition","title":"Cargador 110V","value":"Incluido","required":true,"display_order":1},
           {"code":"exterior_driver_side","category":"evidence","title":"Exterior lateral conductor","value":"Fotografía completa","required":true,"display_order":2}
@@ -136,8 +139,8 @@ SELECT throws_ok(
     $sql$
     SELECT public.publish_acquisition_request(
         'No autorizado', ARRAY[]::text[], 1, 2025, 2026, 1000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_request_requirement_scope) + interval '14 days',
+        ((SELECT now_at FROM test_request_requirement_scope) + interval '30 days')::date,
         '[{"code":"x","category":"condition","title":"X","value":"X"}]'::jsonb,
         'adq-request-provider-denied'
     )
@@ -163,8 +166,8 @@ SELECT throws_ok(
     $sql$
     SELECT public.publish_acquisition_request(
         'Sin requisitos', ARRAY[]::text[], 1, 2025, 2025, 1000, 'Puebla',
-        app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '14 days',
-        (app.env_now((SELECT environment_id FROM test_request_requirement_scope)) + interval '30 days')::date,
+        (SELECT now_at FROM test_request_requirement_scope) + interval '14 days',
+        ((SELECT now_at FROM test_request_requirement_scope) + interval '30 days')::date,
         '[]'::jsonb, 'adq-request-empty'
     )
     $sql$,
