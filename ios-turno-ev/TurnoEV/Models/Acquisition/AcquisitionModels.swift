@@ -292,6 +292,14 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         )
     }
 
+    /// Draft convenience only. The backend remains authoritative for expiry;
+    /// noon avoids surprising midnight deadlines in the creation form.
+    static func defaultDate(daysFromNow days: Int, now: Date = Date()) -> Date? {
+        let calendar = Calendar.current
+        guard let day = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
+        return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day)
+    }
+
     func makePublication(idempotencyKey: String = "ios-acquisition-request-\(UUID().uuidString.lowercased())") throws -> AcquisitionRequestPublication {
         let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanModel.isEmpty else { throw AcquisitionRequestDraftIssue.modelRequired }
@@ -583,14 +591,6 @@ nonisolated struct AcquisitionRequestSummary: Equatable, Sendable {
         "awarded", "ready_for_delivery", "received", "accepted",
         "accepted_with_observations", "accepted_with_condition",
     ]
-
-    /// Draft convenience only. The backend remains authoritative for expiry;
-    /// noon avoids surprising midnight deadlines in the creation form.
-    static func defaultDate(daysFromNow days: Int, now: Date = Date()) -> Date? {
-        let calendar = Calendar.current
-        guard let day = calendar.date(byAdding: .day, value: days, to: now) else { return nil }
-        return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day)
-    }
 
     private static let decidingStatuses: Set<String> = [
         "submitted", "negotiating", "price_agreed",
