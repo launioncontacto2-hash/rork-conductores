@@ -8,6 +8,7 @@ private struct AcquisitionEvidenceGallerySelection: Identifiable {
 }
 
 struct AcquisitionOfferDetailView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var model: AcquisitionOfferDetailViewModel
     @State private var showsNegotiation = false
     @State private var showsAward = false
@@ -16,6 +17,7 @@ struct AcquisitionOfferDetailView: View {
     @State private var showsReception = false
     @State private var showsRequirements = false
     @State private var showsNegotiationHistory = false
+    @State private var selectedEvidenceID: UUID?
     @State private var evidenceGallery: AcquisitionEvidenceGallerySelection?
     private let repository: any AcquisitionRepository
 
@@ -41,13 +43,9 @@ struct AcquisitionOfferDetailView: View {
             StationBackground()
             switch model.state {
             case .idle, .loading:
-                ProgressView("Cargando unidad…")
+                acquisitionLoadingCard
             case .failed:
-                ContentUnavailableView(
-                    "No pudimos cargar la unidad",
-                    systemImage: "wifi.exclamationmark",
-                    description: Text("Intenta nuevamente.")
-                )
+                acquisitionErrorCard
             case .content:
                 if let detail = model.detail {
                     detailContent(detail)
@@ -130,32 +128,12 @@ struct AcquisitionOfferDetailView: View {
                     assessmentCard(assessment)
                 }
 
-                evidenceCard(detail.evidence)
+                negotiationHistoryCard(detail)
                 requirementsCard(detail)
-
-                NavigationLink {
-                    AcquisitionUnitChatLauncherView(
-                        offerID: detail.offer.id,
-                        membership: model.membership,
-                        profileID: model.membership.profileID,
-                        repository: repository
-                    )
-                } label: {
-                    Label("Chat de esta unidad", systemImage: "bubble.left.and.bubble.right.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                }
-                .buttonStyle(.bordered)
-                .tint(Palette.volt)
 
                 if let delivery = detail.delivery,
                    delivery.reception != nil || delivery.hold != nil {
                     deliveryConditionCard(delivery)
-                }
-
-                if ["submitted", "negotiating", "price_agreed", "awarded"].contains(detail.offer.status) {
-                    negotiationHistoryCard(detail)
                 }
 
                 if ["submitted", "negotiating"].contains(detail.offer.status) {
@@ -176,58 +154,107 @@ struct AcquisitionOfferDetailView: View {
             .padding(18)
         }
         .scrollIndicators(.hidden)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            chatButton(detail)
+        }
     }
 
     private func vehicleCard(_ detail: AcquisitionOfferDetail) -> some View {
         let offer = detail.offer
-        return VStack(alignment: .leading, spacing: 8) {
-            if let primary = primaryEvidence(in: detail.evidence),
-               let data = primary.imageData,
+        let selected = selectedEvidence(in: detail.evidence)
+        return VStack(alignment: .leading, spacing: 14) {
+            if let selected,
+               let data = selected.imageData,
                let image = UIImage(data: data) {
                 Button {
-                    showEvidenceGallery(detail.evidence, initial: primary)
+                    showEvidenceGallery(detail.evidence, initial: selected)
                 } label: {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 220)
-                        .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    ZStack(alignment: .bottomTrailing) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 238)
+                            .clipped()
+                        Text("\(selectedEvidenceIndex(in: detail.evidence) + 1) de \(availableEvidence(in: detail.evidence).count)")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.black.opacity(0.58), in: Capsule())
+                            .padding(12)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 19, style: .continuous)
+                            .stroke(Palette.hairline, lineWidth: 1)
+                    }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Abrir fotografías de la unidad")
+                .accessibilityLabel("Foto \(selectedEvidenceIndex(in: detail.evidence) + 1) de \(availableEvidence(in: detail.evidence).count), activar para ver en pantalla completa")
+            } else {
+                ZStack {
+                    Palette.surfaceRaised
+                    VStack(spacing: 10) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.largeTitle)
+                        Text("Fotografía no disponible")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(Palette.textMuted)
+                }
+                .frame(height: 238)
+                .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
             }
-            Text("Unidad")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(Palette.textMuted)
-            Text("\(offer.modelAndVersion) \(offer.yearText)")
-                .font(.title2.weight(.black))
-            Text("\(offer.mileageText) km")
-            Text("Color: \(offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")")
-            Text("Precio del proveedor: \(offer.priceText)")
-                .font(.headline)
-            Text(offer.declaredSoh.map { "Estado de batería: \($0) %" }
-                 ?? "Estado de batería: DORI deberá verificarla")
-                .foregroundStyle(Palette.textMuted)
-            Text("VIN: \(offer.abbreviatedVin)")
-                .font(.caption)
-                .foregroundStyle(Palette.textMuted)
-            if let supplierName = detail.supplierName {
-                Text("Proveedor: \(supplierName)")
-                    .font(.subheadline)
+
+            if availableEvidence(in: detail.evidence).count > 1 {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(availableEvidence(in: detail.evidence)) { item in
+                            Button {
+                                selectedEvidenceID = item.id
+                            } label: {
+                                if let data = item.imageData, let image = UIImage(data: data) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 58, height: 58)
+                                        .clipped()
+                                        .clipShape(.rect(cornerRadius: 12))
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(selected?.id == item.id ? Palette.volt : Palette.hairline, lineWidth: selected?.id == item.id ? 2 : 1)
+                                        }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Seleccionar \(item.visibleTitle)")
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
-            Divider().overlay(Palette.hairline)
-            AcquisitionHumanStatusIndicator(
-                title: AcquisitionHumanStatus.title(
-                    for: detail.offer.status,
-                    role: model.membership.role
-                ),
-                group: AcquisitionHumanStatus.group(
-                    for: detail.offer.status,
-                    role: model.membership.role
-                )
-            )
+
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(offer.modelAndVersion)
+                        .font(.title2.weight(.bold))
+                    Text("VIN \(offer.abbreviatedVin)")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(Palette.textMuted)
+                }
+                Spacer(minLength: 6)
+                acquisitionStatusChip(detail.offer.status)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                AcquisitionUnitFact(icon: "calendar", label: "Año", value: offer.yearText)
+                AcquisitionUnitFact(icon: "gauge.with.dots.needle.50percent", label: "Kilometraje", value: "\(offer.mileageText) km")
+                AcquisitionUnitFact(icon: "paintpalette", label: "Color", value: offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")
+                AcquisitionUnitFact(icon: "dollarsign.circle", label: "Precio", value: offer.agreedPriceText ?? offer.priceText)
+                AcquisitionUnitFact(icon: "battery.75percent", label: "Batería", value: offer.declaredSoh.map { "\($0) %" } ?? "Por verificar")
+                AcquisitionUnitFact(icon: "building.2", label: "Proveedor", value: detail.supplierName ?? "Información pendiente")
+            }
+
             if model.membership.role == .provider, detail.offer.status == "price_agreed" {
                 Text("Esperando confirmación de compra de DORI.")
                     .font(.subheadline.weight(.semibold))
@@ -235,8 +262,9 @@ struct AcquisitionOfferDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .panel()
+        .padding(16)
+        .acquisitionGlassPanel(cornerRadius: 26)
+        .shadow(color: .black.opacity(0.28), radius: 24, x: 0, y: 12)
     }
 
     private func assessmentCard(_ assessment: AcquisitionOfferAssessment) -> some View {
@@ -254,55 +282,24 @@ struct AcquisitionOfferDetailView: View {
         .panel()
     }
 
-    private func evidenceCard(_ evidence: [AcquisitionEvidenceItem]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Fotografías")
-                .font(.headline)
-            ScrollView(.horizontal) {
-                HStack(spacing: 10) {
-                    ForEach(evidence) { item in
-                        Button {
-                            showEvidenceGallery(evidence, initial: item)
-                        } label: {
-                            Group {
-                                if let data = item.imageData, let image = UIImage(data: data) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .scaledToFill()
-                                } else {
-                                    Image(systemName: "photo")
-                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        .foregroundStyle(Palette.textMuted)
-                                }
-                            }
-                            .frame(width: 150, height: 105)
-                            .background(Palette.surfaceRaised)
-                            .clipShape(.rect(cornerRadius: 14))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-        }
-    }
-
     private func requirementsCard(_ detail: AcquisitionOfferDetail) -> some View {
         let requirements = detail.requirements.isEmpty
             ? AcquisitionRequestDraft.defaultRequirements
             : detail.requirements
         let commercialRequirements = requirements.filter { $0.category != .evidence }
         let photographicRequirements = requirements.filter { $0.category == .evidence }
-        return DisclosureGroup(isExpanded: $showsRequirements) {
+        let capturedCount = photographicRequirements.filter { requirement in
+            detail.evidence.contains { $0.kind.rawValue == requirement.id && $0.imageData != nil }
+        }.count
+        return AcquisitionCollapsibleSection(
+            title: "Requisitos de la solicitud",
+            systemImage: "checklist",
+            isExpanded: $showsRequirements,
+            reduceMotion: reduceMotion
+        ) {
             VStack(alignment: .leading, spacing: 10) {
-                if !photographicRequirements.isEmpty {
-                    requirementRow(
-                        title: "Fotografías de la unidad",
-                        value: "\(photographicRequirements.count) evidencias requeridas",
-                        complete: photographicRequirements.allSatisfy { requirement in
-                            detail.evidence.contains { $0.kind.rawValue == requirement.id }
-                        }
-                    )
+                if !commercialRequirements.isEmpty {
+                    CapsLabel(text: "Requisitos comerciales")
                 }
                 ForEach(commercialRequirements) { requirement in
                     requirementRow(
@@ -311,25 +308,49 @@ struct AcquisitionOfferDetailView: View {
                         complete: nil
                     )
                 }
-                Text("La evidencia permanece disponible para verificación de DORI.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.textMuted)
+
+                if !photographicRequirements.isEmpty {
+                    Divider().overlay(Palette.hairline)
+                    CapsLabel(text: "Fotografías de la unidad")
+                    Button {
+                        if let first = availableEvidence(in: detail.evidence).first {
+                            showEvidenceGallery(detail.evidence, initial: first)
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: capturedCount >= photographicRequirements.count ? "checkmark.circle.fill" : "photo.stack")
+                                .foregroundStyle(capturedCount >= photographicRequirements.count ? Palette.volt : Palette.amber)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(capturedCount) de \(photographicRequirements.count) fotos capturadas")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("Activar para abrir la galería")
+                                    .font(.caption)
+                                    .foregroundStyle(Palette.textMuted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(availableEvidence(in: detail.evidence).isEmpty)
+                }
             }
-            .padding(.top, 10)
-        } label: {
-            Text("Requisitos de la solicitud").font(.headline)
+            .padding(.top, 12)
         }
-        .padding(16)
-        .panelFlat()
     }
 
     private func requirementRow(title: String, value: String, complete: Bool?) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            Image(systemName: complete == true ? "checkmark.circle.fill" : "circle")
+            Image(systemName: complete == true ? "checkmark.circle.fill" : "questionmark.circle")
                 .foregroundStyle(complete == true ? Palette.volt : Palette.textMuted)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold))
                 Text(value).font(.caption).foregroundStyle(Palette.textMuted)
+                Text(complete == true ? "Verificado" : "Pendiente de verificación")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(complete == true ? Palette.volt : Palette.textMuted)
             }
             Spacer()
         }
@@ -361,13 +382,34 @@ struct AcquisitionOfferDetailView: View {
     }
 
     private func negotiationHistoryCard(_ detail: AcquisitionOfferDetail) -> some View {
-        DisclosureGroup(isExpanded: $showsNegotiationHistory) {
+        AcquisitionCollapsibleSection(
+            title: "Historial de negociación",
+            systemImage: "scroll",
+            isExpanded: $showsNegotiationHistory,
+            reduceMotion: reduceMotion
+        ) {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(detail.commercialHistory) { movement in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(detail.commercialHistory.enumerated()), id: \.element.id) { index, movement in
+                    HStack(alignment: .top, spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(movement.actorRole == .doriAdmin ? Palette.info.opacity(0.18) : Palette.volt.opacity(0.18))
+                            Image(systemName: movement.actorRole == .doriAdmin ? "building.2.fill" : "storefront.fill")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(movement.actorRole == .doriAdmin ? Palette.info : Palette.volt)
+                        }
+                        .frame(width: 34, height: 34)
+
+                        VStack(alignment: .leading, spacing: 3) {
                             Text("\(movement.actorLabel) · \(movement.movementLabel)")
                                 .font(.subheadline.weight(.semibold))
+                            if index > 0 {
+                                Text("\(detail.commercialHistory[index - 1].amountText) → \(movement.amountText)")
+                                    .font(.subheadline.monospacedDigit().weight(.bold))
+                            } else {
+                                Text(movement.amountText)
+                                    .font(.subheadline.monospacedDigit().weight(.bold))
+                            }
                             if let createdAt = movement.createdAt {
                                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
                                     .font(.caption2)
@@ -375,21 +417,15 @@ struct AcquisitionOfferDetailView: View {
                             }
                         }
                         Spacer()
-                        Text(movement.amountText)
-                            .font(.subheadline.monospacedDigit().weight(.black))
                     }
-                    if movement.id != detail.commercialHistory.last?.id {
+                    if index < detail.commercialHistory.count - 1 {
                         Divider().overlay(Palette.hairline)
+                            .padding(.leading, 46)
                     }
                 }
             }
-            .padding(.top, 10)
-        } label: {
-            Text("Historial de negociación").font(.headline)
+            .padding(.top, 12)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .panel()
     }
 
     private func negotiationLimitCard(_ detail: AcquisitionOfferDetail) -> some View {
@@ -554,11 +590,269 @@ struct AcquisitionOfferDetailView: View {
         .panelFlat()
     }
 
+    private var acquisitionLoadingCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            RoundedRectangle(cornerRadius: 19)
+                .fill(Palette.surfaceRaised)
+                .frame(height: 238)
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Palette.surfaceRaised)
+                .frame(width: 220, height: 25)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+                ForEach(0..<6, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Palette.surfaceRaised)
+                        .frame(height: 64)
+                }
+            }
+            ProgressView("Cargando unidad…")
+                .frame(maxWidth: .infinity)
+        }
+        .padding(16)
+        .panel()
+        .padding(18)
+        .accessibilityLabel("Cargando unidad")
+    }
+
+    private var acquisitionErrorCard: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.largeTitle)
+                .foregroundStyle(Palette.amber)
+            Text("No pudimos cargar la unidad")
+                .font(.headline)
+            Text("La información anterior permanece segura. Intenta nuevamente.")
+                .font(.subheadline)
+                .foregroundStyle(Palette.textMuted)
+                .multilineTextAlignment(.center)
+            Button("Reintentar") { Task { await model.load() } }
+                .buttonStyle(.borderedProminent)
+                .tint(Palette.volt)
+        }
+        .padding(22)
+        .panel()
+        .padding(18)
+    }
+
+    private func chatButton(_ detail: AcquisitionOfferDetail) -> some View {
+        NavigationLink {
+            AcquisitionUnitChatLauncherView(
+                offerID: detail.offer.id,
+                membership: model.membership,
+                profileID: model.membership.profileID,
+                repository: repository
+            )
+        } label: {
+            Label("Chat de esta unidad", systemImage: "bubble.left.and.bubble.right.fill")
+                .font(.headline)
+                .foregroundStyle(Palette.volt)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Palette.volt.opacity(0.16), in: .rect(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Palette.volt.opacity(0.30), lineWidth: 1)
+                }
+        }
+        .buttonStyle(AcquisitionPremiumPressStyle(reduceMotion: reduceMotion))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    private func availableEvidence(in evidence: [AcquisitionEvidenceItem]) -> [AcquisitionEvidenceItem] {
+        evidence.filter { $0.imageData != nil }
+    }
+
+    private func selectedEvidence(in evidence: [AcquisitionEvidenceItem]) -> AcquisitionEvidenceItem? {
+        let available = availableEvidence(in: evidence)
+        return available.first { $0.id == selectedEvidenceID }
+            ?? primaryEvidence(in: available)
+    }
+
+    private func selectedEvidenceIndex(in evidence: [AcquisitionEvidenceItem]) -> Int {
+        let available = availableEvidence(in: evidence)
+        guard let selected = selectedEvidence(in: evidence) else { return 0 }
+        return available.firstIndex(where: { $0.id == selected.id }) ?? 0
+    }
+
+    private func acquisitionStatusChip(_ status: String) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Palette.info)
+                .frame(width: 6, height: 6)
+            Text(AcquisitionHumanStatus.title(for: status, role: model.membership.role))
+                .font(.caption2.weight(.semibold))
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+        }
+        .foregroundStyle(Palette.textMuted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay { Capsule().stroke(Color.white.opacity(0.09), lineWidth: 1) }
+    }
+
     private var confirmationBinding: Binding<Bool> {
         Binding(
             get: { model.confirmationMessage != nil },
             set: { if !$0 { model.confirmationMessage = nil } }
         )
+    }
+}
+
+struct AcquisitionCollapsibleSection<Content: View>: View {
+    let title: String
+    let systemImage: String
+    @Binding var isExpanded: Bool
+    let reduceMotion: Bool
+    let content: Content
+
+    init(
+        title: String,
+        systemImage: String,
+        isExpanded: Binding<Bool>,
+        reduceMotion: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.systemImage = systemImage
+        _isExpanded = isExpanded
+        self.reduceMotion = reduceMotion
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if reduceMotion {
+                    isExpanded.toggle()
+                } else {
+                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.26)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(Palette.textMuted)
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(Palette.text)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded { content }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .acquisitionGlassPanel(cornerRadius: 20)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+struct AcquisitionUnitFact: View {
+    let icon: String
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Palette.textMuted)
+            Text(value)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Palette.text)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .multilineTextAlignment(.center)
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Palette.textMuted.opacity(0.7))
+        }
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .center)
+        .padding(10)
+        .background(Color.white.opacity(0.035), in: .rect(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.white.opacity(0.09), lineWidth: 1)
+        }
+    }
+}
+
+struct AcquisitionSheetFactRow: View {
+    let icon: String
+    let label: String
+    let value: String
+    var drawsDivider = true
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .frame(width: 18)
+                    .foregroundStyle(Palette.textMuted.opacity(0.7))
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.trailing)
+            }
+            .padding(.vertical, 11)
+            if drawsDivider {
+                Divider().overlay(Color.white.opacity(0.08))
+            }
+        }
+    }
+}
+
+struct AcquisitionPremiumPressStyle: ButtonStyle {
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(
+                reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.15),
+                value: configuration.isPressed
+            )
+    }
+}
+
+private struct AcquisitionGlassPanelModifier: ViewModifier {
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(.ultraThinMaterial, in: .rect(cornerRadius: cornerRadius))
+            .background(Color.white.opacity(0.025), in: .rect(cornerRadius: cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(Color.white.opacity(0.09), lineWidth: 1)
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.035))
+                    .frame(height: 1)
+                    .clipShape(.rect(cornerRadius: cornerRadius))
+            }
+    }
+}
+
+extension View {
+    func acquisitionGlassPanel(cornerRadius: CGFloat = 20) -> some View {
+        modifier(AcquisitionGlassPanelModifier(cornerRadius: cornerRadius))
     }
 }
 

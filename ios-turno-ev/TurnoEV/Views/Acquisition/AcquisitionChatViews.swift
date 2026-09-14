@@ -230,6 +230,7 @@ struct AcquisitionPushChatLauncherView: View {
 }
 
 struct AcquisitionChatView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var model: AcquisitionChatViewModel
     private let membership: AcquisitionMembership
     private let repository: any AcquisitionRepository
@@ -263,10 +264,15 @@ struct AcquisitionChatView: View {
         @Bindable var bindableModel = model
         VStack(spacing: 0) {
             if let vehicle = model.thread.vehicle {
-                Button { showsVehicleSheet = true } label: {
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    showsVehicleSheet = true
+                } label: {
                     AcquisitionChatVehicleHeader(vehicle: vehicle)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(AcquisitionPremiumPressStyle(reduceMotion: reduceMotion))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
             }
             ScrollViewReader { proxy in
                 ScrollView {
@@ -288,7 +294,13 @@ struct AcquisitionChatView: View {
                 }
                 .onChange(of: model.messages.count) { _, _ in
                     if let id = model.messages.last?.id {
-                        withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+                        if reduceMotion {
+                            proxy.scrollTo(id, anchor: .bottom)
+                        } else {
+                            withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.22)) {
+                                proxy.scrollTo(id, anchor: .bottom)
+                            }
+                        }
                     }
                 }
             }
@@ -344,8 +356,13 @@ struct AcquisitionChatView: View {
 
                 TextField("Mensaje", text: $bindableModel.draft, axis: .vertical)
                     .lineLimit(1...4)
-                    .padding(10)
-                    .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 20))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.white.opacity(0.09), lineWidth: 1)
+                    }
 
                 if model.canSend {
                     Button {
@@ -368,10 +385,13 @@ struct AcquisitionChatView: View {
                 }
             }
             .padding(12)
-            .background(Palette.surface.opacity(0.98))
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .top) {
+                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+            }
         }
         .background(StationBackground())
-        .navigationTitle(model.thread.scope == .unit ? "Chat de unidad" : model.thread.title)
+        .navigationTitle(model.thread.scope == .unit ? "Chat" : model.thread.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .onDisappear { model.stop() }
@@ -385,7 +405,7 @@ struct AcquisitionChatView: View {
                         membership: membership,
                         repository: repository
                     )
-                        .navigationTitle("Unidad")
+                        .navigationTitle("Ficha rápida")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
@@ -394,6 +414,7 @@ struct AcquisitionChatView: View {
                         }
                 }
                 .presentationDetents([.medium, .large])
+                .presentationBackground(.ultraThinMaterial)
             }
         }
         .confirmationDialog("Adjuntar", isPresented: $showsAttachmentMenu) {
@@ -489,18 +510,31 @@ private struct AcquisitionChatVehicleHeader: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            vehicleImage.frame(width: 72, height: 54).clipShape(.rect(cornerRadius: 10))
+            vehicleImage
+                .frame(width: 38, height: 38)
+                .clipShape(.rect(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 3) {
-                Text(vehicle.title).font(.subheadline.weight(.bold))
-                Text("\(vehicle.mileageText) · \(vehicle.priceText)").font(.caption)
-                Text("VIN \(vehicle.abbreviatedVin) · \(vehicle.status)")
-                    .font(.caption2).foregroundStyle(Palette.textMuted).lineLimit(1)
+                Text("\(vehicle.model) · \(String(vehicle.year))")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Palette.text)
+                    .lineLimit(1)
+                Text("\(vehicle.mileageText) · VIN \(vehicle.abbreviatedVin) · \(vehicle.status)")
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textMuted)
+                    .lineLimit(1)
             }
             Spacer()
-            Image(systemName: "chevron.up.chevron.down").foregroundStyle(Palette.volt)
+            Text(vehicle.priceText)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Palette.text)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Palette.textMuted.opacity(0.7))
         }
         .padding(12)
-        .background(Palette.surfaceRaised.opacity(0.98))
+        .acquisitionGlassPanel(cornerRadius: 16)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(vehicle.model), \(String(vehicle.year)), \(vehicle.mileageText), \(vehicle.priceText), VIN \(vehicle.abbreviatedVin), \(vehicle.status), activar para ver ficha completa")
     }
 
     @ViewBuilder private var vehicleImage: some View {
@@ -513,6 +547,7 @@ private struct AcquisitionChatVehicleHeader: View {
 }
 
 private struct AcquisitionChatVehicleSheet: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let vehicle: AcquisitionChatVehicleContext
     let offerID: UUID
     let membership: AcquisitionMembership
@@ -533,25 +568,44 @@ private struct AcquisitionChatVehicleSheet: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 220)
                             .clipped()
-                            .clipShape(.rect(cornerRadius: 16))
+                            .clipShape(.rect(cornerRadius: 19))
                     } else {
-                        AcquisitionChatVehicleHeader(vehicle: vehicle)
+                        ZStack {
+                            Palette.surfaceRaised
+                            VStack(spacing: 10) {
+                                Image(systemName: "car.side.fill")
+                                    .font(.largeTitle)
+                                Text("Fotografía no disponible")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(Palette.textMuted)
+                        }
+                        .frame(height: 220)
+                        .clipShape(.rect(cornerRadius: 19))
                     }
-                    Text("\(detail.offer.modelAndVersion) \(detail.offer.yearText)")
-                        .font(.title2.weight(.black))
-                    detailLine("Kilometraje", "\(detail.offer.mileageText) km")
-                    detailLine("Color", detail.offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")
-                    detailLine("Precio actual", (detail.offer.agreedPriceText ?? detail.offer.priceText))
-                    detailLine(
-                        "Estado de batería",
-                        detail.offer.declaredSoh.map { "\($0) %" } ?? "DORI deberá verificarla"
-                    )
-                    detailLine("VIN", detail.offer.vin)
-                    detailLine("Proveedor", detail.supplierName ?? "Información pendiente")
-                    detailLine(
-                        "Estado actual",
-                        AcquisitionHumanStatus.title(for: detail.offer.status, role: membership.role)
-                    )
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(detail.offer.modelAndVersion)
+                                .font(.title2.weight(.bold))
+                            Text("VIN \(detail.offer.abbreviatedVin)")
+                                .font(.caption.monospaced())
+                                .foregroundStyle(Palette.textMuted)
+                        }
+                        Spacer()
+                        AcquisitionHumanStatusIndicator(
+                            title: AcquisitionHumanStatus.title(for: detail.offer.status, role: membership.role),
+                            group: AcquisitionHumanStatus.group(for: detail.offer.status, role: membership.role)
+                        )
+                    }
+                    VStack(spacing: 0) {
+                        AcquisitionSheetFactRow(icon: "calendar", label: "Año", value: detail.offer.yearText)
+                        AcquisitionSheetFactRow(icon: "gauge.with.dots.needle.50percent", label: "Kilometraje", value: "\(detail.offer.mileageText) km")
+                        AcquisitionSheetFactRow(icon: "paintpalette", label: "Color", value: detail.offer.color.flatMap { $0.isEmpty ? nil : $0 } ?? "Por confirmar")
+                        AcquisitionSheetFactRow(icon: "dollarsign.circle", label: "Precio", value: detail.offer.agreedPriceText ?? detail.offer.priceText)
+                        AcquisitionSheetFactRow(icon: "battery.75percent", label: "Batería", value: detail.offer.declaredSoh.map { "\($0) %" } ?? "Por verificar")
+                        AcquisitionSheetFactRow(icon: "building.2", label: "Proveedor", value: detail.supplierName ?? "Información pendiente", drawsDivider: false)
+                    }
+                    .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.38), value: detail.offer.status)
                 } else if failed {
                     ContentUnavailableView(
                         "No pudimos cargar la ficha",
@@ -576,15 +630,6 @@ private struct AcquisitionChatVehicleSheet: View {
                 failed = true
             }
         }
-    }
-
-    private func detailLine(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(label).foregroundStyle(Palette.textMuted)
-            Spacer()
-            Text(value).fontWeight(.semibold).multilineTextAlignment(.trailing)
-        }
-        .font(.subheadline)
     }
 
     private static func primaryEvidence(
@@ -625,11 +670,21 @@ private struct AcquisitionChatMessageBubble: View {
                     }
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
-                        .foregroundStyle(isOwn ? Palette.canvas.opacity(0.65) : Palette.textMuted)
+                        .foregroundStyle(Palette.textMuted)
                 }
                 .padding(12)
-                .background(isOwn ? Palette.volt : Palette.surfaceRaised, in: .rect(cornerRadius: 16))
-                .foregroundStyle(isOwn ? Palette.canvas : Palette.text)
+                .background(
+                    isOwn ? Palette.volt.opacity(0.18) : Color.white.opacity(0.055),
+                    in: .rect(cornerRadius: 17)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 17)
+                        .stroke(
+                            isOwn ? Palette.volt.opacity(0.22) : Color.white.opacity(0.09),
+                            lineWidth: 1
+                        )
+                }
+                .foregroundStyle(Palette.text)
                 if !isOwn { Spacer(minLength: 46) }
             }
         }

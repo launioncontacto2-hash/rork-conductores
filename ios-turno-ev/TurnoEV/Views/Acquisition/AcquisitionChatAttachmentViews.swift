@@ -228,6 +228,7 @@ struct AcquisitionChatAttachmentPreview: View {
 
 struct AcquisitionImageGalleryView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let attachments: [AcquisitionChatAttachment]
     @State private var selection: Int
 
@@ -244,7 +245,17 @@ struct AcquisitionImageGalleryView: View {
                 TabView(selection: $selection) {
                     ForEach(Array(attachments.enumerated()), id: \.offset) { index, attachment in
                         if let image = UIImage(data: attachment.data) {
-                            AcquisitionZoomableImage(image: image).tag(index)
+                            AcquisitionZoomableImage(image: image, reduceMotion: reduceMotion)
+                                .tag(index)
+                                .accessibilityLabel("Foto \(index + 1) de \(attachments.count)")
+                        } else {
+                            ContentUnavailableView(
+                                "No pudimos mostrar esta fotografía",
+                                systemImage: "photo.badge.exclamationmark",
+                                description: Text("Las demás fotografías siguen disponibles.")
+                            )
+                            .foregroundStyle(.white)
+                            .tag(index)
                         }
                     }
                 }
@@ -272,6 +283,7 @@ struct AcquisitionImageGalleryView: View {
 
 private struct AcquisitionZoomableImage: View {
     let image: UIImage
+    let reduceMotion: Bool
     @State private var scale: CGFloat = 1
 
     var body: some View {
@@ -284,7 +296,15 @@ private struct AcquisitionZoomableImage: View {
                     .onChanged { scale = min(max($0.magnification, 1), 5) }
                     .onEnded { _ in if scale < 1.05 { scale = 1 } }
             )
-            .onTapGesture(count: 2) { withAnimation { scale = scale > 1 ? 1 : 2.5 } }
+            .onTapGesture(count: 2) {
+                if reduceMotion {
+                    scale = scale > 1 ? 1 : 2.5
+                } else {
+                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.38)) {
+                        scale = scale > 1 ? 1 : 2.5
+                    }
+                }
+            }
     }
 }
 
