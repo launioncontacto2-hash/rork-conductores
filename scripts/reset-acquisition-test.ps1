@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet('LIMPIAR TEST')]
     [string]$Confirmation,
-    [string]$CredentialPath = (Join-Path (Join-Path $env:LOCALAPPDATA 'DORI') 'adquisicion-test-credentials.txt')
+    [string]$CredentialPath = (Join-Path (Join-Path $env:LOCALAPPDATA 'DORI') 'adquisicion-test-credentials.txt'),
+    [switch]$PlanOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,25 @@ function Invoke-Rpc {
     param([string]$URL, [hashtable]$Headers, [string]$Name, [hashtable]$Body)
     Invoke-RestMethod -Method Post -Uri "$URL/rest/v1/rpc/$Name" -Headers $Headers `
         -Body ($Body | ConvertTo-Json -Compress -Depth 8)
+}
+
+function Remove-PlannedStorageObjects {
+    param(
+        [string]$URL,
+        [hashtable]$Headers,
+        $Plan,
+        [string[]]$Buckets
+    )
+
+    foreach ($bucket in $Buckets) {
+        $paths = @($Plan.storage_objects | Where-Object { $_.bucket -eq $bucket } | ForEach-Object { $_.path })
+        for ($offset = 0; $offset -lt $paths.Count; $offset += 100) {
+            $end = [Math]::Min($offset + 99, $paths.Count - 1)
+            $batch = @($paths[$offset..$end])
+            Invoke-RestMethod -Method Delete -Uri "$URL/storage/v1/object/$bucket" -Headers $Headers `
+                -Body (@{ prefixes = $batch } | ConvertTo-Json -Compress) | Out-Null
+        }
+    }
 }
 
 if (-not (Test-Path -LiteralPath $CredentialPath)) {
@@ -105,15 +125,28 @@ foreach ($object in @($plan.storage_objects)) {
 
 Write-Output 'Conteos antes de limpiar TEST:'
 $plan.counts | ConvertTo-Json -Compress
+$plan.storage_objects |
+    Group-Object bucket |
+    ForEach-Object { Write-Output "Objetos planeados en $($_.Name): $($_.Count)" }
+if ($PlanOnly) { return }
 
-foreach ($bucket in $allowedBuckets) {
-    $paths = @($plan.storage_objects | Where-Object { $_.bucket -eq $bucket } | ForEach-Object { $_.path })
-    for ($offset = 0; $offset -lt $paths.Count; $offset += 100) {
-        $end = [Math]::Min($offset + 99, $paths.Count - 1)
-        $batch = @($paths[$offset..$end])
-        Invoke-RestMethod -Method Delete -Uri "$url/storage/v1/object/$bucket" -Headers $adminHeaders `
-            -Body (@{ prefixes = $batch } | ConvertTo-Json -Compress) | Out-Null
+Remove-PlannedStorageObjects $url $adminHeaders $plan $allowedBuckets
+
+# Storage puede completar una eliminación masiva parcialmente sin devolver un
+# error de transporte. Reconsultamos la fuente autoritativa y repetimos solo
+# la allowlist restante antes de permitir que el RPC borre filas.
+for ($attempt = 1; $attempt -le 4; $attempt++) {
+    $remainingPlan = Invoke-Rpc $url $adminHeaders 'plan_test_acquisition_environment_reset' @{
+        p_confirmation = $Confirmation
     }
+    if (@($remainingPlan.storage_objects).Count -eq 0) { break }
+    Remove-PlannedStorageObjects $url $adminHeaders $remainingPlan $allowedBuckets
+}
+$remainingPlan = Invoke-Rpc $url $adminHeaders 'plan_test_acquisition_environment_reset' @{
+    p_confirmation = $Confirmation
+}
+if (@($remainingPlan.storage_objects).Count -ne 0) {
+    throw "Storage TEST no quedó vacío tras reintentos verificados: $(@($remainingPlan.storage_objects).Count) objetos."
 }
 
 $result = Invoke-Rpc $url $adminHeaders 'reset_test_acquisition_environment' @{

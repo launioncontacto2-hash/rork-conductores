@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(18);
+SELECT plan(19);
 
 SELECT has_column('public', 'acquisition_requests', 'target_delivery_date', 'la solicitud conserva fecha objetivo');
 SELECT has_column('public', 'acquisition_offers', 'committed_delivery_date', 'la oferta conserva compromiso del proveedor');
@@ -47,6 +47,18 @@ SELECT is(
     ),
     1::bigint,
     'Storage incluye DELETE limitado al administrador DORI de TEST'
+);
+SELECT is(
+    (
+        SELECT count(*)::bigint
+        FROM pg_catalog.pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'acquisition_test_objects_reset_select'
+          AND cmd = 'SELECT'
+    ),
+    1::bigint,
+    'Storage permite al administrador TEST seleccionar objetos huérfanos antes de borrarlos'
 );
 SELECT table_privs_are(
     'public', 'acquisition_delivery_commitment_history', 'authenticated', ARRAY['SELECT'],
