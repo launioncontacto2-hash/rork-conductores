@@ -1,5 +1,6 @@
--- Corrige el orden FK entre audit_log y command_log y reutiliza el plan
--- autoritativo para los conteos antes/despues.
+-- Conserva el historial append-only de audit_log y los command_log que este
+-- referencia. El reset elimina solamente el estado transaccional mutable de
+-- Adquisicion y reutiliza el plan autoritativo para los conteos antes/despues.
 
 CREATE OR REPLACE FUNCTION public.reset_test_acquisition_environment(
     p_confirmation text
@@ -33,22 +34,9 @@ BEGIN
     DELETE FROM public.acquisition_offers WHERE environment_id = v_environment_id;
     DELETE FROM public.acquisition_requests WHERE environment_id = v_environment_id;
 
-    -- audit_log depende de command_log: eliminar primero toda auditoria que
-    -- pertenezca a comandos de Adquisicion, aunque use un event_type legado.
-    DELETE FROM public.audit_log audit
-    WHERE audit.environment_id = v_environment_id
-      AND (
-          audit.event_type LIKE 'acquisition.%'
-          OR audit.command_id IN (
-              SELECT command.id
-              FROM public.command_log command
-              WHERE command.environment_id = v_environment_id
-                AND command.command_name LIKE '%acquisition%'
-          )
-      );
-    DELETE FROM public.command_log
-    WHERE environment_id = v_environment_id
-      AND command_name LIKE '%acquisition%';
+    -- audit_log es append-only por contrato y mantiene FK RESTRICT hacia
+    -- command_log. Ambos se conservan como evidencia historica; no forman
+    -- parte del estado operativo que reconstruyen los dashboards.
 
     v_after := (
         public.plan_test_acquisition_environment_reset(p_confirmation)->'counts'
