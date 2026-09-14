@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(19);
+SELECT plan(20);
 
 SELECT has_column('public', 'acquisition_requests', 'target_delivery_date', 'la solicitud conserva fecha objetivo');
 SELECT has_column('public', 'acquisition_offers', 'committed_delivery_date', 'la oferta conserva compromiso del proveedor');
@@ -117,6 +117,13 @@ SELECT is(
      ORDER BY requirement.created_at DESC LIMIT 1),
     'photo', 'se persiste el tipo de respuesta dinámico'
 );
+
+SET LOCAL ROLE authenticated;
+SELECT lives_ok(
+    $sql$ SELECT public.reset_test_acquisition_environment('LIMPIAR TEST') $sql$,
+    'la limpieza TEST respeta dependencias de auditoría y comandos'
+);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;
