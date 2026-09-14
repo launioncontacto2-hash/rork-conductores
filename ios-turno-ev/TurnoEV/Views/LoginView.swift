@@ -75,7 +75,7 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionLoginBackground()
 
             VStack(spacing: 0) {
                 header
@@ -125,7 +125,8 @@ struct LoginView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(DORIBrand.name)
-                    .font(.system(.title3, weight: .black))
+                    .font(.system(.title, design: .serif, weight: .semibold))
+                    .foregroundStyle(AcquisitionTheme.text)
 
                 CapsLabel(text: DORIBrand.accessTagline)
             }
@@ -572,6 +573,14 @@ struct LoginView: View {
 
             }
         }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(AcquisitionTheme.border, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
     }
 
     // MARK: - Credentials submit
@@ -1083,6 +1092,65 @@ private struct RoleHandoffOverlay: View {
         .onAppear {
             appeared = true
         }
+    }
+}
+
+/// Premium TEST access backdrop. It reuses the vehicle artwork already licensed for
+/// this target and never changes the authentication or role-resolution path.
+private struct AcquisitionLoginBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var scanPosition: CGFloat = -0.35
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                AcquisitionTheme.canvas
+
+                Image("electric_hatchback_charging")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+                    .saturation(0.72)
+                    .contrast(1.06)
+
+                LinearGradient(
+                    colors: [
+                        AcquisitionTheme.canvas.opacity(0.18),
+                        AcquisitionTheme.canvas.opacity(0.54),
+                        AcquisitionTheme.canvas.opacity(0.96),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                RadialGradient(
+                    colors: [AcquisitionTheme.accent.opacity(0.14), .clear],
+                    center: UnitPoint(x: 0.16, y: 0.10),
+                    startRadius: 0,
+                    endRadius: 320
+                )
+
+                if !reduceMotion {
+                    Rectangle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.clear, AcquisitionTheme.accent.opacity(0.14), .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 1)
+                        .offset(y: proxy.size.height * scanPosition)
+                        .onAppear { scanPosition = 0.42 }
+                        .animation(
+                            .linear(duration: 6).repeatForever(autoreverses: false),
+                            value: scanPosition
+                        )
+                }
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

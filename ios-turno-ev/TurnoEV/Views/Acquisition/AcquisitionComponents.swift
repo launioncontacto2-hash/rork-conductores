@@ -1,5 +1,87 @@
 import SwiftUI
 
+/// Visual language scoped to DORI Adquisición. Keeping these tokens outside the
+/// global Palette prevents the premium treatment from leaking into the operational
+/// driver, maintenance and supervision workspaces.
+nonisolated enum AcquisitionTheme {
+    static let canvas = Color(red: 0.039, green: 0.039, blue: 0.043)
+    static let accent = Color(red: 0.788, green: 0.722, blue: 0.588)
+    static let attention = Color(red: 0.851, green: 0.725, blue: 0.475)
+    static let danger = Color(red: 0.788, green: 0.486, blue: 0.455)
+    static let info = Color(red: 0.561, green: 0.639, blue: 0.690)
+    static let text = Color(red: 0.945, green: 0.937, blue: 0.918)
+    static let textSecondary = text.opacity(0.58)
+    static let textTertiary = text.opacity(0.34)
+    static let surface = Color.white.opacity(0.045)
+    static let surfaceRaised = Color.white.opacity(0.07)
+    static let border = Color.white.opacity(0.10)
+    static let subtleBorder = Color.white.opacity(0.06)
+
+    static let microDuration = 0.15
+    static let cardDuration = 0.24
+    static let sheetDuration = 0.34
+
+    static var standardAnimation: Animation {
+        .timingCurve(0.22, 0.75, 0.30, 1, duration: cardDuration)
+    }
+}
+
+struct AcquisitionBackground: View {
+    var body: some View {
+        ZStack {
+            AcquisitionTheme.canvas
+            RadialGradient(
+                colors: [AcquisitionTheme.accent.opacity(0.10), .clear],
+                center: UnitPoint(x: 0.14, y: -0.08),
+                startRadius: 0,
+                endRadius: 430
+            )
+            RadialGradient(
+                colors: [AcquisitionTheme.info.opacity(0.055), .clear],
+                center: UnitPoint(x: 1.08, y: 0.60),
+                startRadius: 0,
+                endRadius: 390
+            )
+            LinearGradient(
+                colors: [Color.white.opacity(0.018), .clear, Color.black.opacity(0.20)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct AcquisitionSystemGlassPanelModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    let emphasized: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .background(
+                Color.white.opacity(emphasized ? 0.055 : 0.035),
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(emphasized ? AcquisitionTheme.border : AcquisitionTheme.subtleBorder, lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(emphasized ? 0.30 : 0.18), radius: emphasized ? 24 : 14, y: emphasized ? 12 : 7)
+    }
+}
+
+extension View {
+    func acquisitionGlass(cornerRadius: CGFloat = 22, emphasized: Bool = false) -> some View {
+        modifier(AcquisitionSystemGlassPanelModifier(cornerRadius: cornerRadius, emphasized: emphasized))
+    }
+
+    func acquisitionDisplayTitle() -> some View {
+        font(.system(.largeTitle, design: .serif, weight: .semibold))
+            .foregroundStyle(AcquisitionTheme.text)
+    }
+}
+
 nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable, Sendable {
     case home
     case requests
@@ -41,11 +123,11 @@ struct AcquisitionIdentityHeader: View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(name)
-                        .font(.system(.largeTitle, design: .rounded, weight: .black))
-                        .foregroundStyle(Palette.text)
+                        .font(.system(.largeTitle, design: .serif, weight: .semibold))
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text(subtitle)
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 Spacer(minLength: 8)
                 VStack(alignment: .trailing, spacing: 2) {
@@ -54,13 +136,13 @@ struct AcquisitionIdentityHeader: View {
                     Text("Datos ficticios")
                         .font(.system(size: 9, weight: .medium))
                 }
-                .foregroundStyle(Palette.amber)
+                .foregroundStyle(AcquisitionTheme.attention)
                 .padding(.horizontal, 11)
                 .padding(.vertical, 8)
-                .background(Palette.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
+                .background(AcquisitionTheme.attention.opacity(0.09), in: RoundedRectangle(cornerRadius: 13))
                 .overlay {
                     RoundedRectangle(cornerRadius: 13)
-                        .stroke(Palette.amber.opacity(0.35), lineWidth: 1)
+                        .stroke(AcquisitionTheme.attention.opacity(0.35), lineWidth: 1)
                 }
             }
 
@@ -68,15 +150,15 @@ struct AcquisitionIdentityHeader: View {
                 HStack(spacing: 11) {
                     Image(systemName: "building.2.crop.circle.fill")
                         .font(.system(size: 25, weight: .semibold))
-                        .foregroundStyle(Palette.volt)
+                        .foregroundStyle(AcquisitionTheme.accent)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(stationName)
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Palette.text)
+                            .foregroundStyle(AcquisitionTheme.text)
                         if let contextLine {
                             Text(contextLine)
                                 .font(.caption)
-                                .foregroundStyle(Palette.textMuted)
+                                .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                     }
                 }
@@ -100,16 +182,16 @@ struct AcquisitionProviderRequestCard: View {
             HStack(alignment: .top, spacing: 13) {
                 Image(systemName: "doc.text.fill")
                     .font(.title2.weight(.bold))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
                     .frame(width: 42, height: 42)
-                    .background(Palette.volt.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    .background(AcquisitionTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 5) {
                     Text("DORI \(summary.request.deliveryCity) busca \(summary.request.modelAndVersions)")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text("\(summary.request.yearRange) · Máx. \(summary.request.maximumMileageText) km")
                         .font(.subheadline)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
                 Label(
@@ -127,18 +209,18 @@ struct AcquisitionProviderRequestCard: View {
                         .font(.headline.weight(.bold))
                     Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
                         .font(.subheadline)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
             }
 
             ProgressView(value: progress)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .scaleEffect(x: 1, y: 1.5, anchor: .center)
         }
         .padding(18)
         .background {
             LinearGradient(
-                colors: [Palette.volt.opacity(0.14), Palette.surface.opacity(0.97)],
+                colors: [AcquisitionTheme.accent.opacity(0.14), AcquisitionTheme.surface.opacity(0.97)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -146,16 +228,16 @@ struct AcquisitionProviderRequestCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Palette.volt.opacity(0.34), lineWidth: 1)
+                .stroke(AcquisitionTheme.accent.opacity(0.34), lineWidth: 1)
         }
     }
 
     private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {
         switch tone {
-        case .active, .complete: Palette.volt
-        case .waiting: Palette.info
-        case .neutral: Palette.textMuted
-        case .cancelled: Palette.danger
+        case .active, .complete: AcquisitionTheme.accent
+        case .waiting: AcquisitionTheme.info
+        case .neutral: AcquisitionTheme.textSecondary
+        case .cancelled: AcquisitionTheme.danger
         }
     }
 }
@@ -174,18 +256,18 @@ struct AcquisitionRequirementsGrid: View {
                         .foregroundStyle(tint(for: requirement.id))
                     Text(requirement.title)
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text(requirement.value)
                         .font(.caption)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
                 .padding(12)
-                .background(Palette.surface.opacity(0.88), in: RoundedRectangle(cornerRadius: 14))
+                .background(AcquisitionTheme.surface.opacity(0.88), in: RoundedRectangle(cornerRadius: 14))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Palette.hairline, lineWidth: 1)
+                        .stroke(AcquisitionTheme.subtleBorder, lineWidth: 1)
                 }
             }
         }
@@ -211,7 +293,7 @@ struct AcquisitionRequirementsGrid: View {
     }
 
     private func tint(for id: String) -> Color {
-        id == "color" ? Palette.amber : Palette.volt
+        id == "color" ? AcquisitionTheme.attention : AcquisitionTheme.accent
     }
 }
 
@@ -222,13 +304,15 @@ struct AcquisitionSectionHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .font(.system(.caption, weight: .semibold))
+                .tracking(1.1)
+                .textCase(.uppercase)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             Spacer()
             if let count {
                 Text("\(count)")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
         }
     }
@@ -245,29 +329,29 @@ struct AcquisitionRequestCard: View {
                  ? "\(request.targetQuantity) vehículos requeridos"
                  : "DORI \(request.deliveryCity) busca \(request.modelAndVersions)")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
             if audience == .doriAdmin {
                 Text(request.modelAndVersions)
                     .font(.headline)
             }
             Text("\(request.yearRange) · Máx. \(request.maximumMileageText) km")
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             if audience == .provider {
                 Text("Entrega en \(request.deliveryCity)")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.info)
+                    .foregroundStyle(AcquisitionTheme.info)
             }
             if let progressText {
-                Divider().overlay(Palette.hairline)
+                Divider().overlay(AcquisitionTheme.subtleBorder)
                 Text(progressText)
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 }
 
@@ -284,64 +368,52 @@ struct AcquisitionAdminRequestCard: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .stroke(Palette.volt.opacity(0.18), lineWidth: 8)
+                        .stroke(AcquisitionTheme.accent.opacity(0.18), lineWidth: 8)
                     Circle()
                         .trim(from: 0, to: max(progress, 0.06))
                         .stroke(
-                            Palette.volt,
+                            AcquisitionTheme.accent,
                             style: StrokeStyle(lineWidth: 8, lineCap: .round)
                         )
                         .rotationEffect(.degrees(-90))
                     Image(systemName: "car.side.fill")
                         .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(Palette.volt)
+                        .foregroundStyle(AcquisitionTheme.accent)
                 }
                 .frame(width: 64, height: 64)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(summary.request.targetQuantity) vehículos requeridos")
                         .font(.title3.weight(.bold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text(summary.request.modelAndVersions)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text("\(summary.request.yearRange) · Máx. \(summary.request.maximumMileageText) km")
                         .font(.caption)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
             }
 
             ProgressView(value: progress)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .scaleEffect(x: 1, y: 1.6, anchor: .center)
 
             HStack(spacing: 10) {
                 Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Palette.text)
+                    .foregroundStyle(AcquisitionTheme.text)
                 Spacer(minLength: 6)
                 Label("Ver solicitud", systemImage: "arrow.right")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(Color.black)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 10)
-                    .background(Palette.volt, in: RoundedRectangle(cornerRadius: 11))
+                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 11))
             }
         }
         .padding(18)
-        .background {
-            LinearGradient(
-                colors: [Palette.volt.opacity(0.16), Palette.surface.opacity(0.97)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Palette.volt.opacity(0.35), lineWidth: 1)
-        }
-        .shadow(color: Palette.volt.opacity(0.08), radius: 18, y: 8)
+        .acquisitionGlass(cornerRadius: 24, emphasized: true)
         .accessibilityElement(children: .combine)
     }
 }
@@ -360,7 +432,7 @@ struct AcquisitionOperationalSectionHeader: View {
                 .foregroundStyle(tint)
             Text(title)
                 .font(.title3.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
             Spacer()
             if let trailingTitle {
                 Text(trailingTitle)
@@ -372,9 +444,9 @@ struct AcquisitionOperationalSectionHeader: View {
             } else {
                 Text("\(count)")
                     .font(.subheadline.weight(.black))
-                    .foregroundStyle(count > 0 ? Color.black : Palette.textMuted)
+                    .foregroundStyle(count > 0 ? Color.black : AcquisitionTheme.textSecondary)
                     .frame(minWidth: 28, minHeight: 28)
-                    .background(count > 0 ? tint : Palette.surfaceRaised, in: Circle())
+                    .background(count > 0 ? tint : AcquisitionTheme.surfaceRaised, in: Circle())
             }
         }
     }
@@ -386,13 +458,13 @@ struct AcquisitionVehicleVisual: View {
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.white.opacity(0.20), Palette.info.opacity(0.10)],
+                colors: [Color.white.opacity(0.20), AcquisitionTheme.info.opacity(0.10)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
             Image(systemName: "car.side.fill")
                 .font(.system(size: compact ? 30 : 39, weight: .semibold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
                 .shadow(color: .black.opacity(0.35), radius: 5, y: 4)
         }
         .frame(width: compact ? 78 : 96, height: compact ? 65 : 82)
@@ -419,11 +491,11 @@ struct AcquisitionDashboardVehicleCard: View {
     }
 
     private var statusTint: Color {
-        if group == .attention { return Palette.amber }
+        if group == .attention { return AcquisitionTheme.attention }
         if ["awarded", "received", "accepted", "closed"].contains(offer.status) {
-            return Palette.volt
+            return AcquisitionTheme.accent
         }
-        return Palette.info
+        return AcquisitionTheme.info
     }
 
     private var statusSymbol: String {
@@ -447,12 +519,12 @@ struct AcquisitionDashboardVehicleCard: View {
                 }
                 .foregroundStyle(
                     activity.requiresResponse(for: role, offerStatus: offer.status)
-                        ? Palette.amber : Palette.info
+                        ? AcquisitionTheme.attention : AcquisitionTheme.info
                 )
                 if let change = activity.amountChangeText {
                     Text(change)
                         .font(.subheadline.monospacedDigit().weight(.bold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                 }
             }
             HStack(alignment: .top, spacing: 13) {
@@ -461,20 +533,20 @@ struct AcquisitionDashboardVehicleCard: View {
                     if let supplierName, role == .doriAdmin {
                         Text(supplierName)
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     Text("\(offer.modelAndVersion) \(offer.yearText)")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                         .lineLimit(2)
                     if group == .attention {
                         Text("\(offer.mileageText) km · \(offer.agreedPriceText ?? offer.priceText)")
                             .font(.subheadline)
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                     } else {
                         Text("VIN \(offer.abbreviatedVin)")
                             .font(.subheadline)
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     Label(
                         AcquisitionHumanStatus.title(for: offer.status, role: role),
@@ -489,7 +561,7 @@ struct AcquisitionDashboardVehicleCard: View {
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(Palette.text)
+                    .foregroundStyle(AcquisitionTheme.text)
                     .frame(minHeight: 66)
             }
 
@@ -500,7 +572,7 @@ struct AcquisitionDashboardVehicleCard: View {
             if let recommendation {
                 Label("DORI recomienda: \(recommendation)", systemImage: "sparkles")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Palette.amber)
+                    .foregroundStyle(AcquisitionTheme.attention)
             }
 
             HStack {
@@ -517,12 +589,11 @@ struct AcquisitionDashboardVehicleCard: View {
             }
         }
         .padding(14)
-        .background(Palette.surface.opacity(0.94), in: RoundedRectangle(cornerRadius: 17))
+        .acquisitionGlass(cornerRadius: 20, emphasized: group == .attention)
         .overlay {
-            RoundedRectangle(cornerRadius: 17)
-                .stroke(statusTint.opacity(0.22), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(statusTint.opacity(0.24), lineWidth: 1)
         }
-        .shadow(color: Color.black.opacity(0.20), radius: 13, y: 7)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Abre el detalle de la unidad")
     }
@@ -562,11 +633,11 @@ struct AcquisitionOperationProgress: View {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     Image(systemName: step.1)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(index <= currentIndex ? Palette.volt : Palette.textMuted)
+                        .foregroundStyle(index <= currentIndex ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
                         .frame(width: 22, height: 22)
                     if index < steps.count - 1 {
                         Rectangle()
-                            .fill(index < currentIndex ? Palette.volt : Palette.hairline)
+                            .fill(index < currentIndex ? AcquisitionTheme.accent : AcquisitionTheme.subtleBorder)
                             .frame(height: 2)
                     }
                 }
@@ -576,7 +647,7 @@ struct AcquisitionOperationProgress: View {
             if let nextText {
                 Text("Siguiente: \(nextText)")
                     .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
         }
         .accessibilityElement(children: .combine)
@@ -589,9 +660,9 @@ struct AcquisitionHumanStatusIndicator: View {
 
     private var tint: Color {
         switch group {
-        case .attention: Palette.amber
-        case .inProgress: Palette.info
-        case .finished: Palette.neutral
+        case .attention: AcquisitionTheme.attention
+        case .inProgress: AcquisitionTheme.info
+        case .finished: AcquisitionTheme.textTertiary
         }
     }
 
@@ -623,17 +694,17 @@ struct AcquisitionVehicleCard: View {
             if let supplierName, role == .doriAdmin {
                 Text(supplierName)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
             Text("\(offer.modelAndVersion) \(offer.yearText)")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
             Text("\(offer.mileageText) km · VIN \(offer.abbreviatedVin)")
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             Text(offer.agreedPriceText ?? offer.priceText)
                 .font(.headline.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
             AcquisitionHumanStatusIndicator(
                 title: AcquisitionHumanStatus.title(for: offer.status, role: role),
                 group: group
@@ -641,17 +712,17 @@ struct AcquisitionVehicleCard: View {
             if let recommendation {
                 Text("DORI recomienda: \(recommendation)")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.amber)
+                    .foregroundStyle(AcquisitionTheme.attention)
             }
             if let detail {
                 Text(detail)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 }
 
@@ -665,7 +736,7 @@ struct AcquisitionAttentionCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.headline.weight(.bold))
-                .foregroundStyle(Palette.amber)
+                .foregroundStyle(AcquisitionTheme.attention)
             AcquisitionVehicleCard(
                 offer: offer,
                 role: role,
@@ -687,11 +758,11 @@ struct AcquisitionContactCard: View {
             if let personName { Text(personName) }
             Text(roleDescription)
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 }
 
@@ -707,7 +778,7 @@ struct AcquisitionInstitutionalContactCard: View {
                     .font(.headline.weight(.bold))
                 Text(contact.jobTitle)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
             }
 
             contactLine(label: "Nombre", value: contact.personName)
@@ -726,22 +797,22 @@ struct AcquisitionInstitutionalContactCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 
     private func contactLine(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.caption)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             Text(value)
                 .font(.subheadline)
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
                 .textSelection(.enabled)
         }
     }
@@ -755,7 +826,7 @@ struct AcquisitionInstitutionalContactCard: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .tint(Palette.volt)
+        .tint(AcquisitionTheme.accent)
         .disabled(url == nil)
     }
 }
@@ -773,7 +844,7 @@ struct AcquisitionPrimaryAction: View {
                 .padding(.vertical, 14)
         }
         .buttonStyle(.borderedProminent)
-        .tint(Palette.volt)
+        .tint(AcquisitionTheme.accent)
     }
 }
 
@@ -798,7 +869,7 @@ struct AcquisitionDock: View {
                                     .font(.system(size: 9, weight: .black))
                                     .foregroundStyle(.white)
                                     .frame(minWidth: 17, minHeight: 17)
-                                    .background(Palette.danger, in: Circle())
+                                    .background(AcquisitionTheme.danger, in: Circle())
                                     .offset(x: 8, y: -7)
                             }
                         }
@@ -806,11 +877,11 @@ struct AcquisitionDock: View {
                             .font(.system(size: 10, weight: .bold))
                             .lineLimit(1)
                     }
-                    .foregroundStyle(selection == destination ? Palette.volt : Palette.textMuted)
+                    .foregroundStyle(selection == destination ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(
-                        selection == destination ? Palette.volt.opacity(0.08) : Color.clear,
+                        selection == destination ? AcquisitionTheme.accent.opacity(0.08) : Color.clear,
                         in: RoundedRectangle(cornerRadius: 15)
                     )
                     .contentShape(.rect)
@@ -823,11 +894,12 @@ struct AcquisitionDock: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 25, style: .continuous)
-                .stroke(Palette.hairline.opacity(0.9), lineWidth: 1)
+                .stroke(AcquisitionTheme.subtleBorder.opacity(0.9), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.34), radius: 18, y: 8)
         .padding(.horizontal, 10)
         .padding(.top, 7)
-        .background(Palette.canvas.opacity(0.94))
+        .background(.ultraThinMaterial)
+        .background(AcquisitionTheme.canvas.opacity(0.78))
     }
 }

@@ -25,7 +25,7 @@ struct AcquisitionRootView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             NavigationStack {
                 content
                     // The custom dock belongs to section roots only. Applying
@@ -49,7 +49,7 @@ struct AcquisitionRootView: View {
                         if let membership = model.membership,
                            let profileID = UUID(uuidString: model.principal.profileId) {
                             ZStack {
-                                StationBackground()
+                                AcquisitionBackground()
                                 ScrollView {
                                     AcquisitionChatListView(
                                         membership: membership,
@@ -123,10 +123,10 @@ struct AcquisitionRootView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 AcquisitionIdentityHeader(
-                    name: model.organizationName,
-                    subtitle: model.organizationSubtitle,
-                    stationName: model.organizationLocation,
-                    contextLine: model.organizationContext
+                    name: destinationTitle(for: membership),
+                    subtitle: destinationSubtitle(for: membership),
+                    stationName: selectedDestination == .home ? model.organizationLocation : nil,
+                    contextLine: selectedDestination == .home ? model.organizationContext : nil
                 )
 
                 switch selectedDestination {
@@ -163,6 +163,28 @@ struct AcquisitionRootView: View {
                 navigationID = UUID()
             }
         )
+    }
+
+    private func destinationTitle(for membership: AcquisitionMembership) -> String {
+        switch selectedDestination {
+        case .home: model.organizationName
+        case .requests: "Solicitudes"
+        case .vehicles: membership.role == .doriAdmin ? "Operaciones" : "Mis vehículos"
+        case .contact: "Conversaciones"
+        case .account: "Cuenta"
+        }
+    }
+
+    private func destinationSubtitle(for membership: AcquisitionMembership) -> String {
+        switch selectedDestination {
+        case .home: model.organizationSubtitle
+        case .requests: membership.role == .doriAdmin
+            ? "Demanda activa y seguimiento"
+            : "Oportunidades disponibles"
+        case .vehicles: "Seguimiento operativo por unidad"
+        case .contact: "Comunicación institucional"
+        case .account: "Identidad y contactos autorizados"
+        }
     }
 
     private var pushDestinationBinding: Binding<Bool> {
@@ -237,7 +259,7 @@ struct AcquisitionRootView: View {
             administratorOfferSection(
                 title: "Necesita tu atención",
                 symbol: "exclamationmark.triangle.fill",
-                tint: Palette.amber,
+                tint: AcquisitionTheme.attention,
                 offers: attention,
                 membership: membership,
                 emptyText: "No tienes decisiones pendientes."
@@ -246,7 +268,7 @@ struct AcquisitionRootView: View {
             administratorOfferSection(
                 title: "En proceso",
                 symbol: "clock.fill",
-                tint: Palette.info,
+                tint: AcquisitionTheme.info,
                 offers: inProgress,
                 membership: membership,
                 emptyText: "No hay compras en proceso."
@@ -290,7 +312,7 @@ struct AcquisitionRootView: View {
                     Text("\(model.unreadChatCount)").font(.headline.monospacedDigit())
                     Image(systemName: "chevron.right")
                 }
-                .padding(16).panelFlat()
+                .padding(16).acquisitionGlass()
             }
             .buttonStyle(.plain)
 
@@ -310,20 +332,20 @@ struct AcquisitionRootView: View {
             HStack(spacing: 12) {
                 Image(systemName: "doc.text.fill")
                     .font(.title2)
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(summary.request.modelAndVersions).font(.headline)
                     Text("\(summary.request.targetQuantity) vehículos · \(summary.request.yearRange)")
-                        .font(.subheadline).foregroundStyle(Palette.textMuted)
+                        .font(.subheadline).foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 Spacer()
             }
             Button(role == .doriAdmin ? "Ver solicitudes" : "Revisar solicitudes") {
                 selectedDestination = .requests
             }
-            .buttonStyle(.bordered).tint(Palette.volt)
+            .buttonStyle(.bordered).tint(AcquisitionTheme.accent)
         }
-        .padding(16).panelFlat()
+        .padding(16).acquisitionGlass()
     }
 
     private func recentActivity(
@@ -347,16 +369,16 @@ struct AcquisitionRootView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "clock.arrow.circlepath")
-                            .foregroundStyle(Palette.info)
+                            .foregroundStyle(AcquisitionTheme.info)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(offer.modelAndVersion) \(offer.yearText)").font(.subheadline.weight(.bold))
                             Text(AcquisitionHumanStatus.title(for: offer.status, role: role))
-                                .font(.caption).foregroundStyle(Palette.textMuted)
+                                .font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(Palette.textMuted)
+                        Image(systemName: "chevron.right").foregroundStyle(AcquisitionTheme.textSecondary)
                     }
-                    .padding(13).panelFlat()
+                    .padding(13).acquisitionGlass()
                 }
                 .buttonStyle(.plain)
             }
@@ -366,7 +388,9 @@ struct AcquisitionRootView: View {
     private func requests(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                AcquisitionSectionHeader(title: "Solicitudes", count: model.requests.count)
+                Text("\(model.requests.count) activa\(model.requests.count == 1 ? "" : "s")")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                 Spacer()
                 if membership.role == .doriAdmin {
                     NavigationLink {
@@ -379,7 +403,7 @@ struct AcquisitionRootView: View {
                             .font(.subheadline.weight(.bold))
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
+                    .tint(AcquisitionTheme.accent)
                 }
             }
             ForEach(model.requests) { request in
@@ -403,7 +427,7 @@ struct AcquisitionRootView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
 
                         NavigationLink {
                             AcquisitionOfferFormView(
@@ -417,7 +441,7 @@ struct AcquisitionRootView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
                     }
                 } else {
                     NavigationLink {
@@ -443,7 +467,7 @@ struct AcquisitionRootView: View {
     private func vehicles(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 24) {
             offerSection(
-                title: membership.role == .doriAdmin ? "Operaciones" : "Mis vehículos",
+                title: membership.role == .doriAdmin ? "Operaciones activas" : "Unidades activas",
                 offers: groupedOffers(.attention, role: membership.role)
                     + groupedOffers(.inProgress, role: membership.role),
                 membership: membership,
@@ -460,7 +484,6 @@ struct AcquisitionRootView: View {
 
     private func account(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            AcquisitionSectionHeader(title: "Cuenta")
             AcquisitionContactCard(
                 organization: model.organizationName,
                 roleDescription: membership.role == .doriAdmin
@@ -472,7 +495,7 @@ struct AcquisitionRootView: View {
                  ? "Estos datos son administrados por DORI."
                  : "Tu acceso corresponde a esta operación de DORI.")
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
 
             NavigationLink {
                 AcquisitionCounterpartDirectoryView(
@@ -486,7 +509,7 @@ struct AcquisitionRootView: View {
                     systemImage: "person.2.crop.square.stack.fill"
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16).panelFlat()
+                .padding(16).acquisitionGlass()
             }
             .buttonStyle(.plain)
 
@@ -494,9 +517,9 @@ struct AcquisitionRootView: View {
                 Button(role: .destructive) { showsTestReset = true } label: {
                     Label("Limpiar entorno TEST", systemImage: "trash.fill")
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16).panelFlat()
+                        .padding(16).acquisitionGlass()
                 }
-                if let resetFeedback { Text(resetFeedback).font(.caption).foregroundStyle(Palette.amber) }
+                if let resetFeedback { Text(resetFeedback).font(.caption).foregroundStyle(AcquisitionTheme.attention) }
             }
         }
         .alert("¿Limpiar el entorno TEST?", isPresented: $showsTestReset) {
@@ -550,10 +573,10 @@ struct AcquisitionRootView: View {
             if offers.isEmpty {
                 Text(emptyText)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(18)
-                    .panelFlat()
+                    .acquisitionGlass()
             } else {
                 ForEach(offers) { offer in
                     NavigationLink {
@@ -597,14 +620,14 @@ struct AcquisitionRootView: View {
             if offers.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Palette.volt)
+                        .foregroundStyle(AcquisitionTheme.accent)
                     Text(emptyText)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
-                .panelFlat()
+                .acquisitionGlass()
             } else {
                 ForEach(offers) { offer in
                     NavigationLink {
@@ -671,9 +694,9 @@ struct AcquisitionRootView: View {
                 Text("\(finished.count)")
                 Image(systemName: "arrow.right")
             }
-            .foregroundStyle(Palette.text)
+            .foregroundStyle(AcquisitionTheme.text)
             .padding(18)
-            .panelFlat()
+            .acquisitionGlass()
         }
         .buttonStyle(.plain)
     }
@@ -703,10 +726,10 @@ struct AcquisitionRootView: View {
             AcquisitionSectionHeader(title: title)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
-                .panel()
+                .acquisitionGlass()
         }
     }
 
@@ -715,7 +738,7 @@ struct AcquisitionRootView: View {
             if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: 42, weight: .light))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
             } else {
                 ProgressView()
             }
@@ -725,7 +748,7 @@ struct AcquisitionRootView: View {
             if let action {
                 Button(action) { Task { await model.load() } }
                     .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
+                    .tint(AcquisitionTheme.accent)
             }
         }
         .padding(28)
@@ -739,17 +762,17 @@ private struct AcquisitionCounterpartDirectoryView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     AcquisitionSectionHeader(title: title, count: contacts.count)
                     if contacts.isEmpty {
                         Text("Información de contacto pendiente")
                             .font(.subheadline)
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(18)
-                            .panelFlat()
+                            .acquisitionGlass()
                     } else {
                         ForEach(contacts) { contact in
                             AcquisitionInstitutionalContactCard(contact: contact, openChat: openChat)
@@ -772,7 +795,7 @@ private struct AcquisitionRequestDetailView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
@@ -781,7 +804,7 @@ private struct AcquisitionRequestDetailView: View {
                                 .font(.system(.title, weight: .black))
                             Text("Detalles y requisitos")
                                 .font(.title3.weight(.semibold))
-                                .foregroundStyle(Palette.textMuted)
+                                .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                         Spacer()
                         Label(
@@ -801,7 +824,7 @@ private struct AcquisitionRequestDetailView: View {
                     AcquisitionOperationalSectionHeader(
                         title: "Requisitos de la unidad",
                         symbol: "checklist",
-                        tint: Palette.volt,
+                        tint: AcquisitionTheme.accent,
                         count: summary.request.visibleRequirements.count
                     )
                     AcquisitionRequirementsGrid(request: summary.request)
@@ -809,13 +832,13 @@ private struct AcquisitionRequestDetailView: View {
                     VStack(alignment: .leading, spacing: 7) {
                         Label("Importante", systemImage: "info.circle.fill")
                             .font(.headline)
-                            .foregroundStyle(Palette.info)
+                            .foregroundStyle(AcquisitionTheme.info)
                         Text("Solo se aceptarán unidades que cumplan con todos los requisitos. Revisa los detalles antes de enviar una propuesta.")
                             .font(.subheadline)
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     .padding(16)
-                    .background(Palette.info.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
+                    .background(AcquisitionTheme.info.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
 
                     if membership.role == .provider {
                         NavigationLink {
@@ -832,7 +855,7 @@ private struct AcquisitionRequestDetailView: View {
                                 .padding(.vertical, 14)
                         }
                         .buttonStyle(.borderedProminent)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
                     }
                 }
                 .padding(18)
@@ -844,10 +867,10 @@ private struct AcquisitionRequestDetailView: View {
 
     private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {
         switch tone {
-        case .active, .complete: Palette.volt
-        case .waiting: Palette.info
-        case .neutral: Palette.textMuted
-        case .cancelled: Palette.danger
+        case .active, .complete: AcquisitionTheme.accent
+        case .waiting: AcquisitionTheme.info
+        case .neutral: AcquisitionTheme.textSecondary
+        case .cancelled: AcquisitionTheme.danger
         }
     }
 }

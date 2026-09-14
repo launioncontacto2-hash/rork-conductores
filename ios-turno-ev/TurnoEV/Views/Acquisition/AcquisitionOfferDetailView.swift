@@ -40,7 +40,7 @@ struct AcquisitionOfferDetailView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             switch model.state {
             case .idle, .loading:
                 acquisitionLoadingCard
@@ -143,10 +143,10 @@ struct AcquisitionOfferDetailView: View {
                 if let feedback = model.feedbackMessage {
                     Text(feedback)
                         .font(.subheadline)
-                        .foregroundStyle(Palette.danger)
+                        .foregroundStyle(AcquisitionTheme.danger)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(14)
-                        .background(Palette.danger.opacity(0.12), in: .rect(cornerRadius: 14))
+                        .background(AcquisitionTheme.danger.opacity(0.12), in: .rect(cornerRadius: 14))
                 }
 
                 actions(detail)
@@ -186,21 +186,21 @@ struct AcquisitionOfferDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 19, style: .continuous)
-                            .stroke(Palette.hairline, lineWidth: 1)
+                            .stroke(AcquisitionTheme.subtleBorder, lineWidth: 1)
                     }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Foto \(selectedEvidenceIndex(in: detail.evidence) + 1) de \(availableEvidence(in: detail.evidence).count), activar para ver en pantalla completa")
             } else {
                 ZStack {
-                    Palette.surfaceRaised
+                    AcquisitionTheme.surfaceRaised
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.largeTitle)
                         Text("Fotografía no disponible")
                             .font(.subheadline.weight(.semibold))
                     }
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 .frame(height: 238)
                 .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
@@ -222,7 +222,7 @@ struct AcquisitionOfferDetailView: View {
                                         .clipShape(.rect(cornerRadius: 12))
                                         .overlay {
                                             RoundedRectangle(cornerRadius: 12)
-                                                .stroke(selected?.id == item.id ? Palette.volt : Palette.hairline, lineWidth: selected?.id == item.id ? 2 : 1)
+                                                .stroke(selected?.id == item.id ? AcquisitionTheme.accent : AcquisitionTheme.subtleBorder, lineWidth: selected?.id == item.id ? 2 : 1)
                                         }
                                 }
                             }
@@ -237,10 +237,11 @@ struct AcquisitionOfferDetailView: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(offer.modelAndVersion)
-                        .font(.title2.weight(.bold))
+                        .font(.system(.title2, design: .serif, weight: .semibold))
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text("VIN \(offer.abbreviatedVin)")
                         .font(.caption.monospaced())
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 Spacer(minLength: 6)
                 acquisitionStatusChip(detail.offer.status)
@@ -258,7 +259,7 @@ struct AcquisitionOfferDetailView: View {
             if model.membership.role == .provider, detail.offer.status == "price_agreed" {
                 Text("Esperando confirmación de compra de DORI.")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Palette.info)
+                    .foregroundStyle(AcquisitionTheme.info)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -275,11 +276,11 @@ struct AcquisitionOfferDetailView: View {
                 .font(.subheadline.weight(.semibold))
             Text(assessment.summary)
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 
     private func requirementsCard(_ detail: AcquisitionOfferDetail) -> some View {
@@ -310,7 +311,7 @@ struct AcquisitionOfferDetailView: View {
                 }
 
                 if !photographicRequirements.isEmpty {
-                    Divider().overlay(Palette.hairline)
+                    Divider().overlay(AcquisitionTheme.subtleBorder)
                     CapsLabel(text: "Fotografías de la unidad")
                     Button {
                         if let first = availableEvidence(in: detail.evidence).first {
@@ -319,18 +320,18 @@ struct AcquisitionOfferDetailView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: capturedCount >= photographicRequirements.count ? "checkmark.circle.fill" : "photo.stack")
-                                .foregroundStyle(capturedCount >= photographicRequirements.count ? Palette.volt : Palette.amber)
+                                .foregroundStyle(capturedCount >= photographicRequirements.count ? AcquisitionTheme.accent : AcquisitionTheme.attention)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(capturedCount) de \(photographicRequirements.count) fotos capturadas")
                                     .font(.subheadline.weight(.semibold))
                                 Text("Activar para abrir la galería")
                                     .font(.caption)
-                                    .foregroundStyle(Palette.textMuted)
+                                    .foregroundStyle(AcquisitionTheme.textSecondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(Palette.textMuted)
+                                .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -344,13 +345,13 @@ struct AcquisitionOfferDetailView: View {
     private func requirementRow(title: String, value: String, complete: Bool?) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: complete == true ? "checkmark.circle.fill" : "questionmark.circle")
-                .foregroundStyle(complete == true ? Palette.volt : Palette.textMuted)
+                .foregroundStyle(complete == true ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold))
-                Text(value).font(.caption).foregroundStyle(Palette.textMuted)
+                Text(value).font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
                 Text(complete == true ? "Verificado" : "Pendiente de verificación")
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(complete == true ? Palette.volt : Palette.textMuted)
+                    .foregroundStyle(complete == true ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
             }
             Spacer()
         }
@@ -393,10 +394,10 @@ struct AcquisitionOfferDetailView: View {
                     HStack(alignment: .top, spacing: 12) {
                         ZStack {
                             Circle()
-                                .fill(movement.actorRole == .doriAdmin ? Palette.info.opacity(0.18) : Palette.volt.opacity(0.18))
+                                .fill(movement.actorRole == .doriAdmin ? AcquisitionTheme.info.opacity(0.18) : AcquisitionTheme.accent.opacity(0.18))
                             Image(systemName: movement.actorRole == .doriAdmin ? "building.2.fill" : "storefront.fill")
                                 .font(.caption.weight(.bold))
-                                .foregroundStyle(movement.actorRole == .doriAdmin ? Palette.info : Palette.volt)
+                                .foregroundStyle(movement.actorRole == .doriAdmin ? AcquisitionTheme.info : AcquisitionTheme.accent)
                         }
                         .frame(width: 34, height: 34)
 
@@ -413,13 +414,13 @@ struct AcquisitionOfferDetailView: View {
                             if let createdAt = movement.createdAt {
                                 Text(createdAt.formatted(date: .abbreviated, time: .shortened))
                                     .font(.caption2)
-                                    .foregroundStyle(Palette.textMuted)
+                                    .foregroundStyle(AcquisitionTheme.textSecondary)
                             }
                         }
                         Spacer()
                     }
                     if index < detail.commercialHistory.count - 1 {
-                        Divider().overlay(Palette.hairline)
+                        Divider().overlay(AcquisitionTheme.subtleBorder)
                             .padding(.leading, 46)
                     }
                 }
@@ -434,21 +435,21 @@ struct AcquisitionOfferDetailView: View {
                 .font(.headline)
             Text("La negociación permite hasta 2 contraofertas por cada parte.")
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             Text("DORI \(detail.counterofferCount(for: .doriAdmin))/2 · Proveedor \(detail.counterofferCount(for: .provider))/2")
             .font(.subheadline.weight(.bold))
             if detail.bothPartiesReachedCounterofferLimit {
                 Text("Se alcanzó el límite de negociación.")
                     .font(.subheadline.weight(.black))
-                    .foregroundStyle(Palette.amber)
+                    .foregroundStyle(AcquisitionTheme.attention)
                 Text("Puedes aceptar el último precio o no continuar.")
                     .font(.subheadline)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .panelFlat()
+        .acquisitionGlass()
     }
 
     @ViewBuilder
@@ -460,19 +461,19 @@ struct AcquisitionOfferDetailView: View {
                 if detail.offer.status == "price_agreed" {
                     Button("Confirmar compra") { showsAward = true }
                         .buttonStyle(.borderedProminent)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
                         .frame(maxWidth: .infinity)
                 } else if detail.hasPendingCounteroffer(for: .doriAdmin) {
                     Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
                         Task { await model.accept() }
                     }
                         .buttonStyle(.borderedProminent)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
                         .disabled(model.isWorking)
                 } else if detail.offer.status == "submitted" {
                     Button("Comprar") { showsAward = true }
                         .buttonStyle(.borderedProminent)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
                         .frame(maxWidth: .infinity)
                 }
 
@@ -494,7 +495,7 @@ struct AcquisitionOfferDetailView: View {
                 Task { await model.accept() }
             }
             .buttonStyle(.borderedProminent)
-            .tint(Palette.volt)
+            .tint(AcquisitionTheme.accent)
             .disabled(model.isWorking)
 
             if detail.canCounteroffer(as: .provider) {
@@ -522,7 +523,7 @@ struct AcquisitionOfferDetailView: View {
                     .font(.headline)
                 if let summary = reception.issueSummary, !summary.isEmpty {
                     Text(summary)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
             }
             if let hold = delivery.hold {
@@ -534,13 +535,13 @@ struct AcquisitionOfferDetailView: View {
                     .font(.subheadline.weight(.semibold))
                 if hold.status == .readyForReview {
                     Text("El proveedor informó que ya resolvió la condición.")
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
-        .panel()
+        .acquisitionGlass()
     }
 
     @ViewBuilder
@@ -548,24 +549,24 @@ struct AcquisitionOfferDetailView: View {
         if model.membership.role == .provider, delivery.canProviderMarkReady {
             Button("Preparar entrega") { showsPreparation = true }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .disabled(model.isWorking)
         } else if model.membership.role == .doriAdmin, delivery.canDORIReceive {
             Button("Preparar recepción") { showsReception = true }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .disabled(model.isWorking)
         } else if model.membership.role == .provider, delivery.canProviderResolve {
             VStack(alignment: .leading, spacing: 8) {
                 Text(delivery.hold?.visibleConditionTitle ?? "Condición pendiente")
                     .font(.headline)
                 Text("Entrega lo pendiente y avisa a DORI.")
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                 Button("Marcar como entregada") {
                     Task { await model.resolveCondition() }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .disabled(model.isWorking)
             }
         } else if model.membership.role == .doriAdmin, delivery.canDORIClose {
@@ -573,7 +574,7 @@ struct AcquisitionOfferDetailView: View {
                 Task { await model.closeCondition() }
             }
             .buttonStyle(.borderedProminent)
-            .tint(Palette.volt)
+            .tint(AcquisitionTheme.accent)
             .disabled(model.isWorking)
         } else {
             finalStatus(delivery.orderStatus)
@@ -587,21 +588,21 @@ struct AcquisitionOfferDetailView: View {
         )
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .panelFlat()
+        .acquisitionGlass()
     }
 
     private var acquisitionLoadingCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             RoundedRectangle(cornerRadius: 19)
-                .fill(Palette.surfaceRaised)
+                .fill(AcquisitionTheme.surfaceRaised)
                 .frame(height: 238)
             RoundedRectangle(cornerRadius: 8)
-                .fill(Palette.surfaceRaised)
+                .fill(AcquisitionTheme.surfaceRaised)
                 .frame(width: 220, height: 25)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
                 ForEach(0..<6, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Palette.surfaceRaised)
+                        .fill(AcquisitionTheme.surfaceRaised)
                         .frame(height: 64)
                 }
             }
@@ -609,7 +610,7 @@ struct AcquisitionOfferDetailView: View {
                 .frame(maxWidth: .infinity)
         }
         .padding(16)
-        .panel()
+        .acquisitionGlass()
         .padding(18)
         .accessibilityLabel("Cargando unidad")
     }
@@ -618,19 +619,19 @@ struct AcquisitionOfferDetailView: View {
         VStack(spacing: 14) {
             Image(systemName: "wifi.exclamationmark")
                 .font(.largeTitle)
-                .foregroundStyle(Palette.amber)
+                .foregroundStyle(AcquisitionTheme.attention)
             Text("No pudimos cargar la unidad")
                 .font(.headline)
             Text("La información anterior permanece segura. Intenta nuevamente.")
                 .font(.subheadline)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
                 .multilineTextAlignment(.center)
             Button("Reintentar") { Task { await model.load() } }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
         }
         .padding(22)
-        .panel()
+        .acquisitionGlass()
         .padding(18)
     }
 
@@ -645,13 +646,13 @@ struct AcquisitionOfferDetailView: View {
         } label: {
             Label("Chat de esta unidad", systemImage: "bubble.left.and.bubble.right.fill")
                 .font(.headline)
-                .foregroundStyle(Palette.volt)
+                .foregroundStyle(AcquisitionTheme.accent)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(Palette.volt.opacity(0.16), in: .rect(cornerRadius: 16))
+                .background(AcquisitionTheme.accent.opacity(0.16), in: .rect(cornerRadius: 16))
                 .overlay {
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Palette.volt.opacity(0.30), lineWidth: 1)
+                        .stroke(AcquisitionTheme.accent.opacity(0.30), lineWidth: 1)
                 }
         }
         .buttonStyle(AcquisitionPremiumPressStyle(reduceMotion: reduceMotion))
@@ -679,14 +680,14 @@ struct AcquisitionOfferDetailView: View {
     private func acquisitionStatusChip(_ status: String) -> some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Palette.info)
+                .fill(AcquisitionTheme.info)
                 .frame(width: 6, height: 6)
             Text(AcquisitionHumanStatus.title(for: status, role: model.membership.role))
                 .font(.caption2.weight(.semibold))
                 .lineLimit(2)
                 .multilineTextAlignment(.trailing)
         }
-        .foregroundStyle(Palette.textMuted)
+        .foregroundStyle(AcquisitionTheme.textSecondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(.ultraThinMaterial, in: Capsule())
@@ -728,21 +729,21 @@ struct AcquisitionCollapsibleSection<Content: View>: View {
                 if reduceMotion {
                     isExpanded.toggle()
                 } else {
-                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.26)) {
+                    withAnimation(.timingCurve(0.22, 0.75, 0.30, 1, duration: 0.24)) {
                         isExpanded.toggle()
                     }
                 }
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: systemImage)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                     Text(title)
                         .font(.headline)
-                        .foregroundStyle(Palette.text)
+                        .foregroundStyle(AcquisitionTheme.text)
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .contentShape(Rectangle())
@@ -767,16 +768,16 @@ struct AcquisitionUnitFact: View {
         VStack(spacing: 5) {
             Image(systemName: icon)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
             Text(value)
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
                 .lineLimit(2)
                 .minimumScaleFactor(0.78)
                 .multilineTextAlignment(.center)
             Text(label)
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(Palette.textMuted.opacity(0.7))
+                .foregroundStyle(AcquisitionTheme.textSecondary.opacity(0.7))
         }
         .frame(maxWidth: .infinity, minHeight: 64, alignment: .center)
         .padding(10)
@@ -799,10 +800,10 @@ struct AcquisitionSheetFactRow: View {
             HStack(spacing: 9) {
                 Image(systemName: icon)
                     .frame(width: 18)
-                    .foregroundStyle(Palette.textMuted.opacity(0.7))
+                    .foregroundStyle(AcquisitionTheme.textSecondary.opacity(0.7))
                 Text(label)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                 Spacer()
                 Text(value)
                     .font(.subheadline.weight(.semibold))
@@ -824,7 +825,7 @@ struct AcquisitionPremiumPressStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
             .opacity(configuration.isPressed ? 0.9 : 1)
             .animation(
-                reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.15),
+                reduceMotion ? nil : .timingCurve(0.22, 0.75, 0.30, 1, duration: 0.15),
                 value: configuration.isPressed
             )
     }
@@ -940,7 +941,7 @@ private struct AcquisitionAwardSheet: View {
 
                 Button("Confirmar compra") { onConfirm() }
                     .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
+                    .tint(AcquisitionTheme.accent)
                     .frame(maxWidth: .infinity)
                 Spacer()
             }
@@ -1009,7 +1010,7 @@ private struct AcquisitionReceptionSheet: View {
                 }
                 if let validationMessage {
                     Text(validationMessage)
-                        .foregroundStyle(Palette.danger)
+                        .foregroundStyle(AcquisitionTheme.danger)
                 }
                 Button("Finalizar recepción") {
                     do {

@@ -36,10 +36,10 @@ struct AcquisitionChatListView: View {
                     .padding(24)
             } else if model.threads.isEmpty {
                 Text("No hay conversaciones todavía.")
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .panelFlat()
+                    .acquisitionGlass()
             } else {
                 ForEach(model.threads) { thread in
                     NavigationLink {
@@ -59,7 +59,7 @@ struct AcquisitionChatListView: View {
             if let message = model.feedbackMessage {
                 Text(message)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.danger)
+                    .foregroundStyle(AcquisitionTheme.danger)
             }
         }
         .task { await model.load() }
@@ -84,10 +84,10 @@ private struct AcquisitionChatThreadCard: View {
                      ? "VIN \(thread.vehicle?.abbreviatedVin ?? "no disponible")"
                      : thread.scope.visibleLabel)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                 Text(thread.previewText)
                     .font(.subheadline)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                     .lineLimit(1)
             }
             Spacer()
@@ -95,21 +95,21 @@ private struct AcquisitionChatThreadCard: View {
                 if let lastMessageAt = thread.lastMessageAt {
                     Text(lastMessageAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 if thread.unreadCount > 0 {
                     Text("\(thread.unreadCount)")
                         .font(.caption.weight(.black))
-                        .foregroundStyle(Palette.canvas)
+                        .foregroundStyle(AcquisitionTheme.canvas)
                         .frame(minWidth: 24, minHeight: 24)
-                        .background(Palette.volt, in: .circle)
+                        .background(AcquisitionTheme.accent, in: .circle)
                 }
             }
             Image(systemName: "chevron.right")
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .padding(16)
-        .panelFlat()
+        .acquisitionGlass()
     }
 
     @ViewBuilder
@@ -124,9 +124,9 @@ private struct AcquisitionChatThreadCard: View {
         } else {
             Image(systemName: thread.scope == .general ? "bubble.left.and.bubble.right.fill" : "car.fill")
                 .font(.title3)
-                .foregroundStyle(thread.unreadCount > 0 ? Palette.volt : Palette.info)
+                .foregroundStyle(thread.unreadCount > 0 ? AcquisitionTheme.accent : AcquisitionTheme.info)
                 .frame(width: 54, height: 54)
-                .background(Palette.surfaceRaised, in: .rect(cornerRadius: 10))
+                .background(AcquisitionTheme.surfaceRaised, in: .rect(cornerRadius: 10))
         }
     }
 }
@@ -141,7 +141,7 @@ struct AcquisitionUnitChatLauncherView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             if let thread {
                 AcquisitionChatView(
                     thread: thread,
@@ -160,7 +160,7 @@ struct AcquisitionUnitChatLauncherView: View {
                         Task { await openConversation() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Palette.volt)
+                    .tint(AcquisitionTheme.accent)
                 }
             } else {
                 ProgressView("Abriendo conversación…")
@@ -197,7 +197,7 @@ struct AcquisitionPushChatLauncherView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             if let thread {
                 AcquisitionChatView(
                     thread: thread,
@@ -297,7 +297,7 @@ struct AcquisitionChatView: View {
                         if reduceMotion {
                             proxy.scrollTo(id, anchor: .bottom)
                         } else {
-                            withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.22)) {
+                            withAnimation(.timingCurve(0.22, 0.75, 0.30, 1, duration: 0.24)) {
                                 proxy.scrollTo(id, anchor: .bottom)
                             }
                         }
@@ -320,7 +320,7 @@ struct AcquisitionChatView: View {
                         Button("Cancelar") { audioRecorder.cancel() }
                             .font(.caption.weight(.bold))
                         Image(systemName: "waveform")
-                            .foregroundStyle(Palette.danger)
+                            .foregroundStyle(AcquisitionTheme.danger)
                         Text(durationText(audioRecorder.elapsed))
                             .font(.subheadline.monospacedDigit().weight(.bold))
                         Spacer()
@@ -341,7 +341,7 @@ struct AcquisitionChatView: View {
             if let feedback = model.feedbackMessage {
                 Text(feedback)
                     .font(.caption)
-                    .foregroundStyle(Palette.danger)
+                    .foregroundStyle(AcquisitionTheme.danger)
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
             }
@@ -370,7 +370,7 @@ struct AcquisitionChatView: View {
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.title)
-                            .foregroundStyle(Palette.volt)
+                            .foregroundStyle(AcquisitionTheme.accent)
                     }
                     .disabled(model.isSending)
                     .accessibilityLabel("Enviar mensaje")
@@ -378,7 +378,7 @@ struct AcquisitionChatView: View {
                     Button { audioRecorder.start() } label: {
                         Image(systemName: "mic.circle.fill")
                             .font(.title)
-                            .foregroundStyle(audioRecorder.isRecording ? Palette.danger : Palette.volt)
+                            .foregroundStyle(audioRecorder.isRecording ? AcquisitionTheme.danger : AcquisitionTheme.accent)
                     }
                     .disabled(audioRecorder.isRecording || model.isSending)
                     .accessibilityLabel("Grabar nota de voz")
@@ -390,7 +390,7 @@ struct AcquisitionChatView: View {
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
             }
         }
-        .background(StationBackground())
+        .background(AcquisitionBackground())
         .navigationTitle(model.thread.scope == .unit ? "Chat" : model.thread.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
@@ -516,20 +516,20 @@ private struct AcquisitionChatVehicleHeader: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(vehicle.model) · \(String(vehicle.year))")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Palette.text)
+                    .foregroundStyle(AcquisitionTheme.text)
                     .lineLimit(1)
                 Text("\(vehicle.mileageText) · VIN \(vehicle.abbreviatedVin) · \(vehicle.status)")
                     .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
                     .lineLimit(1)
             }
             Spacer()
             Text(vehicle.priceText)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
             Image(systemName: "chevron.right")
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Palette.textMuted.opacity(0.7))
+                .foregroundStyle(AcquisitionTheme.textSecondary.opacity(0.7))
         }
         .padding(12)
         .acquisitionGlassPanel(cornerRadius: 16)
@@ -541,7 +541,7 @@ private struct AcquisitionChatVehicleHeader: View {
         if let data = vehicle.thumbnailData, let image = UIImage(data: data) {
             Image(uiImage: image).resizable().scaledToFill()
         } else {
-            ZStack { Palette.surface; Image(systemName: "car.side.fill").foregroundStyle(Palette.volt) }
+            ZStack { AcquisitionTheme.surface; Image(systemName: "car.side.fill").foregroundStyle(AcquisitionTheme.accent) }
         }
     }
 }
@@ -571,14 +571,14 @@ private struct AcquisitionChatVehicleSheet: View {
                             .clipShape(.rect(cornerRadius: 19))
                     } else {
                         ZStack {
-                            Palette.surfaceRaised
+                            AcquisitionTheme.surfaceRaised
                             VStack(spacing: 10) {
                                 Image(systemName: "car.side.fill")
                                     .font(.largeTitle)
                                 Text("Fotografía no disponible")
                                     .font(.subheadline.weight(.semibold))
                             }
-                            .foregroundStyle(Palette.textMuted)
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                         .frame(height: 220)
                         .clipShape(.rect(cornerRadius: 19))
@@ -586,10 +586,11 @@ private struct AcquisitionChatVehicleSheet: View {
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(detail.offer.modelAndVersion)
-                                .font(.title2.weight(.bold))
+                                .font(.system(.title2, design: .serif, weight: .semibold))
+                                .foregroundStyle(AcquisitionTheme.text)
                             Text("VIN \(detail.offer.abbreviatedVin)")
                                 .font(.caption.monospaced())
-                                .foregroundStyle(Palette.textMuted)
+                                .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
                         Spacer()
                         AcquisitionHumanStatusIndicator(
@@ -605,7 +606,7 @@ private struct AcquisitionChatVehicleSheet: View {
                         AcquisitionSheetFactRow(icon: "battery.75percent", label: "Batería", value: detail.offer.declaredSoh.map { "\($0) %" } ?? "Por verificar")
                         AcquisitionSheetFactRow(icon: "building.2", label: "Proveedor", value: detail.supplierName ?? "Información pendiente", drawsDivider: false)
                     }
-                    .animation(reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.38), value: detail.offer.status)
+                    .animation(reduceMotion ? nil : .timingCurve(0.22, 0.75, 0.30, 1, duration: 0.34), value: detail.offer.status)
                 } else if failed {
                     ContentUnavailableView(
                         "No pudimos cargar la ficha",
@@ -619,7 +620,7 @@ private struct AcquisitionChatVehicleSheet: View {
             }
             .padding(18)
         }
-        .background(StationBackground())
+        .background(AcquisitionBackground())
         .task {
             do {
                 detail = try await repository.loadOfferDetail(
@@ -650,7 +651,7 @@ private struct AcquisitionChatMessageBubble: View {
         if message.isSystem {
             Text(message.body ?? "Operación actualizada.")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
@@ -670,21 +671,21 @@ private struct AcquisitionChatMessageBubble: View {
                     }
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
-                        .foregroundStyle(Palette.textMuted)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 .padding(12)
                 .background(
-                    isOwn ? Palette.volt.opacity(0.18) : Color.white.opacity(0.055),
+                    isOwn ? AcquisitionTheme.accent.opacity(0.18) : Color.white.opacity(0.055),
                     in: .rect(cornerRadius: 17)
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 17)
                         .stroke(
-                            isOwn ? Palette.volt.opacity(0.22) : Color.white.opacity(0.09),
+                            isOwn ? AcquisitionTheme.accent.opacity(0.22) : Color.white.opacity(0.09),
                             lineWidth: 1
                         )
                 }
-                .foregroundStyle(Palette.text)
+                .foregroundStyle(AcquisitionTheme.text)
                 if !isOwn { Spacer(minLength: 46) }
             }
         }

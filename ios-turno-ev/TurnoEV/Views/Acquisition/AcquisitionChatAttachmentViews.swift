@@ -114,7 +114,7 @@ struct AcquisitionChatAttachmentPreview: View {
                     .lineLimit(1)
                 Text("\(attachment.kindLabel) · \(attachment.sizeText)")
                     .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
             }
             Spacer(minLength: 8)
             if let onRemove {
@@ -133,7 +133,7 @@ struct AcquisitionChatAttachmentPreview: View {
             }
         }
         .padding(10)
-        .background(Palette.surfaceRaised, in: .rect(cornerRadius: 14))
+        .background(AcquisitionTheme.surfaceRaised, in: .rect(cornerRadius: 14))
         .sheet(item: $previewItem) { item in
             NavigationStack {
                 Group {
@@ -204,7 +204,7 @@ struct AcquisitionChatAttachmentPreview: View {
                 Image(systemName: "play.rectangle.fill")
                     .font(.title2)
                     .frame(width: 58, height: 58)
-                    .background(Palette.info.opacity(0.15), in: .rect(cornerRadius: 10))
+                    .background(AcquisitionTheme.info.opacity(0.15), in: .rect(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Reproducir \(attachment.filename)")
@@ -218,7 +218,7 @@ struct AcquisitionChatAttachmentPreview: View {
                 Image(systemName: attachment.kind.systemImage)
                     .font(.title2)
                     .frame(width: 58, height: 58)
-                    .background(Palette.info.opacity(0.15), in: .rect(cornerRadius: 10))
+                    .background(AcquisitionTheme.info.opacity(0.15), in: .rect(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Abrir \(attachment.filename)")
@@ -300,7 +300,7 @@ private struct AcquisitionZoomableImage: View {
                 if reduceMotion {
                     scale = scale > 1 ? 1 : 2.5
                 } else {
-                    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.38)) {
+                    withAnimation(.timingCurve(0.22, 0.75, 0.30, 1, duration: 0.34)) {
                         scale = scale > 1 ? 1 : 2.5
                     }
                 }
@@ -339,7 +339,7 @@ private struct AcquisitionAudioPlayback: View {
                         .frame(width: 100)
                 }
                 .frame(width: 112, height: 58)
-                .background(Palette.info.opacity(0.15), in: .rect(cornerRadius: 10))
+                .background(AcquisitionTheme.info.opacity(0.15), in: .rect(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isPlaying ? "Pausar audio" : "Reproducir audio")

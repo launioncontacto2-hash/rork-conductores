@@ -92,16 +92,17 @@ struct AcquisitionNewRequestView: View {
     var body: some View {
         @Bindable var bindable = model
         ZStack {
-            StationBackground()
+            AcquisitionBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Nueva solicitud")
-                        .font(.system(.title, weight: .black))
+                        .font(.system(.largeTitle, design: .serif, weight: .semibold))
+                        .foregroundStyle(AcquisitionTheme.text)
                     Text("Paso \(model.step + 1) de 4")
                         .font(.subheadline.weight(.bold))
-                        .foregroundStyle(Palette.volt)
+                        .foregroundStyle(AcquisitionTheme.accent)
                     ProgressView(value: Double(model.step + 1), total: 4)
-                        .tint(Palette.volt)
+                        .tint(AcquisitionTheme.accent)
 
                     switch model.step {
                     case 0: basics($bindable.draft)
@@ -120,7 +121,7 @@ struct AcquisitionNewRequestView: View {
                     if let feedback = model.feedback {
                         Label(feedback, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
-                            .foregroundStyle(Palette.amber)
+                            .foregroundStyle(AcquisitionTheme.attention)
                     }
                 }
                 .padding(18)
@@ -140,11 +141,12 @@ struct AcquisitionNewRequestView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Palette.volt)
+                .tint(AcquisitionTheme.accent)
                 .disabled(model.isPublishing)
             }
             .padding(14)
-            .background(Palette.surface.opacity(0.98))
+            .background(.ultraThinMaterial)
+            .background(AcquisitionTheme.canvas.opacity(0.80))
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
@@ -164,7 +166,7 @@ struct AcquisitionNewRequestView: View {
             requestField("Versiones (separadas por coma)", text: draft.versions)
             requestField("Cantidad", text: draft.targetQuantity, keyboard: .numberPad)
         }
-        .padding(18).panel()
+        .padding(18).acquisitionGlass()
     }
 
     private func limits(_ draft: Binding<AcquisitionRequestDraft>) -> some View {
@@ -196,9 +198,9 @@ struct AcquisitionNewRequestView: View {
             }
             Text("Usa una fecha realista. Esta fecha servirá como referencia formal para la operación y el seguimiento de cumplimiento.")
                 .font(.caption)
-                .foregroundStyle(Palette.textMuted)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
-        .padding(18).panel()
+        .padding(18).acquisitionGlass()
     }
 
     private func requirements(
@@ -211,14 +213,14 @@ struct AcquisitionNewRequestView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Requisitos de esta solicitud").font(.headline)
             Text("Incluye las 14 evidencias aprobadas. Puedes agregar condiciones o documentos propios de esta solicitud.")
-                .font(.subheadline).foregroundStyle(Palette.textMuted)
+                .font(.subheadline).foregroundStyle(AcquisitionTheme.textSecondary)
             ForEach(model.draft.requirements) { requirement in
                 HStack(alignment: .top) {
                     Image(systemName: requirement.category == .evidence ? "camera.fill" : "checkmark.circle.fill")
-                        .foregroundStyle(Palette.volt)
+                        .foregroundStyle(AcquisitionTheme.accent)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(requirement.title).font(.subheadline.weight(.bold))
-                        Text(requirement.value).font(.caption).foregroundStyle(Palette.textMuted)
+                        Text(requirement.value).font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     Spacer()
                     if requirement.id.hasPrefix("custom_") {
@@ -243,9 +245,9 @@ struct AcquisitionNewRequestView: View {
             }
             Toggle("Requiere verificación DORI", isOn: customRequiresVerification)
             Button("Agregar requisito") { model.addRequirement() }
-                .buttonStyle(.bordered).tint(Palette.volt)
+                .buttonStyle(.bordered).tint(AcquisitionTheme.accent)
         }
-        .padding(18).panel()
+        .padding(18).acquisitionGlass()
     }
 
     private var review: some View {
@@ -259,9 +261,9 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
             reviewLine("Entrega objetivo", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
             Text("La publicación será autoritativa y compartida con los proveedores del entorno TEST.")
-                .font(.caption).foregroundStyle(Palette.textMuted)
+                .font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
         }
-        .padding(18).panel()
+        .padding(18).acquisitionGlass()
     }
 
     private func requestField(
@@ -270,16 +272,16 @@ struct AcquisitionNewRequestView: View {
         keyboard: UIKeyboardType = .default
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.caption.weight(.bold)).foregroundStyle(Palette.textMuted)
+            Text(title).font(.caption.weight(.bold)).foregroundStyle(AcquisitionTheme.textSecondary)
             TextField(title, text: text)
                 .keyboardType(keyboard)
                 .padding(12)
-                .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                .background(AcquisitionTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
     private func reviewLine(_ title: String, _ value: String) -> some View {
-        HStack { Text(title).foregroundStyle(Palette.textMuted); Spacer(); Text(value).fontWeight(.bold) }
+        HStack { Text(title).foregroundStyle(AcquisitionTheme.textSecondary); Spacer(); Text(value).fontWeight(.bold) }
             .font(.subheadline)
     }
 
@@ -304,10 +306,10 @@ private struct AcquisitionAutoDismissDateRow: View {
     var body: some View {
         Button { isPresented = true } label: {
             HStack {
-                Text(title).foregroundStyle(Palette.text)
+                Text(title).foregroundStyle(AcquisitionTheme.text)
                 Spacer()
                 Text(selection.formatted(date: .abbreviated, time: .omitted))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
                 Image(systemName: "calendar")
             }
         }
@@ -338,10 +340,10 @@ private struct AcquisitionAutoDismissTimeRow: View {
     var body: some View {
         Button { isPresented = true } label: {
             HStack {
-                Text(title).foregroundStyle(Palette.text)
+                Text(title).foregroundStyle(AcquisitionTheme.text)
                 Spacer()
                 Text(selection.formatted(date: .omitted, time: .shortened))
-                    .foregroundStyle(Palette.volt)
+                    .foregroundStyle(AcquisitionTheme.accent)
                 Image(systemName: "clock")
             }
         }
