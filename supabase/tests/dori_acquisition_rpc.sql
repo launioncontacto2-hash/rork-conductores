@@ -251,7 +251,12 @@ RESET ROLE;
 
 SELECT is((SELECT count(*)::bigint FROM public.acquisition_offers WHERE id = 'ad240000-0000-4000-8000-000000000001'), 1::bigint, 'la oferta idempotente existe una sola vez');
 SELECT is((SELECT count(*)::bigint FROM public.acquisition_evidence WHERE offer_id = 'ad240000-0000-4000-8000-000000000001'), 3::bigint, 'la oferta conserva tres evidencias');
-SELECT is((SELECT recommendation FROM public.acquisition_offer_assessments WHERE offer_id = 'ad240000-0000-4000-8000-000000000001'), 'buy', 'el servidor recomienda comprar la unidad viable');
+SELECT is(
+    (SELECT recommendation FROM public.acquisition_offer_assessments
+     WHERE offer_id = 'ad240000-0000-4000-8000-000000000001'),
+    'wait_for_information',
+    'sin valuacion interna el servidor conserva la oferta para revision'
+);
 
 -- Proveedor B no puede leer ni actuar sobre la oferta de A.
 SELECT set_config('request.jwt.claim.sub', 'ad200000-0000-4000-8000-000000000003', true);
