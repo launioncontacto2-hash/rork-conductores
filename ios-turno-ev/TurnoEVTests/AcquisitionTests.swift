@@ -237,8 +237,23 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(publication.versions == ["GL", "GS"])
         #expect(publication.maximumMileage == 15_000)
         #expect(publication.requirements.filter { $0.category == .evidence }.count == 14)
+        #expect(Set(publication.requirements.map(\.id)).count == publication.requirements.count)
         #expect(publication.deadlineAt != nil)
         #expect(publication.targetDeliveryDate != nil)
+    }
+
+    @Test func newRequestRejectsDuplicateRequirementCodesBeforeRPC() {
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD King"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.requirements.append(draft.requirements[0])
+
+        #expect(throws: AcquisitionRequestDraftIssue.duplicateRequirements) {
+            _ = try draft.makePublication()
+        }
     }
 
     @Test func newRequestDatesDefaultToNoon() throws {

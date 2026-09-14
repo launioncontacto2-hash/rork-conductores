@@ -278,9 +278,9 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
 
     static let defaultRequirements: [AcquisitionRequestRequirement] = [
-        .init(id: "charger_110v", category: .condition, title: "Cargador 110V", value: "Incluido"),
-        .init(id: "charger_220v", category: .condition, title: "Cargador 220V", value: "Incluido"),
-        .init(id: "keys", category: .condition, title: "Llaves", value: "Dos llaves completas"),
+        .init(id: "condition_charger_110v", category: .condition, title: "Cargador 110V", value: "Incluido"),
+        .init(id: "condition_charger_220v", category: .condition, title: "Cargador 220V", value: "Incluido"),
+        .init(id: "condition_keys", category: .condition, title: "Llaves", value: "Dos llaves completas"),
         .init(id: "origin_invoice_document", category: .documentation, title: "Factura de origen", value: "Documento legible"),
     ] + AcquisitionEvidenceKind.detailedStandard.enumerated().map { index, kind in
         .init(
@@ -316,6 +316,9 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         let city = deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !city.isEmpty else { throw AcquisitionRequestDraftIssue.cityRequired }
         guard !requirements.isEmpty else { throw AcquisitionRequestDraftIssue.requirementsRequired }
+        guard Set(requirements.map(\.id)).count == requirements.count else {
+            throw AcquisitionRequestDraftIssue.duplicateRequirements
+        }
         guard let deadlineAt else { throw AcquisitionRequestDraftIssue.deadlineRequired }
         guard let targetDeliveryDate else { throw AcquisitionRequestDraftIssue.targetDeliveryRequired }
         return AcquisitionRequestPublication(
@@ -352,6 +355,7 @@ nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
 
 nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
     case modelRequired, invalidQuantity, invalidYears, invalidMileage, cityRequired, requirementsRequired
+    case duplicateRequirements
     case deadlineRequired, targetDeliveryRequired
 
     var message: String {
@@ -362,6 +366,7 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
         case .invalidMileage: "Captura un kilometraje válido."
         case .cityRequired: "Captura la ciudad de entrega."
         case .requirementsRequired: "Agrega al menos un requisito."
+        case .duplicateRequirements: "Cada requisito debe ser único."
         case .deadlineRequired: "Selecciona la fecha límite para recibir ofertas."
         case .targetDeliveryRequired: "Selecciona la fecha objetivo de entrega."
         }
