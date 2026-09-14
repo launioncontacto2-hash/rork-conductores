@@ -36,8 +36,16 @@ SELECT has_function(
 SELECT has_function('public', 'change_acquisition_delivery_commitment', ARRAY['uuid','date','text','text'], 'cambio de compromiso exige motivo');
 SELECT has_function('public', 'reset_test_acquisition_environment', ARRAY['text'], 'limpieza TEST usa RPC autorizado');
 SELECT has_function('public', 'plan_test_acquisition_environment_reset', ARRAY['text'], 'limpieza TEST obtiene una allowlist cerrada de Storage');
-SELECT has_policy(
-    'storage', 'objects', 'acquisition_test_evidence_objects_delete',
+SELECT is(
+    (
+        SELECT count(*)::bigint
+        FROM pg_catalog.pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'acquisition_test_evidence_objects_delete'
+          AND cmd = 'DELETE'
+    ),
+    1::bigint,
     'Storage incluye DELETE limitado al administrador DORI de TEST'
 );
 SELECT table_privs_are(

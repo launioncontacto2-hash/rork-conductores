@@ -62,10 +62,20 @@ BEGIN
 
     SELECT jsonb_build_object(
         'requests', (SELECT count(*) FROM public.acquisition_requests WHERE environment_id = v_environment_id),
+        'request_rules', (SELECT count(*) FROM public.acquisition_request_rules WHERE environment_id = v_environment_id),
+        'request_requirements', (SELECT count(*) FROM public.acquisition_request_requirements WHERE environment_id = v_environment_id),
         'offers', (SELECT count(*) FROM public.acquisition_offers WHERE environment_id = v_environment_id),
+        'evidence', (SELECT count(*) FROM public.acquisition_evidence WHERE environment_id = v_environment_id),
+        'assessments', (SELECT count(*) FROM public.acquisition_offer_assessments WHERE environment_id = v_environment_id),
+        'negotiations', (SELECT count(*) FROM public.acquisition_negotiations WHERE environment_id = v_environment_id),
         'orders', (SELECT count(*) FROM public.acquisition_orders WHERE environment_id = v_environment_id),
+        'deliveries', (SELECT count(*) FROM public.acquisition_deliveries WHERE environment_id = v_environment_id),
+        'receptions', (SELECT count(*) FROM public.acquisition_receptions WHERE environment_id = v_environment_id),
+        'holds', (SELECT count(*) FROM public.acquisition_holds WHERE environment_id = v_environment_id),
+        'delivery_commitments', (SELECT count(*) FROM public.acquisition_delivery_commitment_history WHERE environment_id = v_environment_id),
         'threads', (SELECT count(*) FROM public.acquisition_chat_threads WHERE environment_id = v_environment_id),
         'messages', (SELECT count(*) FROM public.acquisition_chat_messages WHERE environment_id = v_environment_id),
+        'read_receipts', (SELECT count(*) FROM public.acquisition_chat_read_receipts WHERE environment_id = v_environment_id),
         'notifications', (SELECT count(*) FROM public.acquisition_notifications WHERE environment_id = v_environment_id),
         'storage_objects', jsonb_array_length(v_objects)
     ) INTO v_counts;
@@ -126,10 +136,20 @@ BEGIN
 
     SELECT jsonb_build_object(
         'requests', (SELECT count(*) FROM public.acquisition_requests WHERE environment_id = v_environment_id),
+        'request_rules', (SELECT count(*) FROM public.acquisition_request_rules WHERE environment_id = v_environment_id),
+        'request_requirements', (SELECT count(*) FROM public.acquisition_request_requirements WHERE environment_id = v_environment_id),
         'offers', (SELECT count(*) FROM public.acquisition_offers WHERE environment_id = v_environment_id),
+        'evidence', (SELECT count(*) FROM public.acquisition_evidence WHERE environment_id = v_environment_id),
+        'assessments', (SELECT count(*) FROM public.acquisition_offer_assessments WHERE environment_id = v_environment_id),
+        'negotiations', (SELECT count(*) FROM public.acquisition_negotiations WHERE environment_id = v_environment_id),
         'orders', (SELECT count(*) FROM public.acquisition_orders WHERE environment_id = v_environment_id),
+        'deliveries', (SELECT count(*) FROM public.acquisition_deliveries WHERE environment_id = v_environment_id),
+        'receptions', (SELECT count(*) FROM public.acquisition_receptions WHERE environment_id = v_environment_id),
+        'holds', (SELECT count(*) FROM public.acquisition_holds WHERE environment_id = v_environment_id),
+        'delivery_commitments', (SELECT count(*) FROM public.acquisition_delivery_commitment_history WHERE environment_id = v_environment_id),
         'threads', (SELECT count(*) FROM public.acquisition_chat_threads WHERE environment_id = v_environment_id),
         'messages', (SELECT count(*) FROM public.acquisition_chat_messages WHERE environment_id = v_environment_id),
+        'read_receipts', (SELECT count(*) FROM public.acquisition_chat_read_receipts WHERE environment_id = v_environment_id),
         'notifications', (SELECT count(*) FROM public.acquisition_notifications WHERE environment_id = v_environment_id)
     ) INTO v_before;
 
@@ -149,10 +169,20 @@ BEGIN
 
     SELECT jsonb_build_object(
         'requests', (SELECT count(*) FROM public.acquisition_requests WHERE environment_id = v_environment_id),
+        'request_rules', (SELECT count(*) FROM public.acquisition_request_rules WHERE environment_id = v_environment_id),
+        'request_requirements', (SELECT count(*) FROM public.acquisition_request_requirements WHERE environment_id = v_environment_id),
         'offers', (SELECT count(*) FROM public.acquisition_offers WHERE environment_id = v_environment_id),
+        'evidence', (SELECT count(*) FROM public.acquisition_evidence WHERE environment_id = v_environment_id),
+        'assessments', (SELECT count(*) FROM public.acquisition_offer_assessments WHERE environment_id = v_environment_id),
+        'negotiations', (SELECT count(*) FROM public.acquisition_negotiations WHERE environment_id = v_environment_id),
         'orders', (SELECT count(*) FROM public.acquisition_orders WHERE environment_id = v_environment_id),
+        'deliveries', (SELECT count(*) FROM public.acquisition_deliveries WHERE environment_id = v_environment_id),
+        'receptions', (SELECT count(*) FROM public.acquisition_receptions WHERE environment_id = v_environment_id),
+        'holds', (SELECT count(*) FROM public.acquisition_holds WHERE environment_id = v_environment_id),
+        'delivery_commitments', (SELECT count(*) FROM public.acquisition_delivery_commitment_history WHERE environment_id = v_environment_id),
         'threads', (SELECT count(*) FROM public.acquisition_chat_threads WHERE environment_id = v_environment_id),
         'messages', (SELECT count(*) FROM public.acquisition_chat_messages WHERE environment_id = v_environment_id),
+        'read_receipts', (SELECT count(*) FROM public.acquisition_chat_read_receipts WHERE environment_id = v_environment_id),
         'notifications', (SELECT count(*) FROM public.acquisition_notifications WHERE environment_id = v_environment_id),
         'storage_objects', 0
     ) INTO v_after;

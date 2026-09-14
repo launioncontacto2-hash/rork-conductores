@@ -83,8 +83,8 @@ struct LoginView: View {
                 credentialsSection
             }
             .padding(.horizontal, 24)
-            .padding(.top, 26)
-            .padding(.bottom, 22)
+            .padding(.top, 38)
+            .padding(.bottom, 20)
 
             if let handoffAccount {
                 RoleHandoffOverlay(account: handoffAccount)
@@ -106,13 +106,14 @@ struct LoginView: View {
     private var header: some View {
         VStack(spacing: 4) {
             Text("DORI")
-                .font(.acquisitionFixed(38, weight: .bold))
-                .tracking(5)
+                .font(.acquisitionFixed(42, weight: .bold))
+                .tracking(-0.42)
                 .foregroundStyle(AcquisitionTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text("La movilidad del futuro")
-                .font(.acquisition(.subheadline, weight: .medium))
+                .font(.acquisitionFixed(13, weight: .medium))
+                .tracking(0.39)
                 .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .frame(maxWidth: .infinity)
@@ -440,31 +441,31 @@ struct LoginView: View {
     // MARK: - Credentials
 
     private var credentialsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             TextField(
                 "Correo",
                 text: $identifier
             )
-            .font(.acquisition(.body))
+            .font(.acquisitionFixed(12.5, weight: .regular))
             .textContentType(.emailAddress)
             .keyboardType(.emailAddress)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.vertical, 14)
-            .padding(.horizontal, 14)
-            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).stroke(AcquisitionTheme.border) }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 16)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).stroke(AcquisitionTheme.subtleBorder) }
 
             SecureField(
                 "Contraseña",
                 text: $password
             )
-            .font(.acquisition(.body))
+            .font(.acquisitionFixed(12.5, weight: .regular))
             .textContentType(.password)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 14)
-            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).stroke(AcquisitionTheme.border) }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 16)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).stroke(AcquisitionTheme.subtleBorder) }
 
             if let errorMessage {
                 HStack(
@@ -502,21 +503,24 @@ struct LoginView: View {
                 submitCredentials()
             } label: {
                 Text(isSupabaseProbeRunning ? "Verificando…" : "Iniciar sesión")
-                    .font(.acquisition(.headline, weight: .semibold))
+                    .font(.acquisitionFixed(13, weight: .bold))
+                    .tracking(0.39)
                     .foregroundStyle(AcquisitionTheme.canvas)
-                    .frame(maxWidth: .infinity, minHeight: 50)
-                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 12))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 22))
             }
             .buttonStyle(.plain)
             .disabled(isSupabaseProbeRunning)
 
             footer.padding(.top, 4)
         }
-        .padding(18)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 24)
+        .padding(.top, 22)
+        .padding(.bottom, 20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .stroke(AcquisitionTheme.border, lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.30), radius: 24, y: 12)
