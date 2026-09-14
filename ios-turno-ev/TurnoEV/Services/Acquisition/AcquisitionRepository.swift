@@ -37,7 +37,7 @@ protocol AcquisitionRepository {
     func notificationBadgeCount() async throws -> Int
     func unreadNotificationOfferIDs() async throws -> Set<UUID>
     func markNotificationContextRead(type: String, id: UUID) async throws
-    func resetTestEnvironment(confirmation: String) async throws
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult
 }
 
 extension AcquisitionRepository {
@@ -65,7 +65,16 @@ extension AcquisitionRepository {
     func notificationBadgeCount() async throws -> Int { 0 }
     func unreadNotificationOfferIDs() async throws -> Set<UUID> { [] }
     func markNotificationContextRead(type: String, id: UUID) async throws {}
-    func resetTestEnvironment(confirmation: String) async throws { throw CancellationError() }
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult {
+        throw CancellationError()
+    }
+}
+
+nonisolated struct AcquisitionTestResetResult: Sendable, Equatable {
+    let environmentID: UUID
+    let before: [String: Int]
+    let after: [String: Int]
+    let deletedStorageObjects: Int
 }
 
 nonisolated enum AcquisitionQueries {
@@ -329,9 +338,30 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     nonisolated struct ResetTestParameters: Encodable, Sendable {
         let p_confirmation: String
     }
+    nonisolated struct ResetStorageObject: Decodable, Sendable {
+        let bucket: String
+        let path: String
+    }
+    nonisolated struct ResetTestPlan: Decodable, Sendable {
+        let environment_id: UUID
+        let counts: [String: Int]
+        let storage_objects: [ResetStorageObject]
+    }
     nonisolated struct ResetTestResult: Decodable, Sendable {
         let environment_id: UUID
-        let deleted_requests: Int
+        let before: [String: Int]
+        let after: [String: Int]
+    }
+
+    nonisolated static func validateTestResetObject(
+        _ object: ResetStorageObject,
+        environmentID: UUID
+    ) throws {
+        let allowedBuckets: Set<String> = ["acquisition-evidence", "acquisition-chat-attachments"]
+        guard allowedBuckets.contains(object.bucket),
+              object.path.hasPrefix("\(environmentID.uuidString.lowercased())/") else {
+            throw RepositoryError.invalidTestResetPlan
+        }
     }
 
     nonisolated struct RespondOfferRow: Decodable, Sendable {
@@ -535,6 +565,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         case offerNotFound
         case evidenceRequired
         case evidenceTooLarge
+        case invalidTestResetPlan
 
         var errorDescription: String? {
             switch self {
@@ -554,6 +585,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                 "La propuesta requiere todas las evidencias indicadas."
             case .evidenceTooLarge:
                 "Una fotografía supera el límite permitido de 10 MB."
+            case .invalidTestResetPlan:
+                "El servidor devolvió una ruta no autorizada para la limpieza TEST."
             }
         }
     }
@@ -1081,15 +1114,46 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         )
     }
 
-    func resetTestEnvironment(confirmation: String) async throws {
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult {
         guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
-        let _: ResetTestResult = try await client
+
+        let plan: ResetTestPlan = try await client
+            .rpc(
+                "plan_test_acquisition_environment_reset",
+                params: ResetTestParameters(p_confirmation: confirmation)
+            )
+            .execute()
+            .value
+
+        for object in plan.storage_objects {
+            try Self.validateTestResetObject(object, environmentID: plan.environment_id)
+        }
+
+        let allowedBuckets: Set<String> = ["acquisition-evidence", "acquisition-chat-attachments"]
+        for bucketName in allowedBuckets {
+            let paths = plan.storage_objects
+                .filter { $0.bucket == bucketName }
+                .map(\.path)
+            for batchStart in stride(from: 0, to: paths.count, by: 100) {
+                let batchEnd = min(batchStart + 100, paths.count)
+                try await client.storage.from(bucketName).remove(paths: Array(paths[batchStart..<batchEnd]))
+            }
+        }
+
+        let result: ResetTestResult = try await client
             .rpc(
                 "reset_test_acquisition_environment",
                 params: ResetTestParameters(p_confirmation: confirmation)
             )
             .execute()
             .value
+
+        return AcquisitionTestResetResult(
+            environmentID: result.environment_id,
+            before: result.before,
+            after: result.after,
+            deletedStorageObjects: plan.storage_objects.count
+        )
     }
 
     func completeDelivery(

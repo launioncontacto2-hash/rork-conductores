@@ -96,10 +96,12 @@ struct AcquisitionNewRequestView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("Nueva solicitud")
-                        .font(.system(.largeTitle, design: .serif, weight: .semibold))
+                        .font(.acquisition(.largeTitle, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                         .foregroundStyle(AcquisitionTheme.text)
                     Text("Paso \(model.step + 1) de 4")
-                        .font(.subheadline.weight(.bold))
+                        .font(.acquisition(.subheadline, weight: .bold))
                         .foregroundStyle(AcquisitionTheme.accent)
                     ProgressView(value: Double(model.step + 1), total: 4)
                         .tint(AcquisitionTheme.accent)
@@ -120,7 +122,7 @@ struct AcquisitionNewRequestView: View {
 
                     if let feedback = model.feedback {
                         Label(feedback, systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline)
+                            .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.attention)
                     }
                 }
@@ -161,7 +163,7 @@ struct AcquisitionNewRequestView: View {
 
     private func basics(_ draft: Binding<AcquisitionRequestDraft>) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Vehículos requeridos").font(.headline)
+            Text("Vehículos requeridos").font(.acquisition(.headline))
             requestField("Modelo", text: draft.model)
             requestField("Versiones (separadas por coma)", text: draft.versions)
             requestField("Cantidad", text: draft.targetQuantity, keyboard: .numberPad)
@@ -171,7 +173,7 @@ struct AcquisitionNewRequestView: View {
 
     private func limits(_ draft: Binding<AcquisitionRequestDraft>) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Años, kilometraje y entrega").font(.headline)
+            Text("Años, kilometraje y entrega").font(.acquisition(.headline))
             HStack {
                 requestField("Año mínimo", text: draft.minimumYear, keyboard: .numberPad)
                 requestField("Año máximo", text: draft.maximumYear, keyboard: .numberPad)
@@ -197,7 +199,7 @@ struct AcquisitionNewRequestView: View {
                 )
             }
             Text("Usa una fecha realista. Esta fecha servirá como referencia formal para la operación y el seguimiento de cumplimiento.")
-                .font(.caption)
+                .font(.acquisition(.caption))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .padding(18).acquisitionGlass()
@@ -211,16 +213,16 @@ struct AcquisitionNewRequestView: View {
         customRequiresVerification: Binding<Bool>
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Requisitos de esta solicitud").font(.headline)
+            Text("Requisitos de esta solicitud").font(.acquisition(.headline))
             Text("Incluye las 14 evidencias aprobadas. Puedes agregar condiciones o documentos propios de esta solicitud.")
-                .font(.subheadline).foregroundStyle(AcquisitionTheme.textSecondary)
+                .font(.acquisition(.subheadline)).foregroundStyle(AcquisitionTheme.textSecondary)
             ForEach(model.draft.requirements) { requirement in
                 HStack(alignment: .top) {
                     Image(systemName: requirement.category == .evidence ? "camera.fill" : "checkmark.circle.fill")
                         .foregroundStyle(AcquisitionTheme.accent)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(requirement.title).font(.subheadline.weight(.bold))
-                        Text(requirement.value).font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
+                        Text(requirement.title).font(.acquisition(.subheadline, weight: .bold))
+                        Text(requirement.value).font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     Spacer()
                     if requirement.id.hasPrefix("custom_") {
@@ -252,7 +254,7 @@ struct AcquisitionNewRequestView: View {
 
     private var review: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Revisar y publicar").font(.headline)
+            Text("Revisar y publicar").font(.acquisition(.headline))
             reviewLine("Modelo", model.draft.model)
             reviewLine("Cantidad", model.draft.targetQuantity)
             reviewLine("Años", "\(model.draft.minimumYear)–\(model.draft.maximumYear)")
@@ -261,7 +263,7 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
             reviewLine("Entrega objetivo", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
             Text("La publicación será autoritativa y compartida con los proveedores del entorno TEST.")
-                .font(.caption).foregroundStyle(AcquisitionTheme.textSecondary)
+                .font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .padding(18).acquisitionGlass()
     }
@@ -272,7 +274,7 @@ struct AcquisitionNewRequestView: View {
         keyboard: UIKeyboardType = .default
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.caption.weight(.bold)).foregroundStyle(AcquisitionTheme.textSecondary)
+            Text(title).font(.acquisition(.caption, weight: .bold)).foregroundStyle(AcquisitionTheme.textSecondary)
             TextField(title, text: text)
                 .keyboardType(keyboard)
                 .padding(12)
@@ -282,7 +284,7 @@ struct AcquisitionNewRequestView: View {
 
     private func reviewLine(_ title: String, _ value: String) -> some View {
         HStack { Text(title).foregroundStyle(AcquisitionTheme.textSecondary); Spacer(); Text(value).fontWeight(.bold) }
-            .font(.subheadline)
+            .font(.acquisition(.subheadline))
     }
 
     private func nonOptionalDate(_ date: Binding<Date?>) -> Binding<Date> {
@@ -316,7 +318,7 @@ private struct AcquisitionAutoDismissDateRow: View {
         .buttonStyle(.plain)
         .sheet(isPresented: $isPresented) {
             VStack(spacing: 12) {
-                Text(title).font(.headline)
+                Text(title).font(.acquisition(.headline))
                 DatePicker(
                     title,
                     selection: $selection,

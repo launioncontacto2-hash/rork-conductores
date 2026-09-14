@@ -506,6 +506,7 @@ struct AcquisitionViewModelTests {
 
         #expect(model.state == .empty)
         #expect(model.activeRequest == nil)
+        #expect(model.membership?.role == .doriAdmin)
     }
 
     @Test func replacesTechnicalFailuresWithTheSimpleErrorState() async {
@@ -710,6 +711,48 @@ struct AcquisitionViewModelTests {
             _ command: AcquisitionDeliveryCommand
         ) async throws -> AcquisitionDeliveryCommandResult {
             throw TestFailure.unavailable
+        }
+    }
+}
+
+@MainActor
+struct AcquisitionTestResetTests {
+    private let environmentID = UUID(uuidString: "AD510000-0000-4000-8000-000000000002")!
+
+    @Test func acceptsOnlyAuthorizedBucketAndEnvironmentPrefix() throws {
+        let object = SupabaseAcquisitionRepository.ResetStorageObject(
+            bucket: "acquisition-evidence",
+            path: "ad510000-0000-4000-8000-000000000002/supplier/offer/vin.jpg"
+        )
+        try SupabaseAcquisitionRepository.validateTestResetObject(
+            object,
+            environmentID: environmentID
+        )
+    }
+
+    @Test func rejectsAnObjectOutsideTheCurrentEnvironment() {
+        let object = SupabaseAcquisitionRepository.ResetStorageObject(
+            bucket: "acquisition-chat-attachments",
+            path: "00000000-0000-4000-8000-000000000000/supplier/thread/file.jpg"
+        )
+        #expect(throws: SupabaseAcquisitionRepository.RepositoryError.self) {
+            try SupabaseAcquisitionRepository.validateTestResetObject(
+                object,
+                environmentID: environmentID
+            )
+        }
+    }
+
+    @Test func rejectsAnUnlistedBucket() {
+        let object = SupabaseAcquisitionRepository.ResetStorageObject(
+            bucket: "avatars",
+            path: "ad510000-0000-4000-8000-000000000002/profile.jpg"
+        )
+        #expect(throws: SupabaseAcquisitionRepository.RepositoryError.self) {
+            try SupabaseAcquisitionRepository.validateTestResetObject(
+                object,
+                environmentID: environmentID
+            )
         }
     }
 }

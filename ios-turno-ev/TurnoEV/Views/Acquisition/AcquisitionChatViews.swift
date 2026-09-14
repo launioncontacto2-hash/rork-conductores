@@ -58,7 +58,7 @@ struct AcquisitionChatListView: View {
 
             if let message = model.feedbackMessage {
                 Text(message)
-                    .font(.subheadline)
+                    .font(.acquisition(.subheadline))
                     .foregroundStyle(AcquisitionTheme.danger)
             }
         }
@@ -79,14 +79,14 @@ private struct AcquisitionChatThreadCard: View {
                 Text(thread.scope == .general
                      ? thread.supplierName
                      : thread.vehicle?.title ?? thread.title)
-                    .font(.headline)
+                    .font(.acquisition(.headline))
                 Text(thread.scope == .unit
                      ? "VIN \(thread.vehicle?.abbreviatedVin ?? "no disponible")"
                      : thread.scope.visibleLabel)
-                    .font(.caption.weight(.semibold))
+                    .font(.acquisition(.caption, weight: .semibold))
                     .foregroundStyle(AcquisitionTheme.textSecondary)
                 Text(thread.previewText)
-                    .font(.subheadline)
+                    .font(.acquisition(.subheadline))
                     .foregroundStyle(AcquisitionTheme.textSecondary)
                     .lineLimit(1)
             }
@@ -94,12 +94,12 @@ private struct AcquisitionChatThreadCard: View {
             VStack(alignment: .trailing, spacing: 8) {
                 if let lastMessageAt = thread.lastMessageAt {
                     Text(lastMessageAt.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2)
+                        .font(.acquisition(.caption2))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
                 if thread.unreadCount > 0 {
                     Text("\(thread.unreadCount)")
-                        .font(.caption.weight(.black))
+                        .font(.acquisition(.caption, weight: .bold))
                         .foregroundStyle(AcquisitionTheme.canvas)
                         .frame(minWidth: 24, minHeight: 24)
                         .background(AcquisitionTheme.accent, in: .circle)
@@ -123,7 +123,7 @@ private struct AcquisitionChatThreadCard: View {
                 .clipShape(.rect(cornerRadius: 10))
         } else {
             Image(systemName: thread.scope == .general ? "bubble.left.and.bubble.right.fill" : "car.fill")
-                .font(.title3)
+                .font(.acquisition(.title3))
                 .foregroundStyle(thread.unreadCount > 0 ? AcquisitionTheme.accent : AcquisitionTheme.info)
                 .frame(width: 54, height: 54)
                 .background(AcquisitionTheme.surfaceRaised, in: .rect(cornerRadius: 10))
@@ -318,7 +318,7 @@ struct AcquisitionChatView: View {
                 TimelineView(.periodic(from: .now, by: 0.25)) { _ in
                     HStack(spacing: 12) {
                         Button("Cancelar") { audioRecorder.cancel() }
-                            .font(.caption.weight(.bold))
+                            .font(.acquisition(.caption, weight: .bold))
                         Image(systemName: "waveform")
                             .foregroundStyle(AcquisitionTheme.danger)
                         Text(durationText(audioRecorder.elapsed))
@@ -331,7 +331,7 @@ struct AcquisitionChatView: View {
                         } label: {
                             Label("Terminar", systemImage: "stop.circle.fill")
                         }
-                        .font(.caption.weight(.bold))
+                        .font(.acquisition(.caption, weight: .bold))
                     }
                     .padding(.horizontal, 14)
                     .padding(.top, 8)
@@ -340,7 +340,7 @@ struct AcquisitionChatView: View {
 
             if let feedback = model.feedbackMessage {
                 Text(feedback)
-                    .font(.caption)
+                    .font(.acquisition(.caption))
                     .foregroundStyle(AcquisitionTheme.danger)
                     .padding(.horizontal, 14)
                     .padding(.top, 6)
@@ -349,12 +349,13 @@ struct AcquisitionChatView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 Button { showsAttachmentMenu = true } label: {
                     Image(systemName: "plus.circle.fill")
-                        .font(.title3)
+                        .font(.acquisition(.title3))
                 }
                 .accessibilityLabel("Adjuntar archivo")
                 .disabled(audioRecorder.isRecording || model.isSending)
 
-                TextField("Mensaje", text: $bindableModel.draft, axis: .vertical)
+                TextField("Escribe un mensaje…", text: $bindableModel.draft, axis: .vertical)
+                    .font(.acquisitionFixed(12, weight: .regular))
                     .lineLimit(1...4)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
@@ -369,7 +370,7 @@ struct AcquisitionChatView: View {
                         Task { await model.send() }
                     } label: {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.title)
+                            .font(.system(size: 38, weight: .regular))
                             .foregroundStyle(AcquisitionTheme.accent)
                     }
                     .disabled(model.isSending)
@@ -515,23 +516,24 @@ private struct AcquisitionChatVehicleHeader: View {
                 .clipShape(.rect(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 3) {
                 Text("\(vehicle.model) · \(String(vehicle.year))")
-                    .font(.subheadline.weight(.bold))
+                    .font(.acquisitionFixed(12, weight: .semibold))
                     .foregroundStyle(AcquisitionTheme.text)
                     .lineLimit(1)
                 Text("\(vehicle.mileageText) · VIN \(vehicle.abbreviatedVin) · \(vehicle.status)")
-                    .font(.caption2)
+                    .font(.acquisitionFixed(10, weight: .regular))
                     .foregroundStyle(AcquisitionTheme.textSecondary)
                     .lineLimit(1)
             }
             Spacer()
             Text(vehicle.priceText)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AcquisitionTheme.text)
+                .font(.acquisitionFixed(12, weight: .semibold))
+                .foregroundStyle(AcquisitionTheme.accent)
             Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
+                .font(.acquisition(.caption, weight: .bold))
                 .foregroundStyle(AcquisitionTheme.textSecondary.opacity(0.7))
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .acquisitionGlassPanel(cornerRadius: 16)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(vehicle.model), \(String(vehicle.year)), \(vehicle.mileageText), \(vehicle.priceText), VIN \(vehicle.abbreviatedVin), \(vehicle.status), activar para ver ficha completa")
@@ -576,7 +578,7 @@ private struct AcquisitionChatVehicleSheet: View {
                                 Image(systemName: "car.side.fill")
                                     .font(.largeTitle)
                                 Text("Fotografía no disponible")
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(.acquisition(.subheadline, weight: .semibold))
                             }
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                         }
@@ -586,7 +588,7 @@ private struct AcquisitionChatVehicleSheet: View {
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(detail.offer.modelAndVersion)
-                                .font(.system(.title2, design: .serif, weight: .semibold))
+                                .font(.acquisitionFixed(14.5, weight: .bold))
                                 .foregroundStyle(AcquisitionTheme.text)
                             Text("VIN \(detail.offer.abbreviatedVin)")
                                 .font(.caption.monospaced())
@@ -650,7 +652,7 @@ private struct AcquisitionChatMessageBubble: View {
     var body: some View {
         if message.isSystem {
             Text(message.body ?? "Operación actualizada.")
-                .font(.caption.weight(.semibold))
+                .font(.acquisition(.caption, weight: .semibold))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -668,12 +670,14 @@ private struct AcquisitionChatMessageBubble: View {
                     }
                     if let body = message.body, !body.isEmpty {
                         Text(body)
+                            .font(.acquisitionFixed(12, weight: .regular))
                     }
                     Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2)
+                        .font(.acquisition(.caption2))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
-                .padding(12)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .background(
                     isOwn ? AcquisitionTheme.accent.opacity(0.18) : Color.white.opacity(0.055),
                     in: .rect(cornerRadius: 17)

@@ -110,16 +110,16 @@ struct AcquisitionChatAttachmentPreview: View {
             preview
             VStack(alignment: .leading, spacing: 3) {
                 Text(attachment.filename)
-                    .font(.caption.weight(.bold))
+                    .font(.acquisition(.caption, weight: .bold))
                     .lineLimit(1)
                 Text("\(attachment.kindLabel) · \(attachment.sizeText)")
-                    .font(.caption2)
+                    .font(.acquisition(.caption2))
                     .foregroundStyle(AcquisitionTheme.textSecondary)
             }
             Spacer(minLength: 8)
             if let onRemove {
                 Button("Quitar", action: onRemove)
-                    .font(.caption.weight(.bold))
+                    .font(.acquisition(.caption, weight: .bold))
             } else {
                 Button {
                     shareItem = AcquisitionFilePreviewItem.make(

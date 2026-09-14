@@ -32,7 +32,7 @@ struct AcquisitionOfferFormView: View {
                     Text("Ofrecer un vehículo")
                         .font(.system(.title, weight: .black))
                     Text("Comparte los detalles de tu unidad")
-                        .font(.title3.weight(.semibold))
+                        .font(.acquisition(.title3, weight: .semibold))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
 
                     HStack(spacing: 0) {
@@ -45,10 +45,10 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 7) {
                         Label("Revisa todos los requisitos", systemImage: "info.circle.fill")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                             .foregroundStyle(AcquisitionTheme.info)
                         Text("DORI validará la información y la evidencia antes de continuar con la compra.")
-                            .font(.subheadline)
+                            .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     .padding(16)
@@ -56,11 +56,11 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Unidad solicitada")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                         Text(model.request.modelAndVersions)
-                            .font(.title3.weight(.bold))
+                            .font(.acquisition(.title3, weight: .bold))
                         Text("\(model.request.yearRange) · Máx. \(model.request.maximumMileageText) km")
-                            .font(.subheadline)
+                            .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,12 +77,12 @@ struct AcquisitionOfferFormView: View {
                             displayedComponents: .date
                         )
                         Text("Esta fecha se registrará como tu compromiso formal de entrega.")
-                            .font(.caption)
+                            .font(.acquisition(.caption))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                         if let target = model.request.targetDeliveryDate,
                            model.form.committedDeliveryDate > target {
                             Label("La fecha propuesta excede el objetivo solicitado por DORI.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
+                                .font(.acquisition(.caption))
                                 .foregroundStyle(AcquisitionTheme.attention)
                         }
                         field("VIN", text: $form.form.vin, keyboard: .asciiCapable)
@@ -104,9 +104,9 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Confirma los requisitos")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                         Text("Marca cada punto que incluye esta unidad.")
-                            .font(.subheadline)
+                            .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                         ForEach(AcquisitionOfferRequirement.allCases) { requirement in
                             Button {
@@ -115,11 +115,11 @@ struct AcquisitionOfferFormView: View {
                                 HStack(spacing: 11) {
                                     Image(systemName: model.form.confirmedRequirements.contains(requirement)
                                           ? "checkmark.square.fill" : "square")
-                                        .font(.title3)
+                                        .font(.acquisition(.title3))
                                         .foregroundStyle(model.form.confirmedRequirements.contains(requirement)
                                                          ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
                                     Text(requirement.title)
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(.acquisition(.subheadline, weight: .semibold))
                                         .foregroundStyle(AcquisitionTheme.text)
                                     Spacer()
                                 }
@@ -132,7 +132,7 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Estado de batería")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                         Picker("Estado de batería", selection: $form.form.batteryKnowledge) {
                             ForEach(AcquisitionBatteryKnowledge.allCases) { option in
                                 Text(option.label).tag(option)
@@ -150,9 +150,9 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Fotografías requeridas")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                         Text("Usaremos la cámara cuando esté disponible. En el simulador puedes elegir una foto.")
-                            .font(.caption)
+                            .font(.acquisition(.caption))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
 
                         ForEach(model.request.requiredEvidenceKinds) { kind in
@@ -169,7 +169,7 @@ struct AcquisitionOfferFormView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Resumen")
-                            .font(.headline)
+                            .font(.acquisition(.headline))
                         summaryLine("VIN", value: model.form.vin.isEmpty ? "Pendiente" : model.form.vin.uppercased())
                         summaryLine("Unidad", value: model.request.modelAndVersions)
                         summaryLine(
@@ -189,9 +189,9 @@ struct AcquisitionOfferFormView: View {
                             Text(model.state == .failed
                                  ? "No pudimos enviar la propuesta"
                                  : "Necesitamos un dato más")
-                                .font(.headline)
+                                .font(.acquisition(.headline))
                             Text(message)
-                                .font(.subheadline)
+                                .font(.acquisition(.subheadline))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)
@@ -211,7 +211,7 @@ struct AcquisitionOfferFormView: View {
                 HStack {
                     if model.isSubmitting { ProgressView() }
                     Text(model.isSubmitting ? "Enviando propuesta…" : "Enviar propuesta")
-                        .font(.headline)
+                        .font(.acquisition(.headline))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
@@ -235,12 +235,12 @@ struct AcquisitionOfferFormView: View {
     private func step(_ number: Int, _ title: String, active: Bool) -> some View {
         VStack(spacing: 6) {
             Text("\(number)")
-                .font(.caption.weight(.black))
+                .font(.acquisition(.caption, weight: .bold))
                 .frame(width: 28, height: 28)
                 .foregroundStyle(active ? Color.black : AcquisitionTheme.textSecondary)
                 .background(active ? AcquisitionTheme.accent : AcquisitionTheme.surfaceRaised, in: Circle())
             Text(title)
-                .font(.caption2.weight(.bold))
+                .font(.acquisition(.caption2, weight: .bold))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
                 .lineLimit(1)
         }
@@ -256,7 +256,7 @@ struct AcquisitionOfferFormView: View {
                 .fontWeight(.semibold)
                 .multilineTextAlignment(.trailing)
         }
-        .font(.subheadline)
+        .font(.acquisition(.subheadline))
     }
 
     private var successBinding: Binding<Bool> {
@@ -276,7 +276,7 @@ struct AcquisitionOfferFormView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption.weight(.bold))
+                .font(.acquisition(.caption, weight: .bold))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
             TextField(title, text: text)
                 .keyboardType(keyboard)

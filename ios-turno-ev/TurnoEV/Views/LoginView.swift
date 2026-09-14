@@ -79,21 +79,12 @@ struct LoginView: View {
 
             VStack(spacing: 0) {
                 header
-                Spacer(minLength: 12)
-
-                switch mode {
-                case .biometric:
-                    biometricSection
-
-                case .credentials:
-                    credentialsSection
-                }
-
-                Spacer(minLength: 12)
-                footer
+                Spacer(minLength: 40)
+                credentialsSection
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 28)
+            .padding(.top, 26)
+            .padding(.bottom, 22)
 
             if let handoffAccount {
                 RoleHandoffOverlay(account: handoffAccount)
@@ -113,39 +104,28 @@ struct LoginView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "bolt.fill")
-                .font(.title2)
-                .foregroundStyle(Palette.volt)
-                .frame(width: 48, height: 48)
-                .background(
-                    Palette.volt.opacity(0.15),
-                    in: .rect(cornerRadius: 16)
-                )
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(DORIBrand.name)
-                    .font(.system(.title, design: .serif, weight: .semibold))
-                    .foregroundStyle(AcquisitionTheme.text)
-
-                CapsLabel(text: DORIBrand.accessTagline)
-            }
-
-            Spacer()
+        VStack(spacing: 4) {
+            Text("DORI")
+                .font(.acquisitionFixed(38, weight: .bold))
+                .tracking(5)
+                .foregroundStyle(AcquisitionTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("La movilidad del futuro")
+                .font(.acquisition(.subheadline, weight: .medium))
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(spacing: 8) {
-            Text(DORIBrand.productName)
-                .font(.system(.footnote, weight: .semibold))
-
-            Text("La sesión no inicia ni modifica un turno por sí sola.")
-            .font(.caption2)
-            .foregroundStyle(Palette.textMuted)
-        }
+        Text("Entorno de pruebas · DORI Adquisición")
+            .font(.acquisition(.caption2, weight: .medium))
+            .foregroundStyle(AcquisitionTheme.textTertiary)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Face ID (device-linked credential)
@@ -460,53 +440,31 @@ struct LoginView: View {
     // MARK: - Credentials
 
     private var credentialsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Identifícate")
-                    .font(.system(.title2, weight: .black))
-
-                Text(
-                    "Detectamos tu rol y estación con tus credenciales, " +
-                    "y abrimos solo tu interfaz. Iniciar sesión no inicia tu turno."
-                )
-                .font(.footnote)
-                .foregroundStyle(Palette.textMuted)
-            }
-
+        VStack(alignment: .leading, spacing: 12) {
             TextField(
-                credentialMode == .email
-                    ? "correo institucional"
-                    : "EV-1042",
+                "Correo",
                 text: $identifier
             )
-            .textContentType(
-                credentialMode == .email
-                    ? .emailAddress
-                    : .username
-            )
-            .keyboardType(
-                credentialMode == .email
-                    ? .emailAddress
-                    : .default
-            )
-            .textInputAutocapitalization(
-                credentialMode == .email
-                    ? .never
-                    : .characters
-            )
+            .font(.acquisition(.body))
+            .textContentType(.emailAddress)
+            .keyboardType(.emailAddress)
+            .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.vertical, 16)
-            .padding(.horizontal, 16)
-            .panelFlat()
+            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(AcquisitionTheme.border) }
 
             SecureField(
                 "Contraseña",
                 text: $password
             )
+            .font(.acquisition(.body))
             .textContentType(.password)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 16)
-            .panelFlat()
+            .padding(.vertical, 14)
+            .padding(.horizontal, 14)
+            .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(AcquisitionTheme.border) }
 
             if let errorMessage {
                 HStack(
@@ -520,8 +478,8 @@ struct LoginView: View {
 
                     Text(errorMessage)
                 }
-                .font(.footnote)
-                .foregroundStyle(Palette.danger)
+                .font(.acquisition(.footnote))
+                .foregroundStyle(AcquisitionTheme.danger)
             }
 
             if let supabaseProbeMessage {
@@ -540,47 +498,28 @@ struct LoginView: View {
                 .foregroundStyle(Palette.volt)
             }
 
-            BigButton(
-                title: isSupabaseProbeRunning
-                    ? "Verificando…"
-                    : "Iniciar sesión",
-                symbol: isSupabaseProbeRunning
-                    ? "hourglass"
-                    : "checkmark.shield.fill",
-                isEnabled: !isSupabaseProbeRunning
-            ) {
+            Button {
                 submitCredentials()
+            } label: {
+                Text(isSupabaseProbeRunning ? "Verificando…" : "Iniciar sesión")
+                    .font(.acquisition(.headline, weight: .semibold))
+                    .foregroundStyle(AcquisitionTheme.canvas)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
+            .disabled(isSupabaseProbeRunning)
 
-            HStack {
-                Button {
-                    isRecoveryPresented = true
-                } label: {
-                    Label(
-                        "Recuperar contraseña",
-                        systemImage: "key.fill"
-                    )
-                    .font(
-                        .system(
-                            .subheadline,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(Palette.volt)
-                }
-
-                Spacer()
-
-            }
+            footer.padding(.top, 4)
         }
-        .padding(20)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .padding(18)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(AcquisitionTheme.border, lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.34), radius: 28, y: 14)
+        .shadow(color: .black.opacity(0.30), radius: 24, y: 12)
     }
 
     // MARK: - Credentials submit
@@ -1099,55 +1038,28 @@ private struct RoleHandoffOverlay: View {
 /// this target and never changes the authentication or role-resolution path.
 private struct AcquisitionLoginBackground: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var scanPosition: CGFloat = -0.35
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 AcquisitionTheme.canvas
 
-                Image("electric_hatchback_charging")
-                    .resizable()
-                    .scaledToFill()
+                LoopingVideoView(
+                    resourceName: "electric_car_charging_night",
+                    isPlaying: !reduceMotion
+                )
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
-                    .saturation(0.72)
-                    .contrast(1.06)
 
                 LinearGradient(
                     colors: [
-                        AcquisitionTheme.canvas.opacity(0.18),
-                        AcquisitionTheme.canvas.opacity(0.54),
-                        AcquisitionTheme.canvas.opacity(0.96),
+                        AcquisitionTheme.canvas.opacity(0.06),
+                        AcquisitionTheme.canvas.opacity(0.24),
+                        AcquisitionTheme.canvas.opacity(0.88),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
-
-                RadialGradient(
-                    colors: [AcquisitionTheme.accent.opacity(0.14), .clear],
-                    center: UnitPoint(x: 0.16, y: 0.10),
-                    startRadius: 0,
-                    endRadius: 320
-                )
-
-                if !reduceMotion {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.clear, AcquisitionTheme.accent.opacity(0.14), .clear],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(height: 1)
-                        .offset(y: proxy.size.height * scanPosition)
-                        .onAppear { scanPosition = 0.42 }
-                        .animation(
-                            .linear(duration: 6).repeatForever(autoreverses: false),
-                            value: scanPosition
-                        )
-                }
             }
         }
         .ignoresSafeArea()

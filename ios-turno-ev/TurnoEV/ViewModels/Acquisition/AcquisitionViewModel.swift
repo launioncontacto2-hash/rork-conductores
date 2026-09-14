@@ -49,7 +49,9 @@ final class AcquisitionViewModel {
     var organizationName: String {
         switch destination {
         case .administrator:
-            let city = activeRequest?.deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
+            let city = (activeRequest?.deliveryCity ?? principal.stationName)?
+                .replacingOccurrences(of: "Estación ", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return city.map { $0.isEmpty ? "DORI" : "DORI \($0)" } ?? "DORI"
         case .provider:
             guard let supplierID = membership?.supplierID else { return principal.name }

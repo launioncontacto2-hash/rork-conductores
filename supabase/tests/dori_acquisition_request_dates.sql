@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(16);
+SELECT plan(18);
 
 SELECT has_column('public', 'acquisition_requests', 'target_delivery_date', 'la solicitud conserva fecha objetivo');
 SELECT has_column('public', 'acquisition_offers', 'committed_delivery_date', 'la oferta conserva compromiso del proveedor');
@@ -35,6 +35,11 @@ SELECT has_function(
 );
 SELECT has_function('public', 'change_acquisition_delivery_commitment', ARRAY['uuid','date','text','text'], 'cambio de compromiso exige motivo');
 SELECT has_function('public', 'reset_test_acquisition_environment', ARRAY['text'], 'limpieza TEST usa RPC autorizado');
+SELECT has_function('public', 'plan_test_acquisition_environment_reset', ARRAY['text'], 'limpieza TEST obtiene una allowlist cerrada de Storage');
+SELECT has_policy(
+    'storage', 'objects', 'acquisition_test_evidence_objects_delete',
+    'Storage incluye DELETE limitado al administrador DORI de TEST'
+);
 SELECT table_privs_are(
     'public', 'acquisition_delivery_commitment_history', 'authenticated', ARRAY['SELECT'],
     'el cliente no altera directamente el historial'
