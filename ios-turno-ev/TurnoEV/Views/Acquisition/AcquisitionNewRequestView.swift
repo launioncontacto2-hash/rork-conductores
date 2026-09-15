@@ -413,6 +413,9 @@ private struct AcquisitionAutoDismissDateRow: View {
         .sheet(isPresented: $isPresented) {
             VStack(spacing: 12) {
                 Text(title).font(.acquisition(.headline))
+                Text(AcquisitionFiscalPeriodPresentation.text(for: selection))
+                    .foregroundStyle(AcquisitionTheme.muted)
+                    .accessibilityIdentifier("acquisition-calendar-month")
                 DatePicker(
                     title,
                     selection: $selection,

@@ -12,10 +12,15 @@ nonisolated enum AcquisitionOfferSubmissionState: Equatable, Sendable {
 @MainActor
 @Observable
 final class AcquisitionOfferFormViewModel {
+    typealias OdometerEvidenceValidator = (Data, Int?) async -> AcquisitionEvidenceValidationStatus
+    typealias VINEvidenceValidator = (Data, String) async -> AcquisitionEvidenceValidationStatus
+
     let request: AcquisitionRequest
     let membership: AcquisitionMembership
     private let repository: any AcquisitionRepository
     private let onSubmitted: (AcquisitionOfferSummary) -> Void
+    private let odometerEvidenceValidator: OdometerEvidenceValidator
+    private let vinEvidenceValidator: VINEvidenceValidator
 
     var form = AcquisitionOfferFormData()
     var state: AcquisitionOfferSubmissionState = .editing
@@ -30,12 +35,16 @@ final class AcquisitionOfferFormViewModel {
         request: AcquisitionRequest,
         membership: AcquisitionMembership,
         repository: any AcquisitionRepository,
+        odometerEvidenceValidator: @escaping OdometerEvidenceValidator = AcquisitionEvidenceValidator.validateOdometer,
+        vinEvidenceValidator: @escaping VINEvidenceValidator = AcquisitionEvidenceValidator.validateVIN,
         onSubmitted: @escaping (AcquisitionOfferSummary) -> Void = { _ in }
     ) {
         let attemptID = UUID()
         self.request = request
         self.membership = membership
         self.repository = repository
+        self.odometerEvidenceValidator = odometerEvidenceValidator
+        self.vinEvidenceValidator = vinEvidenceValidator
         self.onSubmitted = onSubmitted
         self.pendingOfferID = attemptID
         self.pendingIdempotencyKey = "ios-acquisition-offer-\(attemptID.uuidString.lowercased())"
@@ -75,7 +84,7 @@ final class AcquisitionOfferFormViewModel {
         switch kind {
         case .odometer, .dashboard:
             let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
-            let result = await AcquisitionEvidenceValidator.validateOdometer(
+            let result = await odometerEvidenceValidator(
                 data,
                 expectedMileage: mileage
             )
@@ -88,7 +97,7 @@ final class AcquisitionOfferFormViewModel {
                 return
             }
         case .vin, .originInvoice:
-            let result = await AcquisitionEvidenceValidator.validateVIN(
+            let result = await vinEvidenceValidator(
                 data,
                 expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             )
@@ -169,13 +178,13 @@ final class AcquisitionOfferFormViewModel {
     private func refreshAutomaticValidations() async {
         let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
         if let data = form.evidence[.odometer] ?? form.evidence[.dashboard] {
-            form.validationResults.odometer = await AcquisitionEvidenceValidator.validateOdometer(
+            form.validationResults.odometer = await odometerEvidenceValidator(
                 data,
                 expectedMileage: mileage
             )
         }
         if let data = form.evidence[.vin] ?? form.evidence[.originInvoice] {
-            form.validationResults.vin = await AcquisitionEvidenceValidator.validateVIN(
+            form.validationResults.vin = await vinEvidenceValidator(
                 data,
                 expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             )

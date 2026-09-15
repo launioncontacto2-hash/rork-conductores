@@ -353,6 +353,8 @@ struct AcquisitionOfferSubmissionTests {
                 role: .provider
             ),
             repository: repository,
+            odometerEvidenceValidator: { _, _ in .match },
+            vinEvidenceValidator: { _, _ in .match },
             onSubmitted: onSubmitted
         )
     }
