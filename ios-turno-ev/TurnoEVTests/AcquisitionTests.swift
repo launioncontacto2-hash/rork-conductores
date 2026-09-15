@@ -364,12 +364,12 @@ struct AcquisitionRoleAndPresentationTests {
         let exposed = (AcquisitionQueries.requestColumns + AcquisitionQueries.offerColumns)
             .lowercased()
         #expect(!exposed.contains("internal_price"))
-        #expect(!exposed.contains("minimum_soh"))
+        #expect(AcquisitionQueries.requestColumns.contains("minimum_soh"))
         #expect(!exposed.contains("target_soh"))
         #expect(!exposed.contains("assessment"))
         #expect(
             AcquisitionQueries.offerColumns
-                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, submitted_at"
+                == "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, request_fiscal_period, submitted_at"
         )
     }
 

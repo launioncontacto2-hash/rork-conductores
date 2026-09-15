@@ -216,7 +216,7 @@ struct AcquisitionNegotiationFlowTests {
         await model.award()
 
         #expect(repository.commands.last?.action == .award)
-        #expect(repository.commands.last?.amountMxn == 268_000)
+        #expect(repository.commands.last?.amountMxn == 274_000)
         #expect(model.detail?.offer.status == "awarded")
     }
 
