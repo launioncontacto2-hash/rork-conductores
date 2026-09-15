@@ -35,7 +35,15 @@ final class AcquisitionViewModel {
     }
 
     var activeRequest: AcquisitionRequest? {
-        requests.first
+        activeRequests.first
+    }
+
+    var activeRequests: [AcquisitionRequest] {
+        requests.filter { !$0.isExpired() }
+    }
+
+    var expiredRequests: [AcquisitionRequest] {
+        requests.filter { $0.isExpired() }
     }
 
     var activeSummary: AcquisitionRequestSummary? {

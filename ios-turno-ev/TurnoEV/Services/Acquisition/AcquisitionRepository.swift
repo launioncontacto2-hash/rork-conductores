@@ -1921,7 +1921,13 @@ final class PreviewAcquisitionRepository: AcquisitionRepository {
                 maximumYear: 2026,
                 maximumMileage: 30_000,
                 deliveryCity: "Puebla",
-                deadlineAt: nil
+                deadlineAt: Date(timeIntervalSinceNow: 14 * 86_400),
+                targetDeliveryDate: Date(timeIntervalSinceNow: 30 * 86_400),
+                fiscalPeriod: Date(),
+                maximumUnitPriceMxn: 295_000,
+                destinationStationName: "DORI Puebla",
+                deliveryTermsDocumentPath: "preview/condiciones.pdf",
+                detailedRequirements: AcquisitionRequestDraft.defaultRequirements
             ),
         ]
         offers = []

@@ -41,7 +41,7 @@ struct AcquisitionOfferFormView: View {
                             .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
                         if let target = model.request.targetDeliveryDate {
-                            summaryLine("Fecha límite de entrega", value: target.formatted(date: .abbreviated, time: .omitted))
+                            summaryLine("Fecha límite de entrega", value: AcquisitionSpanishDate.text(target))
                         }
                         summaryLine("Estación destino", value: model.request.destinationStationName)
                     }
@@ -50,10 +50,10 @@ struct AcquisitionOfferFormView: View {
                     .acquisitionGlass()
 
                     VStack(spacing: 14) {
-                        field("VIN", placeholder: "17 caracteres", text: $form.form.vin, keyboard: .asciiCapable)
+                        field("VIN", placeholder: "17 caracteres", text: $form.form.vin, keyboard: .asciiCapable, error: vinError)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
-                        field("Año", placeholder: model.request.yearRange, text: $form.form.year, keyboard: .numberPad)
+                        field("Año", placeholder: model.request.yearRange, text: $form.form.year, keyboard: .numberPad, error: yearError)
                         field(
                             "Kilometraje",
                             placeholder: "Máximo \(model.request.maximumMileageText) km",
@@ -73,7 +73,8 @@ struct AcquisitionOfferFormView: View {
                             "Diagnóstico SOH",
                             placeholder: "Mínimo \(model.request.minimumSoh) %",
                             text: $form.form.soh,
-                            keyboard: .numberPad
+                            keyboard: .numberPad,
+                            error: sohError
                         )
                         ForEach(AcquisitionOfferRequirement.allCases) { requirement in
                             checkbox(requirement.title, isOn: model.form.confirmedRequirements.contains(requirement)) {
@@ -95,12 +96,24 @@ struct AcquisitionOfferFormView: View {
                             .foregroundStyle(AcquisitionTheme.textSecondary)
 
                         ForEach(model.request.requiredEvidenceKinds) { kind in
-                            PhotoSlotView(
-                                title: kind.title,
-                                hint: kind.hint,
-                                data: model.form.evidence[kind],
-                                onCapture: { model.capture($0, for: kind) }
-                            )
+                            VStack(alignment: .leading, spacing: 6) {
+                                PhotoSlotView(
+                                    title: kind.title,
+                                    hint: kind.hint,
+                                    data: model.form.evidence[kind],
+                                    onCapture: { model.capture($0, for: kind) }
+                                )
+                                if model.validatingEvidence.contains(kind) {
+                                    Label("Validando fotografía…", systemImage: "text.viewfinder")
+                                        .font(.acquisition(.caption))
+                                        .foregroundStyle(AcquisitionTheme.info)
+                                }
+                                if let message = model.evidenceMessages[kind] {
+                                    Label(message, systemImage: "exclamationmark.circle.fill")
+                                        .font(.acquisition(.caption))
+                                        .foregroundStyle(AcquisitionTheme.danger)
+                                }
+                            }
                         }
                     }
                     .padding(18)
@@ -262,6 +275,49 @@ struct AcquisitionOfferFormView: View {
         guard let value = Int(model.form.mileage.replacingOccurrences(of: ",", with: "")),
               value > model.request.maximumMileage else { return nil }
         return "Excede el máximo solicitado de \(model.request.maximumMileageText) km."
+    }
+
+    private var vinError: String? {
+        let normalized = model.form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if normalized.isEmpty {
+            return model.validationIssue == .vinRequired ? AcquisitionOfferFormIssue.vinRequired.message : nil
+        }
+        guard normalized.range(of: "^[A-HJ-NPR-Z0-9]{17}$", options: .regularExpression) != nil else {
+            return AcquisitionOfferFormIssue.invalidVin.message
+        }
+        if model.validationIssue == .vinMismatch || model.validationIssue == .vinNotDetected {
+            return model.validationIssue?.message
+        }
+        return nil
+    }
+
+    private var yearError: String? {
+        guard !model.form.year.isEmpty else {
+            return model.validationIssue == .invalidYear ? AcquisitionOfferFormIssue.invalidYear.message : nil
+        }
+        guard let year = Int(model.form.year), (2000...2100).contains(year) else {
+            return AcquisitionOfferFormIssue.invalidYear.message
+        }
+        guard (model.request.minimumYear...model.request.maximumYear).contains(year) else {
+            return AcquisitionOfferFormIssue.yearOutsideRequest(
+                model.request.minimumYear,
+                model.request.maximumYear
+            ).message
+        }
+        return nil
+    }
+
+    private var sohError: String? {
+        guard !model.form.soh.isEmpty else {
+            return model.validationIssue == .invalidSoh ? AcquisitionOfferFormIssue.invalidSoh.message : nil
+        }
+        guard let soh = Int(model.form.soh), (0...100).contains(soh) else {
+            return AcquisitionOfferFormIssue.invalidSoh.message
+        }
+        guard soh >= model.request.minimumSoh else {
+            return AcquisitionOfferFormIssue.sohBelowMinimum(model.request.minimumSoh).message
+        }
+        return nil
     }
 
     private var priceError: String? {

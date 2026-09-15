@@ -38,7 +38,7 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
     case trunk
 
     static let detailedStandard: [Self] = [
-        .exteriorFront, .exteriorDriverSide, .exteriorPassengerSide,
+        .vin, .exteriorFront, .exteriorDriverSide, .exteriorPassengerSide,
         .exteriorRear, .interiorDashboard, .steeringWheel, .odometer,
         .driverSeat, .passengerSeat, .rearSeats, .keys,
         .charger110V, .charger220V, .originInvoice,
@@ -247,8 +247,16 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
         }
         guard transferIncluded else { throw AcquisitionOfferFormIssue.stationDeliveryRequired(request.destinationStationName) }
         guard deliveryTermsAccepted else { throw AcquisitionOfferFormIssue.deliveryTermsAcceptanceRequired }
-        guard validationResults.odometer != .mismatch else { throw AcquisitionOfferFormIssue.odometerMismatch }
-        guard validationResults.vin != .mismatch else { throw AcquisitionOfferFormIssue.vinMismatch }
+        switch validationResults.odometer {
+        case .match: break
+        case .mismatch: throw AcquisitionOfferFormIssue.odometerMismatch
+        case .manualReview, .pending: throw AcquisitionOfferFormIssue.odometerNotDetected
+        }
+        switch validationResults.vin {
+        case .match: break
+        case .mismatch: throw AcquisitionOfferFormIssue.vinMismatch
+        case .manualReview, .pending: throw AcquisitionOfferFormIssue.vinNotDetected
+        }
 
         let parsedSoh: Int?
         guard batteryKnowledge == .diagnosed,
@@ -312,6 +320,8 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
     case deliveryTermsAcceptanceRequired
     case odometerMismatch
     case vinMismatch
+    case odometerNotDetected
+    case vinNotDetected
     case requirementsRequired
     case evidenceRequired(AcquisitionEvidenceKind)
 
@@ -332,6 +342,8 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
         case .deliveryTermsAcceptanceRequired: "Acepta la fecha límite y las condiciones de entrega para continuar."
         case .odometerMismatch: "El kilometraje capturado en la fotografía no coincide con el valor registrado."
         case .vinMismatch: "El VIN capturado no coincide con la factura proporcionada."
+        case .odometerNotDetected: "No pudimos leer el kilometraje. Repite la foto con el tablero encendido y los números visibles."
+        case .vinNotDetected: "No pudimos leer el VIN. Repite la foto con los 17 caracteres completos y enfocados."
         case .requirementsRequired: "Confirma que la unidad cumple todos los requisitos."
         case .evidenceRequired(let kind): "Falta \(kind.title.lowercased())."
         }
@@ -351,7 +363,7 @@ nonisolated struct AcquisitionEvidenceValidationResults: Codable, Equatable, Sen
 
     static let pending = Self(odometer: .pending, vin: .pending)
 
-    var canSubmit: Bool { odometer != .mismatch && vin != .mismatch }
+    var canSubmit: Bool { odometer == .match && vin == .match }
 }
 
 nonisolated enum AcquisitionEvidencePath {

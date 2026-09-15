@@ -178,6 +178,35 @@ jobs:
             -only-testing:TurnoEVTests \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Verify acquisition screens in the iOS Simulator
+        run: |
+          set -euo pipefail
+          source selected-simulator.env
+          mkdir -p TestResults
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionProviderRequestVisualContract \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionAdminRequestVisualContract \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionCalendarIsSpanish \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionPhotoReviewUsesApprovedSpanishActions \
+            -resultBundlePath TestResults/AcquisitionVisualTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload acquisition visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acquisition-visual-evidence-testflight
+          path: TestResults/AcquisitionVisualTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Run acquisition Swift client integration proof against TEST
         if: inputs.run_acquisition_live_test
         run: |

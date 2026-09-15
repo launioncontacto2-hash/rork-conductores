@@ -72,6 +72,30 @@ struct AcquisitionOfferFormTests {
         }
     }
 
+    @Test func refusesAnInvalidVin() {
+        var form = Self.validForm()
+        form.vin = "VIN-CORTO"
+        #expect(throws: AcquisitionOfferFormIssue.invalidVin) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func refusesAYearOutsideTheRequest() {
+        var form = Self.validForm()
+        form.year = "2023"
+        #expect(throws: AcquisitionOfferFormIssue.yearOutsideRequest(2024, 2026)) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func refusesInvalidSoh() {
+        var form = Self.validForm()
+        form.soh = "101"
+        #expect(throws: AcquisitionOfferFormIssue.invalidSoh) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
     @Test func refusesInvalidMileage() {
         var form = Self.validForm()
         form.mileage = "-1"
@@ -116,6 +140,22 @@ struct AcquisitionOfferFormTests {
         var form = Self.validForm()
         form.validationResults.odometer = .mismatch
         #expect(throws: AcquisitionOfferFormIssue.odometerMismatch) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func rejectsEvidenceWhenVinCannotBeRead() {
+        var form = Self.validForm()
+        form.validationResults.vin = .manualReview
+        #expect(throws: AcquisitionOfferFormIssue.vinNotDetected) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func rejectsEvidenceWhenOdometerCannotBeRead() {
+        var form = Self.validForm()
+        form.validationResults.odometer = .pending
+        #expect(throws: AcquisitionOfferFormIssue.odometerNotDetected) {
             try form.makeSubmission(request: Self.request)
         }
     }
@@ -228,7 +268,7 @@ struct AcquisitionOfferFormTests {
         form.batteryKnowledge = .diagnosed
         form.soh = "95"
         form.deliveryTermsAccepted = true
-        form.validationResults = .init(odometer: .manualReview, vin: .manualReview)
+        form.validationResults = .init(odometer: .match, vin: .match)
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
         form.evidence = Dictionary(
             uniqueKeysWithValues: AcquisitionEvidenceKind.detailedStandard.enumerated().map {
@@ -249,7 +289,7 @@ struct AcquisitionOfferSubmissionTests {
 
         await model.submit()
 
-        #expect(repository.submission?.evidence.count == 17)
+        #expect(repository.submission?.evidence.count == 18)
         #expect(repository.submission?.evidence.map(\.kind) == AcquisitionEvidenceKind.detailedStandard)
         #expect(received?.id == repository.submission?.offerID)
         if case .succeeded(let offer) = model.state {
@@ -285,7 +325,7 @@ struct AcquisitionOfferSubmissionTests {
 
         #expect(model.failureStage == .evidenceUpload)
         #expect(model.feedbackMessage?.contains("tablero") == true)
-        #expect(model.form.evidence.count == 17)
+        #expect(model.form.evidence.count == 18)
     }
 
     @Test func storageAuthorizationFailureDoesNotPretendToBeAConnectionProblem() {

@@ -47,20 +47,14 @@ nonisolated enum AcquisitionEvidenceValidator {
 
     private static func recognize(_ data: Data) async throws -> [Reading] {
         guard let image = UIImage(data: data)?.cgImage else { return [] }
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error { continuation.resume(throwing: error); return }
-                let readings = (request.results as? [VNRecognizedTextObservation] ?? []).compactMap { observation in
-                    observation.topCandidates(1).first.map { Reading(text: $0.string, confidence: $0.confidence) }
-                }
-                continuation.resume(returning: readings)
-            }
-            request.recognitionLevel = .accurate
-            request.recognitionLanguages = ["es-MX", "en-US"]
-            request.usesLanguageCorrection = false
-            DispatchQueue.global(qos: .userInitiated).async {
-                do { try VNImageRequestHandler(cgImage: image).perform([request]) }
-                catch { continuation.resume(throwing: error) }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["es-MX", "en-US"]
+        request.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: image).perform([request])
+        return (request.results ?? []).compactMap { observation in
+            observation.topCandidates(1).first.map {
+                Reading(text: $0.string, confidence: $0.confidence)
             }
         }
     }

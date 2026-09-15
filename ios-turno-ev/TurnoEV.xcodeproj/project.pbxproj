@@ -193,10 +193,10 @@
 				};
 			};
 			buildConfigurationList = 105FC5752E9EAD3100EA8BCF /* Build configuration list for PBXProject "TurnoEV" */;
-			developmentRegion = en;
+			developmentRegion = es;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				es,
 				Base,
 			);
 			mainGroup = 105FC5712E9EAD3100EA8BCF;

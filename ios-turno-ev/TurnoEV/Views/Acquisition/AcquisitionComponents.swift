@@ -274,14 +274,27 @@ struct AcquisitionProviderRequestCard: View {
 
             HStack(spacing: 13) {
                 AcquisitionVehicleVisual(compact: true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(summary.request.targetQuantity) vehículos requeridos")
-                        .font(.acquisition(.headline, weight: .bold))
-                    Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
-                        .font(.acquisition(.subheadline))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Solicitados")
+                        .font(.acquisition(.caption, weight: .bold))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
+                    Text("\(summary.request.targetQuantity) vehículos")
+                        .font(.acquisition(.headline, weight: .bold))
+                    Text(summary.request.maximumUnitPriceText)
+                        .font(.acquisition(.title3, weight: .bold))
+                        .foregroundStyle(AcquisitionTheme.accent)
                 }
             }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Vigencia: \(summary.request.deadlineText)", systemImage: "calendar.badge.clock")
+                Label("Entrega límite: \(summary.request.targetDeliveryText)", systemImage: "shippingbox.fill")
+                Label("Periodo: \(summary.request.fiscalPeriodText)", systemImage: "calendar")
+                Label("Destino: \(summary.request.destinationStationName)", systemImage: "mappin.and.ellipse")
+                Label("Condiciones de entrega disponibles", systemImage: "doc.text.fill")
+            }
+            .font(.acquisition(.caption))
+            .foregroundStyle(AcquisitionTheme.textSecondary)
 
             ProgressView(value: progress)
                 .tint(AcquisitionTheme.accent)
@@ -300,6 +313,7 @@ struct AcquisitionProviderRequestCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(AcquisitionTheme.accent.opacity(0.34), lineWidth: 1)
         }
+        .accessibilityIdentifier("acquisition-provider-request-card")
     }
 
     private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {
@@ -554,18 +568,26 @@ struct AcquisitionAdminRequestCard: View {
                 Text("\(summary.securedCount) confirmado\(summary.securedCount == 1 ? "" : "s") · \(summary.missingCount) por conseguir")
                     .font(.acquisition(.subheadline, weight: .bold))
                     .foregroundStyle(AcquisitionTheme.text)
-                Spacer(minLength: 6)
-                Label("Ver solicitud", systemImage: "arrow.right")
-                    .font(.acquisition(.subheadline, weight: .bold))
-                    .foregroundStyle(Color.black)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 10)
-                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 11))
             }
+
+            Divider().overlay(AcquisitionTheme.subtleBorder)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Periodo: \(summary.request.fiscalPeriodText)")
+                Text("Precio máximo: \(summary.request.maximumUnitPriceText)")
+                    .fontWeight(.bold)
+                    .foregroundStyle(AcquisitionTheme.accent)
+                Text("Vigencia: \(summary.request.deadlineText)")
+                Text("Entrega límite: \(summary.request.targetDeliveryText)")
+                Text("Estación destino: \(summary.request.destinationStationName)")
+                Text("Condiciones de entrega disponibles")
+            }
+            .font(.acquisition(.caption))
+            .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .padding(18)
         .acquisitionGlass(cornerRadius: 24, emphasized: true)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("acquisition-admin-request-card")
     }
 }
 

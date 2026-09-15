@@ -189,7 +189,41 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     }
 
     var visibleStatus: AcquisitionRequestStatusPresentation {
-        AcquisitionRequestStatusPresentation(rawStatus: status)
+        isExpired() ? AcquisitionRequestStatusPresentation(expired: ()) : AcquisitionRequestStatusPresentation(rawStatus: status)
+    }
+
+    func isExpired(at date: Date = Date()) -> Bool {
+        guard status == "published", let deadlineAt else { return false }
+        return deadlineAt < date
+    }
+
+    var deadlineText: String {
+        deadlineAt.map(AcquisitionSpanishDate.text) ?? "Pendiente"
+    }
+
+    var targetDeliveryText: String {
+        targetDeliveryDate.map(AcquisitionSpanishDate.text) ?? "Pendiente"
+    }
+}
+
+nonisolated enum AcquisitionSpanishDate {
+    static func text(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "es_MX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    static func time(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "es_MX")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    static func dateTime(_ date: Date) -> String {
+        "\(text(date)) · \(time(date))"
     }
 }
 
@@ -215,6 +249,10 @@ nonisolated struct AcquisitionRequestStatusPresentation: Equatable, Sendable {
         default:
             (title, systemImage, tone) = ("Estado no disponible", "questionmark.circle.fill", .neutral)
         }
+    }
+
+    init(expired: Void) {
+        (title, systemImage, tone) = ("Vencida", "calendar.badge.exclamationmark", .neutral)
     }
 }
 
@@ -479,7 +517,24 @@ nonisolated extension AcquisitionRequest {
     /// Public, role-neutral requirements used by both experiences. Sensitive
     /// valuation rules are intentionally excluded from this projection.
     var visibleRequirements: [AcquisitionRequestRequirement] {
-        if !detailedRequirements.isEmpty { return detailedRequirements }
+        if !detailedRequirements.isEmpty {
+            let nonEvidence = detailedRequirements.filter { $0.category != .evidence }
+            let evidenceCount = detailedRequirements.filter {
+                $0.category == .evidence && $0.required
+            }.count
+            let photoSummary = evidenceCount > 0
+                ? [AcquisitionRequestRequirement(
+                    id: "required_photos_summary",
+                    category: .evidence,
+                    title: "Evidencia fotográfica",
+                    value: "\(evidenceCount) fotos requeridas",
+                    required: true,
+                    displayOrder: 99,
+                    responseType: .photo
+                )]
+                : []
+            return (nonEvidence + photoSummary).sorted { $0.displayOrder < $1.displayOrder }
+        }
         return [
             .init(id: "model_year", title: "Año modelo", value: yearRange),
             .init(id: "mileage", title: "Kilometraje", value: "0–\(maximumMileageText) km"),

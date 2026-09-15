@@ -93,7 +93,7 @@ private struct AcquisitionChatThreadCard: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
                 if let lastMessageAt = thread.lastMessageAt {
-                    Text(lastMessageAt.formatted(date: .omitted, time: .shortened))
+                    Text(AcquisitionSpanishDate.time(lastMessageAt))
                         .font(.acquisition(.caption2))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
@@ -672,7 +672,7 @@ private struct AcquisitionChatMessageBubble: View {
                         Text(body)
                             .font(.acquisitionFixed(12, weight: .regular))
                     }
-                    Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                    Text(AcquisitionSpanishDate.time(message.createdAt))
                         .font(.acquisition(.caption2))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
                 }

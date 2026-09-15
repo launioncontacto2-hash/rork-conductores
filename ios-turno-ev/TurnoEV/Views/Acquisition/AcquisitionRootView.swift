@@ -90,6 +90,7 @@ struct AcquisitionRootView: View {
             }
         }
         .onDisappear { model.stopObserving() }
+        .environment(\.locale, Locale(identifier: "es_MX"))
     }
 
     @ViewBuilder
@@ -343,16 +344,10 @@ struct AcquisitionRootView: View {
 
     private func requests(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(model.requests) { request in
+            ForEach(model.activeRequests) { request in
                 let summary = AcquisitionRequestSummary(request: request, offers: model.uniqueOffers)
                 if membership.role == .provider {
                     VStack(spacing: 10) {
-                        ZStack(alignment: .bottomTrailing) {
-                            AcquisitionRequestCard(
-                                request: request,
-                                progressText: "\(summary.missingCount)",
-                                audience: membership.role
-                            )
                         NavigationLink {
                             AcquisitionRequestDetailView(
                                 summary: summary,
@@ -361,15 +356,11 @@ struct AcquisitionRootView: View {
                                 onSubmitted: { _ in Task { await model.load() } }
                             )
                         } label: {
-                            Label("Ver requisitos", systemImage: "list.bullet.rectangle")
-                                .font(.acquisition(.caption, weight: .semibold))
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 7)
+                            AcquisitionProviderRequestCard(summary: summary)
                         }
-                        .buttonStyle(.bordered)
-                        .tint(AcquisitionTheme.accent)
-                        .padding(10)
-                        }
+                        .buttonStyle(.plain)
+
+                        AcquisitionRequestSupportActions(request: request, repository: repository)
 
                         NavigationLink {
                             AcquisitionOfferFormView(
@@ -476,6 +467,23 @@ struct AcquisitionRootView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16).acquisitionGlass()
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink {
+                AcquisitionExpiredRequestsView(requests: model.expiredRequests)
+            } label: {
+                HStack {
+                    Label("Solicitudes vencidas", systemImage: "calendar.badge.exclamationmark")
+                    Spacer()
+                    Text("\(model.expiredRequests.count)")
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(AcquisitionTheme.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .acquisitionGlass()
             }
             .buttonStyle(.plain)
 
@@ -777,13 +785,150 @@ private struct AcquisitionCounterpartDirectoryView: View {
     }
 }
 
+private struct AcquisitionExpiredRequestsView: View {
+    let requests: [AcquisitionRequest]
+
+    var body: some View {
+        ZStack {
+            AcquisitionBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Historial informativo")
+                        .font(.acquisition(.subheadline))
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
+                    if requests.isEmpty {
+                        Text("No hay solicitudes vencidas.")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(18)
+                            .acquisitionGlass()
+                    } else {
+                        ForEach(requests) { request in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(request.modelAndVersions)
+                                    .font(.acquisition(.headline, weight: .bold))
+                                Text("\(request.targetQuantity) vehículos · \(request.yearRange)")
+                                Text("Venció: \(request.deadlineText)")
+                                Label("Solo consulta", systemImage: "lock.fill")
+                                    .foregroundStyle(AcquisitionTheme.textTertiary)
+                            }
+                            .font(.acquisition(.subheadline))
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                            .acquisitionGlass()
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+                .padding(18)
+            }
+        }
+        .navigationTitle("Solicitudes vencidas")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct AcquisitionRequestSupportActions: View {
+    let request: AcquisitionRequest
+    let repository: any AcquisitionRepository
+    @State private var termsURL: URL?
+    @State private var showsTerms = false
+    @State private var isLoadingTerms = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                isLoadingTerms = true
+                Task {
+                    termsURL = try? await repository.requestDocumentURL(for: request)
+                    isLoadingTerms = false
+                    showsTerms = true
+                }
+            } label: {
+                HStack {
+                    Label("Ver condiciones de entrega", systemImage: "doc.text.fill")
+                    Spacer()
+                    if isLoadingTerms { ProgressView() }
+                    else { Image(systemName: "chevron.right") }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .font(.acquisition(.subheadline, weight: .bold))
+
+            Divider().overlay(AcquisitionTheme.subtleBorder)
+            Text("Ubicación de estación")
+                .font(.acquisition(.caption, weight: .bold))
+                .foregroundStyle(AcquisitionTheme.textSecondary)
+            HStack(spacing: 12) {
+                if let appleMapsURL {
+                    Link(destination: appleMapsURL) {
+                        Label("Apple Maps", systemImage: "map.fill")
+                    }
+                }
+                if let googleMapsURL {
+                    Link(destination: googleMapsURL) {
+                        Label("Google Maps", systemImage: "location.fill")
+                    }
+                }
+                ShareLink(item: stationDescription) {
+                    Label("Compartir", systemImage: "square.and.arrow.up")
+                }
+            }
+            .font(.acquisition(.caption, weight: .semibold))
+        }
+        .padding(16)
+        .acquisitionGlass()
+        .sheet(isPresented: $showsTerms) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Estas condiciones corresponden a \(request.modelAndVersions), periodo \(request.fiscalPeriodText).")
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
+                    if let termsURL {
+                        Link("Abrir documento", destination: termsURL)
+                            .buttonStyle(.borderedProminent)
+                        ShareLink(item: termsURL) {
+                            Label("Compartir o descargar", systemImage: "square.and.arrow.up")
+                        }
+                    } else {
+                        Text("Información de condiciones pendiente.")
+                            .foregroundStyle(AcquisitionTheme.attention)
+                    }
+                    Spacer()
+                }
+                .padding(20)
+                .navigationTitle("Condiciones de entrega")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var stationDescription: String {
+        "\(request.destinationStationName), \(request.deliveryCity)"
+    }
+
+    private var appleMapsURL: URL? {
+        var components = URLComponents(string: "https://maps.apple.com/")
+        components?.queryItems = [URLQueryItem(name: "q", value: stationDescription)]
+        return components?.url
+    }
+
+    private var googleMapsURL: URL? {
+        var components = URLComponents(string: "https://www.google.com/maps/search/")
+        components?.queryItems = [
+            URLQueryItem(name: "api", value: "1"),
+            URLQueryItem(name: "query", value: stationDescription),
+        ]
+        return components?.url
+    }
+}
+
 private struct AcquisitionRequestDetailView: View {
     let summary: AcquisitionRequestSummary
     let membership: AcquisitionMembership
     let repository: any AcquisitionRepository
     let onSubmitted: (AcquisitionOfferSummary) -> Void
-    @State private var termsURL: URL?
-    @State private var showsTerms = false
 
     var body: some View {
         ZStack {
@@ -791,13 +936,6 @@ private struct AcquisitionRequestDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Solicitud actual")
-                                .font(.system(.title, weight: .black))
-                            Text("Detalles y requisitos")
-                                .font(.acquisition(.title3, weight: .semibold))
-                                .foregroundStyle(AcquisitionTheme.textSecondary)
-                        }
                         Spacer()
                         Label(
                             summary.request.visibleStatus.title,
@@ -813,23 +951,7 @@ private struct AcquisitionRequestDetailView: View {
                         AcquisitionAdminRequestCard(summary: summary)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Periodo: \(summary.request.fiscalPeriodText)")
-                        Text("Precio máximo por unidad: \(summary.request.maximumUnitPriceText)")
-                        Text("Fecha límite de entrega: \(summary.request.targetDeliveryDate?.formatted(date: .abbreviated, time: .omitted) ?? "Pendiente")")
-                        Text("Estación destino: \(summary.request.destinationStationName)")
-                        Button("Ver condiciones de entrega") {
-                            Task {
-                                termsURL = try? await repository.requestDocumentURL(for: summary.request)
-                                showsTerms = true
-                            }
-                        }
-                        .font(.acquisition(.subheadline, weight: .bold))
-                    }
-                    .font(.acquisition(.subheadline))
-                    .foregroundStyle(AcquisitionTheme.textSecondary)
-                    .padding(16)
-                    .acquisitionGlass()
+                    AcquisitionRequestSupportActions(request: summary.request, repository: repository)
 
                     AcquisitionOperationalSectionHeader(
                         title: "Requisitos de la unidad",
@@ -850,7 +972,7 @@ private struct AcquisitionRequestDetailView: View {
                     .padding(16)
                     .background(AcquisitionTheme.info.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
 
-                    if membership.role == .provider {
+                    if membership.role == .provider && !summary.request.isExpired() {
                         NavigationLink {
                             AcquisitionOfferFormView(
                                 request: summary.request,
@@ -873,25 +995,6 @@ private struct AcquisitionRequestDetailView: View {
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showsTerms) {
-            NavigationStack {
-                VStack(alignment: .leading, spacing: 18) {
-                    if let termsURL {
-                        Link("Abrir documento", destination: termsURL)
-                            .buttonStyle(.borderedProminent)
-                        ShareLink(item: termsURL) { Label("Compartir o descargar", systemImage: "square.and.arrow.up") }
-                    } else {
-                        Text("Información de condiciones pendiente.")
-                            .foregroundStyle(AcquisitionTheme.attention)
-                    }
-                    Spacer()
-                }
-                .padding(20)
-                .navigationTitle("Condiciones de entrega")
-                .navigationBarTitleDisplayMode(.inline)
-            }
-            .presentationDetents([.medium, .large])
-        }
     }
 
     private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {

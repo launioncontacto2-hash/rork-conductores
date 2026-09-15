@@ -352,7 +352,7 @@ struct AcquisitionNewRequestView: View {
     }
 
     private static func dateText(_ date: Date) -> String {
-        date.formatted(date: .abbreviated, time: .omitted)
+        AcquisitionSpanishDate.text(date)
     }
 }
 
@@ -404,7 +404,7 @@ private struct AcquisitionAutoDismissDateRow: View {
             HStack {
                 Text(title).foregroundStyle(AcquisitionTheme.text)
                 Spacer()
-                Text(selection.formatted(date: .abbreviated, time: .omitted))
+                Text(AcquisitionSpanishDate.text(selection))
                     .foregroundStyle(AcquisitionTheme.accent)
                 Image(systemName: "calendar")
             }
@@ -420,6 +420,7 @@ private struct AcquisitionAutoDismissDateRow: View {
                 )
                 .datePickerStyle(.graphical)
                 .labelsHidden()
+                .environment(\.locale, Locale(identifier: "es_MX"))
                 .onChange(of: selection) { _, _ in isPresented = false }
             }
             .padding(18)
@@ -438,7 +439,7 @@ private struct AcquisitionAutoDismissTimeRow: View {
             HStack {
                 Text(title).foregroundStyle(AcquisitionTheme.text)
                 Spacer()
-                Text(selection.formatted(date: .omitted, time: .shortened))
+                Text(AcquisitionSpanishDate.time(selection))
                     .foregroundStyle(AcquisitionTheme.accent)
                 Image(systemName: "clock")
             }
@@ -471,6 +472,33 @@ private struct AcquisitionAutoDismissTimeRow: View {
         let date = Calendar.current.date(
             from: DateComponents(hour: minuteOfDay / 60, minute: minuteOfDay % 60)
         ) ?? Date()
-        return date.formatted(date: .omitted, time: .shortened)
+        return AcquisitionSpanishDate.time(date)
     }
 }
+
+#if DEBUG
+struct AcquisitionCalendarValidationView: View {
+    @State private var date = Date()
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AcquisitionBackground()
+                VStack {
+                    AcquisitionAutoDismissDateRow(
+                        title: "Fecha límite para recibir ofertas",
+                        selection: $date,
+                        displayedComponents: .date
+                    )
+                    .padding(18)
+                    .acquisitionGlass()
+                    Spacer()
+                }
+                .padding()
+            }
+            .navigationTitle("Solicitud")
+        }
+        .environment(\.locale, Locale(identifier: "es_MX"))
+    }
+}
+#endif

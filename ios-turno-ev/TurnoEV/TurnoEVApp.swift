@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct TurnoEVApp: App {
@@ -26,7 +27,7 @@ struct TurnoEVApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            launchContent
                 .environment(store)
                 .environment(lab)
                 .environment(coverage)
@@ -79,4 +80,53 @@ struct TurnoEVApp: App {
                 }
         }
     }
+
+    @ViewBuilder
+    private var launchContent: some View {
+#if DEBUG
+        if CommandLine.arguments.contains("--acquisition-preview-provider") {
+            AcquisitionRootView(
+                principal: Self.acquisitionPreviewPrincipal(role: .provider),
+                repository: PreviewAcquisitionRepository(role: .provider)
+            )
+        } else if CommandLine.arguments.contains("--acquisition-preview-admin") {
+            AcquisitionRootView(
+                principal: Self.acquisitionPreviewPrincipal(role: .doriAdmin),
+                repository: PreviewAcquisitionRepository(role: .doriAdmin)
+            )
+        } else if CommandLine.arguments.contains("--acquisition-preview-calendar") {
+            AcquisitionCalendarValidationView()
+        } else if CommandLine.arguments.contains("--acquisition-preview-photo-review") {
+            EvidencePhotoReviewView(
+                title: "Foto del VIN",
+                data: UIImage(systemName: "car.side.fill")?.jpegData(compressionQuality: 0.8),
+                repeatCapture: {},
+                usePhoto: {}
+            )
+        } else {
+            ContentView()
+        }
+#else
+        ContentView()
+#endif
+    }
+
+#if DEBUG
+    private static func acquisitionPreviewPrincipal(role: StaffRole) -> SessionPrincipal {
+        SessionPrincipal(
+            authUserId: UUID().uuidString,
+            profileId: UUID().uuidString,
+            name: role == .provider ? "BYD Iztacalco" : "Administrador DORI",
+            employeeNumber: role == .provider ? "ADQ-TEST-PROV-001" : "ADQ-TEST-ADMIN",
+            email: "vista@dori.mx",
+            role: role,
+            environmentId: UUID().uuidString,
+            stationId: nil,
+            stationCode: nil,
+            stationName: "DORI Puebla",
+            shiftGroup: nil,
+            shiftSlot: nil
+        )
+    }
+#endif
 }

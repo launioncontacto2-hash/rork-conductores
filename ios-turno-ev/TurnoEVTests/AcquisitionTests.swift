@@ -228,6 +228,21 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(request.visibleRequirements == [requirement])
     }
 
+    @Test func detailedEvidenceIsSummarizedWithoutDuplicatingKeys() throws {
+        let request = AcquisitionRequest(
+            id: UUID(), code: "ADQ-TEST-001", title: "Solicitud",
+            targetQuantity: 2, model: "Dolphin Mini", versions: ["Plus"],
+            minimumYear: 2025, maximumYear: 2026, maximumMileage: 20_000,
+            deliveryCity: "Puebla", deadlineAt: nil,
+            detailedRequirements: AcquisitionRequestDraft.defaultRequirements
+        )
+
+        let visible = request.visibleRequirements
+        let photoSummary = try #require(visible.first { $0.id == "required_photos_summary" })
+        #expect(photoSummary.value == "18 fotos requeridas")
+        #expect(visible.filter { $0.title.localizedCaseInsensitiveContains("llaves") }.count == 1)
+    }
+
     @Test func newRequestKeepsFlexibleRequirementsWithoutInternalRules() throws {
         var draft = AcquisitionRequestDraft()
         draft.model = "BYD King"
@@ -246,7 +261,7 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(publication.model == "BYD King")
         #expect(publication.versions == ["GL", "GS"])
         #expect(publication.maximumMileage == 15_000)
-        #expect(publication.requirements.filter { $0.category == .evidence }.count == 17)
+        #expect(publication.requirements.filter { $0.category == .evidence }.count == 18)
         #expect(Set(publication.requirements.map(\.id)).count == publication.requirements.count)
         #expect(publication.deadlineAt != nil)
         #expect(publication.targetDeliveryDate != nil)
@@ -379,7 +394,8 @@ struct AcquisitionRoleAndPresentationTests {
     }
 
     @Test func detailedEvidenceUsesTheApprovedDriverSidePrimaryKind() {
-        #expect(AcquisitionEvidenceKind.detailedStandard.count == 17)
+        #expect(AcquisitionEvidenceKind.detailedStandard.count == 18)
+        #expect(AcquisitionEvidenceKind.detailedStandard.contains(.vin))
         #expect(AcquisitionEvidenceKind.detailedStandard.contains(.exteriorDriverSide))
         #expect(AcquisitionEvidenceKind.detailedStandard.contains(.originInvoice))
     }
@@ -669,6 +685,31 @@ struct AcquisitionViewModelTests {
         #expect(model.membership?.supplierID == supplierID)
         #expect(model.organizationName == "BYD Iztacalco")
         #expect(model.activeRequest?.code == "ADQ-TEST-001")
+    }
+
+    @Test func expiredRequestIsSeparatedFromActiveRequests() async {
+        let expired = AcquisitionRequest(
+            id: UUID(), code: "ADQ-VENCIDA", title: "Solicitud",
+            targetQuantity: 2, model: "Dolphin Mini", versions: [],
+            minimumYear: 2025, maximumYear: 2026, maximumMileage: 20_000,
+            deliveryCity: "Puebla", deadlineAt: Date(timeIntervalSinceNow: -60)
+        )
+        let active = AcquisitionRequest(
+            id: UUID(), code: "ADQ-ACTIVA", title: "Solicitud",
+            targetQuantity: 2, model: "Dolphin Mini", versions: [],
+            minimumYear: 2025, maximumYear: 2026, maximumMileage: 20_000,
+            deliveryCity: "Puebla", deadlineAt: Date(timeIntervalSinceNow: 3_600)
+        )
+        let model = AcquisitionViewModel(
+            principal: Self.principal(role: .doriAdmin),
+            repository: Repository(requests: [expired, active])
+        )
+
+        await model.load()
+
+        #expect(model.activeRequests.map(\.id) == [active.id])
+        #expect(model.expiredRequests.map(\.id) == [expired.id])
+        #expect(expired.visibleStatus.title == "Vencida")
     }
 
     private static func principal(role: StaffRole) -> SessionPrincipal {

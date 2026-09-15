@@ -128,7 +128,8 @@ struct AcquisitionLiveTestTests {
         form.batteryKnowledge = .diagnosed
         form.soh = "95"
         form.deliveryTermsAccepted = true
-        form.validationResults = .init(odometer: .manualReview, vin: .manualReview)
+        // This contract test starts after the device-side Vision validation.
+        form.validationResults = .init(odometer: .match, vin: .match)
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
         form.evidence = Dictionary(
             uniqueKeysWithValues: request.requiredEvidenceKinds.map { ($0, jpeg) }

@@ -75,6 +75,8 @@ struct PhotoSlotView: View {
     let onCapture: (Data) -> Void
 
     @State private var isPickerPresented: Bool = false
+    @State private var isReviewPresented: Bool = false
+    @State private var candidateData: Data?
 
     var body: some View {
         Button {
@@ -134,8 +136,71 @@ struct PhotoSlotView: View {
         }
         .buttonStyle(.plain)
         .fullScreenCover(isPresented: $isPickerPresented) {
-            EvidencePicker(onCapture: onCapture)
+            EvidencePicker { data in candidateData = data }
                 .ignoresSafeArea()
+        }
+        .onChange(of: isPickerPresented) { _, presented in
+            guard !presented, candidateData != nil else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                isReviewPresented = true
+            }
+        }
+        .fullScreenCover(isPresented: $isReviewPresented) {
+            EvidencePhotoReviewView(
+                title: title,
+                data: candidateData,
+                repeatCapture: {
+                    candidateData = nil
+                    isReviewPresented = false
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(150))
+                        isPickerPresented = true
+                    }
+                },
+                usePhoto: {
+                    if let candidateData { onCapture(candidateData) }
+                    candidateData = nil
+                    isReviewPresented = false
+                }
+            )
+        }
+    }
+}
+
+struct EvidencePhotoReviewView: View {
+    let title: String
+    let data: Data?
+    let repeatCapture: () -> Void
+    let usePhoto: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 18) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                if let data, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                }
+                Spacer(minLength: 0)
+                HStack(spacing: 14) {
+                    Button("Repetir", action: repeatCapture)
+                        .buttonStyle(.bordered)
+                        .tint(.white)
+                    Button("Usar foto", action: usePhoto)
+                        .buttonStyle(.borderedProminent)
+                        .tint(Palette.volt)
+                        .foregroundStyle(.black)
+                }
+                .font(.headline)
+            }
+            .padding(22)
         }
     }
 }

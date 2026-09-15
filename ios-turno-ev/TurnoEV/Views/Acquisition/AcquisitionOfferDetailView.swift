@@ -426,7 +426,7 @@ struct AcquisitionOfferDetailView: View {
                                     .font(.subheadline.monospacedDigit().weight(.bold))
                             }
                             if let createdAt = movement.createdAt {
-                                Text(createdAt.formatted(date: .abbreviated, time: .shortened))
+                                Text(AcquisitionSpanishDate.dateTime(createdAt))
                                     .font(.acquisition(.caption2))
                                     .foregroundStyle(AcquisitionTheme.textSecondary)
                             }

@@ -210,6 +210,37 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | tee ios-tests.log
 
+      - name: Verify acquisition screens in the iOS Simulator
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project "$PROJECT_PATH" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionProviderRequestVisualContract \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionAdminRequestVisualContract \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionCalendarIsSpanish \
+            -only-testing:TurnoEVUITests/TurnoEVUITests/testAcquisitionPhotoReviewUsesApprovedSpanishActions \
+            -resultBundlePath TestResults/AcquisitionVisualTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee acquisition-visual-tests.log
+
+      - name: Upload acquisition visual evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acquisition-visual-evidence
+          path: |
+            acquisition-visual-tests.log
+            TestResults/AcquisitionVisualTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -219,6 +250,7 @@ jobs:
             ios-build.log
             dori-contract-tests.log
             ios-tests.log
+            acquisition-visual-tests.log
             TestResults/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
