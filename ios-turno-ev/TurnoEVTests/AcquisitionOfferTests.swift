@@ -211,10 +211,10 @@ struct AcquisitionOfferFormTests {
         minimumYear: 2024,
         maximumYear: 2026,
         maximumMileage: 30_000,
-        maximumUnitPriceMxn: 290_000,
         deliveryCity: "Puebla",
-        destinationStationName: "DORI Puebla",
-        deadlineAt: nil
+        deadlineAt: nil,
+        maximumUnitPriceMxn: 290_000,
+        destinationStationName: "DORI Puebla"
     )
 
     fileprivate static func validForm() -> AcquisitionOfferFormData {
