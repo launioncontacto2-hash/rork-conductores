@@ -749,10 +749,12 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
         let publication = try draft.makePublication()
         let session = try await client.auth.session
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
         let memberships: [MembershipRow] = try await client
             .from("acquisition_memberships")
             .select(AcquisitionQueries.membershipColumns)
-            .eq("profile_id", value: session.user.id.uuidString)
+            .eq("profile_id", value: profile.id.uuidString)
+            .eq("environment_id", value: profile.environment_id.uuidString)
             .eq("role", value: "dori_admin")
             .eq("status", value: "active")
             .execute()
