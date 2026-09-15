@@ -140,6 +140,22 @@ struct AcquisitionOfferDetailView: View {
                     negotiationLimitCard(detail)
                 }
 
+                if let pending = detail.pendingCounterofferMxn {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Contraoferta pendiente")
+                            .font(.acquisition(.caption, weight: .semibold))
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
+                        Text(AcquisitionOfferSummary.currencyText(pending))
+                            .font(.title3.monospacedDigit().weight(.bold))
+                        Text("Precio actual: \(AcquisitionOfferSummary.currencyText(detail.commercialPriceMxn))")
+                            .font(.acquisition(.caption))
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .acquisitionGlass()
+                }
+
                 if let feedback = model.feedbackMessage {
                     Text(feedback)
                         .font(.acquisition(.subheadline))
@@ -272,8 +288,6 @@ struct AcquisitionOfferDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(assessment.recommendation.visibleLabel)
                 .font(.acquisition(.title3, weight: .bold))
-            Text(assessment.evidenceLabel)
-                .font(.acquisition(.subheadline, weight: .semibold))
             Text(assessment.summary)
                 .font(.acquisition(.subheadline))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
@@ -458,23 +472,20 @@ struct AcquisitionOfferDetailView: View {
             deliveryActions(delivery)
         } else if model.membership.role == .doriAdmin {
             if !["awarded", "rejected"].contains(detail.offer.status) {
-                if detail.offer.status == "price_agreed" {
-                    Button("Confirmar compra") { showsAward = true }
-                        .buttonStyle(.borderedProminent)
-                        .tint(AcquisitionTheme.accent)
-                        .frame(maxWidth: .infinity)
-                } else if detail.hasPendingCounteroffer(for: .doriAdmin) {
+                Button("Comprar · \(AcquisitionOfferSummary.currencyText(detail.commercialPriceMxn))") {
+                    showsAward = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AcquisitionTheme.accent)
+                .frame(maxWidth: .infinity)
+
+                if detail.hasPendingCounteroffer(for: .doriAdmin) {
                     Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
                         Task { await model.accept() }
                     }
                         .buttonStyle(.borderedProminent)
                         .tint(AcquisitionTheme.accent)
                         .disabled(model.isWorking)
-                } else if detail.offer.status == "submitted" {
-                    Button("Comprar") { showsAward = true }
-                        .buttonStyle(.borderedProminent)
-                        .tint(AcquisitionTheme.accent)
-                        .frame(maxWidth: .infinity)
                 }
 
                 if detail.canCounteroffer(as: .doriAdmin),
@@ -551,6 +562,7 @@ struct AcquisitionOfferDetailView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(AcquisitionTheme.accent)
                 .disabled(model.isWorking)
+                .frame(maxWidth: .infinity)
         } else if model.membership.role == .doriAdmin, delivery.canDORIReceive {
             Button("Preparar recepción") { showsReception = true }
                 .buttonStyle(.borderedProminent)

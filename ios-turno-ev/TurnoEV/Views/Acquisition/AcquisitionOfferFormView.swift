@@ -5,6 +5,8 @@ struct AcquisitionOfferFormView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AcquisitionOfferFormViewModel
     @FocusState private var focusedField: String?
+    @State private var showsTerms = false
+    @State private var termsURL: URL?
 
     init(
         request: AcquisitionRequest,
@@ -29,129 +31,66 @@ struct AcquisitionOfferFormView: View {
             AcquisitionBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Ofrecer un vehículo")
-                        .font(.system(.title, weight: .black))
-                    Text("Comparte los detalles de tu unidad")
-                        .font(.acquisition(.title3, weight: .semibold))
-                        .foregroundStyle(AcquisitionTheme.textSecondary)
-
-                    HStack(spacing: 0) {
-                        step(1, "Requisitos", active: true)
-                        Divider().overlay(AcquisitionTheme.accent)
-                        step(2, "Información", active: true)
-                        Divider().overlay(AcquisitionTheme.accent)
-                        step(3, "Fotos y envío", active: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Label("Revisa todos los requisitos", systemImage: "info.circle.fill")
-                            .font(.acquisition(.headline))
-                            .foregroundStyle(AcquisitionTheme.info)
-                        Text("DORI validará la información y la evidencia antes de continuar con la compra.")
-                            .font(.acquisition(.subheadline))
-                            .foregroundStyle(AcquisitionTheme.textSecondary)
-                    }
-                    .padding(16)
-                    .background(AcquisitionTheme.info.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
-
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Unidad solicitada")
-                            .font(.acquisition(.headline))
                         Text(model.request.modelAndVersions)
                             .font(.acquisition(.title3, weight: .bold))
-                        Text("\(model.request.yearRange) · Máx. \(model.request.maximumMileageText) km")
+                        Text("Periodo: \(model.request.fiscalPeriodText)")
+                            .font(.acquisition(.caption, weight: .bold))
+                            .foregroundStyle(AcquisitionTheme.accent)
+                        Text("\(model.request.yearRange) · Máx. \(model.request.maximumMileageText) km · \(model.request.maximumUnitPriceText)")
                             .font(.acquisition(.subheadline))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
+                        if let target = model.request.targetDeliveryDate {
+                            summaryLine("Fecha límite de entrega", value: target.formatted(date: .abbreviated, time: .omitted))
+                        }
+                        summaryLine("Estación destino", value: model.request.destinationStationName)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(18)
                     .acquisitionGlass()
 
                     VStack(spacing: 14) {
-                        if let target = model.request.targetDeliveryDate {
-                            summaryLine("Fecha objetivo solicitada por DORI", value: target.formatted(date: .abbreviated, time: .omitted))
-                        }
-                        DatePicker(
-                            "Fecha compromiso del proveedor",
-                            selection: $form.form.committedDeliveryDate,
-                            displayedComponents: .date
-                        )
-                        Text("Esta fecha se registrará como tu compromiso formal de entrega.")
-                            .font(.acquisition(.caption))
-                            .foregroundStyle(AcquisitionTheme.textSecondary)
-                        if let target = model.request.targetDeliveryDate,
-                           model.form.committedDeliveryDate > target {
-                            Label("La fecha propuesta excede el objetivo solicitado por DORI.", systemImage: "exclamationmark.triangle.fill")
-                                .font(.acquisition(.caption))
-                                .foregroundStyle(AcquisitionTheme.attention)
-                        }
-                        field("VIN", text: $form.form.vin, keyboard: .asciiCapable)
+                        field("VIN", placeholder: "17 caracteres", text: $form.form.vin, keyboard: .asciiCapable)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
-                        field("Año", text: $form.form.year, keyboard: .numberPad)
-                        field("Kilometraje", text: $form.form.mileage, keyboard: .numberPad)
-                        field("Precio", text: $form.form.price, keyboard: .numberPad)
-                        field("Color", text: $form.form.color, keyboard: .default)
-
-                        Picker("¿Incluye traslado a \(model.request.deliveryCity)?", selection: $form.form.transferIncluded) {
-                            Text("Sí").tag(true)
-                            Text("No").tag(false)
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    .padding(18)
-                    .acquisitionGlass()
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Confirma los requisitos")
-                            .font(.acquisition(.headline))
-                        Text("Marca cada punto que incluye esta unidad.")
-                            .font(.acquisition(.subheadline))
-                            .foregroundStyle(AcquisitionTheme.textSecondary)
+                        field("Año", placeholder: model.request.yearRange, text: $form.form.year, keyboard: .numberPad)
+                        field(
+                            "Kilometraje",
+                            placeholder: "Máximo \(model.request.maximumMileageText) km",
+                            text: $form.form.mileage,
+                            keyboard: .numberPad,
+                            error: mileageError
+                        )
+                        field(
+                            "Precio",
+                            placeholder: "Máximo \(model.request.maximumUnitPriceText)",
+                            text: $form.form.price,
+                            keyboard: .numberPad,
+                            error: priceError
+                        )
+                        field("Color", placeholder: "Color exterior", text: $form.form.color, keyboard: .default)
+                        field(
+                            "Diagnóstico SOH",
+                            placeholder: "Mínimo \(model.request.minimumSoh) %",
+                            text: $form.form.soh,
+                            keyboard: .numberPad
+                        )
                         ForEach(AcquisitionOfferRequirement.allCases) { requirement in
-                            Button {
+                            checkbox(requirement.title, isOn: model.form.confirmedRequirements.contains(requirement)) {
                                 model.toggleRequirement(requirement)
-                            } label: {
-                                HStack(spacing: 11) {
-                                    Image(systemName: model.form.confirmedRequirements.contains(requirement)
-                                          ? "checkmark.square.fill" : "square")
-                                        .font(.acquisition(.title3))
-                                        .foregroundStyle(model.form.confirmedRequirements.contains(requirement)
-                                                         ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
-                                    Text(requirement.title)
-                                        .font(.acquisition(.subheadline, weight: .semibold))
-                                        .foregroundStyle(AcquisitionTheme.text)
-                                    Spacer()
-                                }
                             }
-                            .buttonStyle(.plain)
+                        }
+                        checkbox("Envío a estación \(model.request.destinationStationName)", isOn: model.form.transferIncluded) {
+                            model.form.transferIncluded.toggle()
                         }
                     }
                     .padding(18)
                     .acquisitionGlass()
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Estado de batería")
+                        Text("Cargar evidencias")
                             .font(.acquisition(.headline))
-                        Picker("Estado de batería", selection: $form.form.batteryKnowledge) {
-                            ForEach(AcquisitionBatteryKnowledge.allCases) { option in
-                                Text(option.label).tag(option)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        .labelsHidden()
-
-                        if model.form.batteryKnowledge == .diagnosed {
-                            field("Diagnóstico SOH (%)", text: $form.form.soh, keyboard: .numberPad)
-                        }
-                    }
-                    .padding(18)
-                    .acquisitionGlass()
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Fotografías requeridas")
-                            .font(.acquisition(.headline))
-                        Text("Usaremos la cámara cuando esté disponible. En el simulador puedes elegir una foto.")
+                        Text("Un supervisor de DORI verificará que las fotos capturadas coincidan con la unidad recibida.")
                             .font(.acquisition(.caption))
                             .foregroundStyle(AcquisitionTheme.textSecondary)
 
@@ -168,18 +107,17 @@ struct AcquisitionOfferFormView: View {
                     .acquisitionGlass()
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Resumen")
-                            .font(.acquisition(.headline))
-                        summaryLine("VIN", value: model.form.vin.isEmpty ? "Pendiente" : model.form.vin.uppercased())
-                        summaryLine("Unidad", value: model.request.modelAndVersions)
-                        summaryLine(
-                            "Evidencias",
-                            value: "\(model.form.evidence.count) de \(model.request.requiredEvidenceKinds.count)"
-                        )
-                        summaryLine(
-                            "Requisitos",
-                            value: "\(model.form.confirmedRequirements.count) de \(AcquisitionOfferRequirement.allCases.count)"
-                        )
+                        Button("Penalizaciones por incumplimiento") {
+                            Task {
+                                termsURL = try? await model.deliveryTermsURL()
+                                showsTerms = true
+                            }
+                        }
+                        .font(.acquisition(.subheadline, weight: .bold))
+                        checkbox(
+                            "Acepto cumplir la fecha límite de entrega y las condiciones de entrega de esta solicitud.",
+                            isOn: model.form.deliveryTermsAccepted
+                        ) { model.form.deliveryTermsAccepted.toggle() }
                     }
                     .padding(18)
                     .acquisitionGlass()
@@ -223,28 +161,36 @@ struct AcquisitionOfferFormView: View {
             .padding(.vertical, 10)
             .background(AcquisitionTheme.surface.opacity(0.98))
         }
-        .navigationTitle("Tengo unidades")
+        .navigationTitle("Ofrecer una unidad")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showsTerms) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Condiciones aplicables")
+                        .font(.acquisition(.title2, weight: .bold))
+                    Text("Estas condiciones pertenecen a \(model.request.modelAndVersions), periodo \(model.request.fiscalPeriodText).")
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
+                    if let termsURL {
+                        Link("Abrir documento", destination: termsURL)
+                            .buttonStyle(.borderedProminent)
+                        ShareLink(item: termsURL) { Label("Compartir o descargar", systemImage: "square.and.arrow.up") }
+                    } else {
+                        Text("Información de condiciones pendiente.")
+                            .foregroundStyle(AcquisitionTheme.attention)
+                    }
+                    Spacer()
+                }
+                .padding(20)
+                .navigationTitle("Penalizaciones")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
         .alert("Propuesta enviada", isPresented: successBinding) {
             Button("Listo") { dismiss() }
         } message: {
             Text("DORI está revisando tu unidad.")
         }
-    }
-
-    private func step(_ number: Int, _ title: String, active: Bool) -> some View {
-        VStack(spacing: 6) {
-            Text("\(number)")
-                .font(.acquisition(.caption, weight: .bold))
-                .frame(width: 28, height: 28)
-                .foregroundStyle(active ? Color.black : AcquisitionTheme.textSecondary)
-                .background(active ? AcquisitionTheme.accent : AcquisitionTheme.surfaceRaised, in: Circle())
-            Text(title)
-                .font(.acquisition(.caption2, weight: .bold))
-                .foregroundStyle(AcquisitionTheme.textSecondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private func summaryLine(_ title: String, value: String) -> some View {
@@ -271,19 +217,56 @@ struct AcquisitionOfferFormView: View {
 
     private func field(
         _ title: String,
+        placeholder: String,
         text: Binding<String>,
-        keyboard: UIKeyboardType
+        keyboard: UIKeyboardType,
+        error: String? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.acquisition(.caption, weight: .bold))
                 .foregroundStyle(AcquisitionTheme.textSecondary)
-            TextField(title, text: text)
+            TextField(placeholder, text: text)
                 .keyboardType(keyboard)
                 .focused($focusedField, equals: title)
                 .submitLabel(.next)
                 .padding(12)
                 .background(AcquisitionTheme.surfaceRaised.opacity(0.7), in: .rect(cornerRadius: 12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(error == nil ? Color.clear : AcquisitionTheme.danger, lineWidth: 1)
+                }
+            if let error {
+                Text(error).font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.danger)
+            }
         }
+    }
+
+    private func checkbox(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: isOn ? "checkmark.square.fill" : "square")
+                    .font(.acquisition(.title3))
+                    .foregroundStyle(isOn ? AcquisitionTheme.accent : AcquisitionTheme.textSecondary)
+                Text(title)
+                    .font(.acquisition(.subheadline, weight: .semibold))
+                    .foregroundStyle(AcquisitionTheme.text)
+                    .multilineTextAlignment(.leading)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var mileageError: String? {
+        guard let value = Int(model.form.mileage.replacingOccurrences(of: ",", with: "")),
+              value > model.request.maximumMileage else { return nil }
+        return "Excede el máximo solicitado de \(model.request.maximumMileageText) km."
+    }
+
+    private var priceError: String? {
+        let clean = model.form.price.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "")
+        guard let value = Int(clean), value > model.request.maximumUnitPriceMxn else { return nil }
+        return "Excede el máximo solicitado de \(model.request.maximumUnitPriceText)."
     }
 }

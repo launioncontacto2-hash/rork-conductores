@@ -34,7 +34,8 @@ struct AcquisitionOfferFormTests {
             p_color: "Blanco",
             p_price_mxn: 274_000,
             p_transfer_included: true,
-            p_committed_delivery_date: Date(timeIntervalSince1970: 1_800_000_000),
+            p_delivery_terms_accepted: true,
+            p_validation_results: .init(odometer: .match, vin: .match),
             p_evidence: [],
             p_idempotency_key: "offer-null-contract"
         )
@@ -43,12 +44,12 @@ struct AcquisitionOfferFormTests {
             JSONSerialization.jsonObject(with: JSONEncoder().encode(parameters))
                 as? [String: Any]
         )
-        #expect(object.keys.count == 14)
+        #expect(object.keys.count == 15)
         #expect(object["p_version"] is NSNull)
         #expect(object["p_declared_soh"] is NSNull)
     }
 
-    @Test func acceptsAValidFormWithoutKnownBatteryHealth() throws {
+    @Test func acceptsAValidFormWithRequestOwnedBatteryHealth() throws {
         let submission = try Self.validForm().makeSubmission(
             request: Self.request,
             offerID: Self.offerID,
@@ -59,7 +60,7 @@ struct AcquisitionOfferFormTests {
         #expect(submission.year == 2025)
         #expect(submission.mileage == 8_400)
         #expect(submission.priceMxn == 274_000)
-        #expect(submission.declaredSoh == nil)
+        #expect(submission.declaredSoh == 95)
         #expect(submission.evidence.map(\.kind) == AcquisitionEvidenceKind.detailedStandard)
     }
 
@@ -83,6 +84,38 @@ struct AcquisitionOfferFormTests {
         var form = Self.validForm()
         form.price = "0"
         #expect(throws: AcquisitionOfferFormIssue.invalidPrice) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func refusesMileageAboveTheRequestMaximum() {
+        var form = Self.validForm()
+        form.mileage = "30001"
+        #expect(throws: AcquisitionOfferFormIssue.mileageExceedsMaximum(30_000)) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func refusesPriceAboveTheRequestMaximum() {
+        var form = Self.validForm()
+        form.price = "290001"
+        #expect(throws: AcquisitionOfferFormIssue.priceExceedsMaximum(290_000)) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func requiresFormalDeliveryTermsAcceptance() {
+        var form = Self.validForm()
+        form.deliveryTermsAccepted = false
+        #expect(throws: AcquisitionOfferFormIssue.deliveryTermsAcceptanceRequired) {
+            try form.makeSubmission(request: Self.request)
+        }
+    }
+
+    @Test func rejectsHighConfidenceEvidenceMismatch() {
+        var form = Self.validForm()
+        form.validationResults.odometer = .mismatch
+        #expect(throws: AcquisitionOfferFormIssue.odometerMismatch) {
             try form.makeSubmission(request: Self.request)
         }
     }
@@ -126,6 +159,7 @@ struct AcquisitionOfferFormTests {
             color: "Blanco",
             agreed_price_mxn: nil,
             committed_delivery_date: "2026-10-20",
+            request_fiscal_period: "2026-09-01",
             submitted_at: nil
         )
         let offer = SupabaseAcquisitionRepository.offer(from: row)
@@ -177,7 +211,9 @@ struct AcquisitionOfferFormTests {
         minimumYear: 2024,
         maximumYear: 2026,
         maximumMileage: 30_000,
+        maximumUnitPriceMxn: 290_000,
         deliveryCity: "Puebla",
+        destinationStationName: "DORI Puebla",
         deadlineAt: nil
     )
 
@@ -189,7 +225,10 @@ struct AcquisitionOfferFormTests {
         form.price = "$274,000"
         form.color = "Blanco"
         form.transferIncluded = true
-        form.batteryKnowledge = .requiresDORIVerification
+        form.batteryKnowledge = .diagnosed
+        form.soh = "95"
+        form.deliveryTermsAccepted = true
+        form.validationResults = .init(odometer: .manualReview, vin: .manualReview)
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
         form.evidence = Dictionary(
             uniqueKeysWithValues: AcquisitionEvidenceKind.detailedStandard.enumerated().map {
@@ -202,7 +241,7 @@ struct AcquisitionOfferFormTests {
 
 @MainActor
 struct AcquisitionOfferSubmissionTests {
-    @Test func uploadsTheFourteenRequiredEvidenceItemsAndReportsSuccess() async {
+    @Test func uploadsAllRequestOwnedEvidenceItemsAndReportsSuccess() async {
         let repository = Repository()
         var received: AcquisitionOfferSummary?
         let model = Self.model(repository: repository) { received = $0 }
@@ -210,7 +249,7 @@ struct AcquisitionOfferSubmissionTests {
 
         await model.submit()
 
-        #expect(repository.submission?.evidence.count == 14)
+        #expect(repository.submission?.evidence.count == 17)
         #expect(repository.submission?.evidence.map(\.kind) == AcquisitionEvidenceKind.detailedStandard)
         #expect(received?.id == repository.submission?.offerID)
         if case .succeeded(let offer) = model.state {
@@ -246,7 +285,7 @@ struct AcquisitionOfferSubmissionTests {
 
         #expect(model.failureStage == .evidenceUpload)
         #expect(model.feedbackMessage?.contains("tablero") == true)
-        #expect(model.form.evidence.count == 14)
+        #expect(model.form.evidence.count == 17)
     }
 
     @Test func storageAuthorizationFailureDoesNotPretendToBeAConnectionProblem() {

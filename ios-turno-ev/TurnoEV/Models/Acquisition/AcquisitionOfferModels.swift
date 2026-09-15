@@ -33,12 +33,16 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
     case charger110V = "charger_110v"
     case charger220V = "charger_220v"
     case originInvoice = "origin_invoice"
+    case sohReport = "soh_report"
+    case frontCompartment = "front_compartment"
+    case trunk
 
     static let detailedStandard: [Self] = [
         .exteriorFront, .exteriorDriverSide, .exteriorPassengerSide,
         .exteriorRear, .interiorDashboard, .steeringWheel, .odometer,
         .driverSeat, .passengerSeat, .rearSeats, .keys,
         .charger110V, .charger220V, .originInvoice,
+        .sohReport, .frontCompartment, .trunk,
     ]
 
     var id: String { rawValue }
@@ -62,6 +66,9 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
         case .charger110V: "Cargador de emergencia 110V"
         case .charger220V: "Cargador de pared 220V"
         case .originInvoice: "Factura de origen"
+        case .sohReport: "Reporte SOH %"
+        case .frontCompartment: "Compartimento frontal / cofre"
+        case .trunk: "Cajuela"
         }
     }
 
@@ -84,6 +91,9 @@ nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identif
         case .charger110V: "Muestra cable y conectores completos"
         case .charger220V: "Muestra cargador y conectores completos"
         case .originInvoice: "Oculta datos sensibles no necesarios"
+        case .sohReport: "El diagnóstico debe ser legible y estar vigente"
+        case .frontCompartment: "Muestra completo el compartimento frontal"
+        case .trunk: "Muestra completa la cajuela"
         }
     }
 }
@@ -131,7 +141,8 @@ nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
     let color: String
     let priceMxn: Int
     let transferIncluded: Bool
-    let committedDeliveryDate: Date
+    let deliveryTermsAccepted: Bool
+    let validationResults: AcquisitionEvidenceValidationResults
     let evidence: [AcquisitionEvidenceUpload]
     let idempotencyKey: String
 }
@@ -186,11 +197,12 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
     var price = ""
     var color = ""
     var transferIncluded = false
-    var committedDeliveryDate = Date()
-    var batteryKnowledge: AcquisitionBatteryKnowledge = .requiresDORIVerification
+    var deliveryTermsAccepted = false
+    var batteryKnowledge: AcquisitionBatteryKnowledge = .diagnosed
     var soh = ""
     var confirmedRequirements: Set<AcquisitionOfferRequirement> = []
     var evidence: [AcquisitionEvidenceKind: Data] = [:]
+    var validationResults = AcquisitionEvidenceValidationResults.pending
 
     func makeSubmission(
         request: AcquisitionRequest,
@@ -211,11 +223,20 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
         guard let parsedYear = Self.integer(from: year), (2000...2100).contains(parsedYear) else {
             throw AcquisitionOfferFormIssue.invalidYear
         }
+        guard (request.minimumYear...request.maximumYear).contains(parsedYear) else {
+            throw AcquisitionOfferFormIssue.yearOutsideRequest(request.minimumYear, request.maximumYear)
+        }
         guard let parsedMileage = Self.integer(from: mileage), parsedMileage >= 0 else {
             throw AcquisitionOfferFormIssue.invalidMileage
         }
+        guard parsedMileage <= request.maximumMileage else {
+            throw AcquisitionOfferFormIssue.mileageExceedsMaximum(request.maximumMileage)
+        }
         guard let parsedPrice = Self.integer(from: price), parsedPrice > 0 else {
             throw AcquisitionOfferFormIssue.invalidPrice
+        }
+        guard parsedPrice <= request.maximumUnitPriceMxn else {
+            throw AcquisitionOfferFormIssue.priceExceedsMaximum(request.maximumUnitPriceMxn)
         }
 
         let normalizedColor = color.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -224,17 +245,20 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
         guard confirmedRequirements.count == AcquisitionOfferRequirement.allCases.count else {
             throw AcquisitionOfferFormIssue.requirementsRequired
         }
+        guard transferIncluded else { throw AcquisitionOfferFormIssue.stationDeliveryRequired(request.destinationStationName) }
+        guard deliveryTermsAccepted else { throw AcquisitionOfferFormIssue.deliveryTermsAcceptanceRequired }
+        guard validationResults.odometer != .mismatch else { throw AcquisitionOfferFormIssue.odometerMismatch }
+        guard validationResults.vin != .mismatch else { throw AcquisitionOfferFormIssue.vinMismatch }
 
         let parsedSoh: Int?
-        switch batteryKnowledge {
-        case .requiresDORIVerification:
-            parsedSoh = nil
-        case .diagnosed:
-            guard let value = Self.integer(from: soh), (0...100).contains(value) else {
-                throw AcquisitionOfferFormIssue.invalidSoh
-            }
-            parsedSoh = value
+        guard batteryKnowledge == .diagnosed,
+              let value = Self.integer(from: soh), (0...100).contains(value) else {
+            throw AcquisitionOfferFormIssue.invalidSoh
         }
+        guard value >= request.minimumSoh else {
+            throw AcquisitionOfferFormIssue.sohBelowMinimum(request.minimumSoh)
+        }
+        parsedSoh = value
 
         let uploads = try request.requiredEvidenceKinds.map { kind in
             guard let data = evidence[kind], !data.isEmpty else {
@@ -255,7 +279,8 @@ nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
             color: normalizedColor,
             priceMxn: parsedPrice,
             transferIncluded: transferIncluded,
-            committedDeliveryDate: committedDeliveryDate,
+            deliveryTermsAccepted: deliveryTermsAccepted,
+            validationResults: validationResults,
             evidence: uploads,
             idempotencyKey: idempotencyKey ?? "ios-acquisition-offer-\(offerID.uuidString.lowercased())"
         )
@@ -275,10 +300,18 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
     case vinRequired
     case invalidVin
     case invalidYear
+    case yearOutsideRequest(Int, Int)
     case invalidMileage
+    case mileageExceedsMaximum(Int)
     case invalidPrice
+    case priceExceedsMaximum(Int)
     case colorRequired
     case invalidSoh
+    case sohBelowMinimum(Int)
+    case stationDeliveryRequired(String)
+    case deliveryTermsAcceptanceRequired
+    case odometerMismatch
+    case vinMismatch
     case requirementsRequired
     case evidenceRequired(AcquisitionEvidenceKind)
 
@@ -287,14 +320,38 @@ nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
         case .vinRequired: "Captura el VIN para continuar."
         case .invalidVin: "Revisa el VIN. Debe contener 17 caracteres válidos."
         case .invalidYear: "Captura un año válido."
+        case .yearOutsideRequest(let minimum, let maximum): "El año debe estar entre \(minimum) y \(maximum)."
         case .invalidMileage: "Captura un kilometraje válido."
+        case .mileageExceedsMaximum(let maximum): "Excede el máximo solicitado de \(maximum.formatted()) km."
         case .invalidPrice: "Captura un precio válido."
+        case .priceExceedsMaximum(let maximum): "Excede el máximo solicitado de \(AcquisitionOfferSummary.currencyText(maximum))."
         case .colorRequired: "Captura el color de la unidad."
         case .invalidSoh: "Captura un diagnóstico de batería entre 0 y 100 %."
+        case .sohBelowMinimum(let minimum): "El diagnóstico debe indicar SOH mínimo de \(minimum) %."
+        case .stationDeliveryRequired(let station): "Confirma el envío a estación \(station)."
+        case .deliveryTermsAcceptanceRequired: "Acepta la fecha límite y las condiciones de entrega para continuar."
+        case .odometerMismatch: "El kilometraje capturado en la fotografía no coincide con el valor registrado."
+        case .vinMismatch: "El VIN capturado no coincide con la factura proporcionada."
         case .requirementsRequired: "Confirma que la unidad cumple todos los requisitos."
         case .evidenceRequired(let kind): "Falta \(kind.title.lowercased())."
         }
     }
+}
+
+nonisolated enum AcquisitionEvidenceValidationStatus: String, Codable, Equatable, Sendable {
+    case match
+    case mismatch
+    case manualReview = "manual_review"
+    case pending
+}
+
+nonisolated struct AcquisitionEvidenceValidationResults: Codable, Equatable, Sendable {
+    var odometer: AcquisitionEvidenceValidationStatus
+    var vin: AcquisitionEvidenceValidationStatus
+
+    static let pending = Self(odometer: .pending, vin: .pending)
+
+    var canSubmit: Bool { odometer != .mismatch && vin != .mismatch }
 }
 
 nonisolated enum AcquisitionEvidencePath {

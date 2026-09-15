@@ -9,6 +9,7 @@ protocol AcquisitionRepository {
     ) async throws -> AcquisitionMembership
     func loadRequests() async throws -> [AcquisitionRequest]
     func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL?
     func loadOffers() async throws -> [AcquisitionOfferSummary]
     func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity]
     func loadSuppliers() async throws -> [AcquisitionSupplierSummary]
@@ -17,6 +18,7 @@ protocol AcquisitionRepository {
         offerID: UUID,
         membership: AcquisitionMembership
     ) async throws -> AcquisitionOfferDetail
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data]
     func submitOffer(
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
@@ -38,6 +40,11 @@ protocol AcquisitionRepository {
     func unreadNotificationOfferIDs() async throws -> Set<UUID>
     func markNotificationContextRead(type: String, id: UUID) async throws
     func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult
+}
+
+extension AcquisitionRepository {
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? { nil }
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] { [:] }
 }
 
 extension AcquisitionRepository {
@@ -79,9 +86,9 @@ nonisolated struct AcquisitionTestResetResult: Sendable, Equatable {
 
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
-    static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, delivery_city, deadline_at, target_delivery_date, status"
+    static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, maximum_unit_price_mxn, delivery_city, destination_station_name, deadline_at, target_delivery_date, fiscal_period, minimum_soh, soh_diagnosis_max_age_days, delivery_terms_document_path, status"
     static let requestRequirementColumns = "request_id, code, category, title, value, required, display_order, response_type, requires_dori_verification"
-    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, submitted_at"
+    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, request_fiscal_period, submitted_at"
     static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
     static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at, event_sequence"
     static let evidenceColumns = "id, kind, object_path, verified"
@@ -122,10 +129,16 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let minimum_year: Int
         let maximum_year: Int
         let maximum_mileage: Int
+        let maximum_unit_price_mxn: Decimal
         let delivery_city: String
+        let destination_station_name: String
         let deadline_at: Date?
         /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
         let target_delivery_date: String?
+        let fiscal_period: String
+        let minimum_soh: Decimal
+        let soh_diagnosis_max_age_days: Int
+        let delivery_terms_document_path: String?
         let status: String
     }
 
@@ -159,7 +172,13 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_minimum_year: Int
         let p_maximum_year: Int
         let p_maximum_mileage: Int
+        let p_maximum_unit_price_mxn: Int
         let p_delivery_city: String
+        let p_destination_station_name: String
+        let p_fiscal_period: String
+        let p_minimum_soh: Int
+        let p_soh_diagnosis_max_age_days: Int
+        let p_delivery_terms_document_path: String
         let p_deadline_at: Date?
         /// PostgreSQL `date` travels as YYYY-MM-DD. Sending an ISO timestamp
         /// makes the RPC contract depend on an implicit server cast.
@@ -169,7 +188,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
         enum CodingKeys: String, CodingKey {
             case p_model, p_versions, p_target_quantity, p_minimum_year
-            case p_maximum_year, p_maximum_mileage, p_delivery_city
+            case p_maximum_year, p_maximum_mileage, p_maximum_unit_price_mxn, p_delivery_city
+            case p_destination_station_name, p_fiscal_period, p_minimum_soh
+            case p_soh_diagnosis_max_age_days, p_delivery_terms_document_path
             case p_deadline_at, p_target_delivery_date, p_requirements, p_idempotency_key
         }
 
@@ -181,7 +202,13 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             try container.encode(p_minimum_year, forKey: .p_minimum_year)
             try container.encode(p_maximum_year, forKey: .p_maximum_year)
             try container.encode(p_maximum_mileage, forKey: .p_maximum_mileage)
+            try container.encode(p_maximum_unit_price_mxn, forKey: .p_maximum_unit_price_mxn)
             try container.encode(p_delivery_city, forKey: .p_delivery_city)
+            try container.encode(p_destination_station_name, forKey: .p_destination_station_name)
+            try container.encode(p_fiscal_period, forKey: .p_fiscal_period)
+            try container.encode(p_minimum_soh, forKey: .p_minimum_soh)
+            try container.encode(p_soh_diagnosis_max_age_days, forKey: .p_soh_diagnosis_max_age_days)
+            try container.encode(p_delivery_terms_document_path, forKey: .p_delivery_terms_document_path)
             if let p_deadline_at { try container.encode(p_deadline_at, forKey: .p_deadline_at) }
             else { try container.encodeNil(forKey: .p_deadline_at) }
             if let p_target_delivery_date { try container.encode(p_target_delivery_date, forKey: .p_target_delivery_date) }
@@ -208,6 +235,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let agreed_price_mxn: Decimal?
         /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
         let committed_delivery_date: String?
+        let request_fiscal_period: String
         let submitted_at: Date?
     }
 
@@ -266,7 +294,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let p_color: String
         let p_price_mxn: Int
         let p_transfer_included: Bool
-        let p_committed_delivery_date: Date
+        let p_delivery_terms_accepted: Bool
+        let p_validation_results: AcquisitionEvidenceValidationResults
         let p_evidence: [EvidenceReference]
         let p_idempotency_key: String
 
@@ -282,7 +311,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             case p_color
             case p_price_mxn
             case p_transfer_included
-            case p_committed_delivery_date
+            case p_delivery_terms_accepted
+            case p_validation_results
             case p_evidence
             case p_idempotency_key
         }
@@ -302,7 +332,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             try container.encode(p_color, forKey: .p_color)
             try container.encode(p_price_mxn, forKey: .p_price_mxn)
             try container.encode(p_transfer_included, forKey: .p_transfer_included)
-            try container.encode(p_committed_delivery_date, forKey: .p_committed_delivery_date)
+            try container.encode(p_delivery_terms_accepted, forKey: .p_delivery_terms_accepted)
+            try container.encode(p_validation_results, forKey: .p_validation_results)
             try container.encode(p_evidence, forKey: .p_evidence)
             try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
         }
@@ -357,7 +388,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         _ object: ResetStorageObject,
         environmentID: UUID
     ) throws {
-        let allowedBuckets: Set<String> = ["acquisition-evidence", "acquisition-chat-attachments"]
+        let allowedBuckets: Set<String> = [
+            "acquisition-evidence", "acquisition-chat-attachments", "acquisition-request-documents",
+        ]
         guard allowedBuckets.contains(object.bucket),
               object.path.hasPrefix("\(environmentID.uuidString.lowercased())/") else {
             throw RepositoryError.invalidTestResetPlan
@@ -699,9 +732,32 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest {
         guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
         let publication = try draft.makePublication()
+        let session = try await client.auth.session
+        let memberships: [MembershipRow] = try await client
+            .from("acquisition_memberships")
+            .select(AcquisitionQueries.membershipColumns)
+            .eq("profile_id", value: session.user.id.uuidString)
+            .eq("role", value: "dori_admin")
+            .eq("status", value: "active")
+            .execute()
+            .value
+        guard let membership = memberships.first else { throw RepositoryError.noMembership }
+        let safeFilename = publication.deliveryTermsFilename
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
+        let documentPath = [
+            membership.environment_id.uuidString.lowercased(),
+            membership.profile_id.uuidString.lowercased(),
+            UUID().uuidString.lowercased(),
+            safeFilename,
+        ].joined(separator: "/")
+        try await client.storage.from("acquisition-request-documents").upload(
+            documentPath,
+            data: publication.deliveryTermsDocument,
+            options: FileOptions(contentType: publication.deliveryTermsMimeType, upsert: false)
+        )
         let row: RequestRow = try await client
             .rpc(
-                "publish_acquisition_request",
+                "publish_acquisition_request_v2",
                 params: PublishRequestParameters(
                     p_model: publication.model,
                     p_versions: publication.versions,
@@ -709,7 +765,13 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     p_minimum_year: publication.minimumYear,
                     p_maximum_year: publication.maximumYear,
                     p_maximum_mileage: publication.maximumMileage,
+                    p_maximum_unit_price_mxn: publication.maximumUnitPriceMxn,
                     p_delivery_city: publication.deliveryCity,
+                    p_destination_station_name: publication.destinationStationName,
+                    p_fiscal_period: Self.postgresDateString(from: publication.fiscalPeriod)!,
+                    p_minimum_soh: publication.minimumSoh,
+                    p_soh_diagnosis_max_age_days: publication.sohDiagnosisMaximumAgeDays,
+                    p_delivery_terms_document_path: documentPath,
                     p_deadline_at: publication.deadlineAt,
                     p_target_delivery_date: Self.postgresDateString(
                         from: publication.targetDeliveryDate
@@ -732,6 +794,14 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
         return Self.request(from: row, requirements: publication.requirements)
+    }
+
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? {
+        guard let path = request.deliveryTermsDocumentPath,
+              let client = SupabaseBridge.client else { return nil }
+        return try await client.storage
+            .from("acquisition-request-documents")
+            .createSignedURL(path: path, expiresIn: 300)
     }
 
     func loadOffers() async throws -> [AcquisitionOfferSummary] {
@@ -865,18 +935,13 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
 
-        var evidence: [AcquisitionEvidenceItem] = []
-        let bucket = client.storage.from("acquisition-evidence")
-        for row in evidenceRows {
-            let data = try await bucket.download(path: row.object_path)
-            evidence.append(
-                AcquisitionEvidenceItem(
-                    id: row.id,
-                    kind: row.kind,
-                    objectPath: row.object_path,
-                    verified: row.verified,
-                    imageData: data
-                )
+        let evidence = evidenceRows.map {
+            AcquisitionEvidenceItem(
+                id: $0.id,
+                kind: $0.kind,
+                objectPath: $0.object_path,
+                verified: $0.verified,
+                imageData: nil
             )
         }
 
@@ -926,6 +991,23 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             delivery: delivery,
             supplierName: supplierRows.first?.name
         )
+    }
+
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] {
+        guard let client = SupabaseBridge.client else { return [:] }
+        let bucket = client.storage.from("acquisition-evidence")
+        return await withTaskGroup(of: (UUID, Data?).self, returning: [UUID: Data].self) { group in
+            for item in evidence where item.imageData == nil {
+                group.addTask {
+                    (item.id, try? await bucket.download(path: item.objectPath))
+                }
+            }
+            var result: [UUID: Data] = [:]
+            for await (id, data) in group {
+                if let data { result[id] = data }
+            }
+            return result
+        }
     }
 
     func submitOffer(
@@ -1023,7 +1105,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             // projection below performs the typed read using explicit date-only parsing.
             _ = try await client
                 .rpc(
-                    "submit_acquisition_offer",
+                    "submit_acquisition_offer_v2",
                     params: SubmitOfferParameters(
                         p_offer_id: submission.offerID,
                         p_request_id: submission.requestID,
@@ -1036,7 +1118,8 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                         p_color: submission.color,
                         p_price_mxn: submission.priceMxn,
                         p_transfer_included: submission.transferIncluded,
-                        p_committed_delivery_date: submission.committedDeliveryDate,
+                        p_delivery_terms_accepted: submission.deliveryTermsAccepted,
+                        p_validation_results: submission.validationResults,
                         p_evidence: references,
                         p_idempotency_key: submission.idempotencyKey
                     )
@@ -1129,7 +1212,9 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             try Self.validateTestResetObject(object, environmentID: plan.environment_id)
         }
 
-        let allowedBuckets: Set<String> = ["acquisition-evidence", "acquisition-chat-attachments"]
+        let allowedBuckets: Set<String> = [
+            "acquisition-evidence", "acquisition-chat-attachments", "acquisition-request-documents",
+        ]
         for bucketName in allowedBuckets {
             let paths = plan.storage_objects
                 .filter { $0.bucket == bucketName }
@@ -1221,11 +1306,19 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             uniquingKeysWith: { first, _ in first }
         )
         let bucket = client.storage.from("acquisition-evidence")
-        var thumbnailByOffer: [UUID: Data] = [:]
-        for offerID in Set(rows.compactMap(\.offer_id)) {
-            if let path = pathByOffer[offerID], let data = try? await bucket.download(path: path) {
-                thumbnailByOffer[offerID] = data
+        let thumbnailByOffer = await withTaskGroup(
+            of: (UUID, Data?).self,
+            returning: [UUID: Data].self
+        ) { group in
+            for offerID in Set(rows.compactMap(\.offer_id)) {
+                guard let path = pathByOffer[offerID] else { continue }
+                group.addTask { (offerID, try? await bucket.download(path: path)) }
             }
+            var result: [UUID: Data] = [:]
+            for await (offerID, data) in group {
+                if let data { result[offerID] = data }
+            }
+            return result
         }
 
         let summaries = rows.map { row in
@@ -1539,9 +1632,15 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             minimumYear: row.minimum_year,
             maximumYear: row.maximum_year,
             maximumMileage: row.maximum_mileage,
+            maximumUnitPriceMxn: Self.integer(from: row.maximum_unit_price_mxn),
             deliveryCity: row.delivery_city,
+            destinationStationName: row.destination_station_name,
             deadlineAt: row.deadline_at,
             targetDeliveryDate: Self.postgresDate(from: row.target_delivery_date),
+            fiscalPeriod: Self.postgresDate(from: row.fiscal_period) ?? Date(),
+            minimumSoh: Self.integer(from: row.minimum_soh),
+            sohDiagnosisMaximumAgeDays: row.soh_diagnosis_max_age_days,
+            deliveryTermsDocumentPath: row.delivery_terms_document_path,
             status: row.status,
             detailedRequirements: requirements
         )
@@ -1564,6 +1663,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             color: row.color,
             agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
             committedDeliveryDate: Self.postgresDate(from: row.committed_delivery_date),
+            fiscalPeriod: Self.postgresDate(from: row.request_fiscal_period),
             submittedAt: row.submitted_at
         )
     }

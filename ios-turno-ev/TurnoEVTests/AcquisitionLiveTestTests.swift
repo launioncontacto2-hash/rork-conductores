@@ -85,6 +85,10 @@ struct AcquisitionLiveTestTests {
         form.price = "274000"
         form.color = "Blanco"
         form.transferIncluded = true
+        form.batteryKnowledge = .diagnosed
+        form.soh = "95"
+        form.deliveryTermsAccepted = true
+        form.validationResults = .init(odometer: .manualReview, vin: .manualReview)
         form.confirmedRequirements = Set(AcquisitionOfferRequirement.allCases)
         form.evidence = Dictionary(
             uniqueKeysWithValues: request.requiredEvidenceKinds.map { ($0, jpeg) }
@@ -161,7 +165,11 @@ struct AcquisitionLiveTestTests {
         requestDraft.minimumYear = "2025"
         requestDraft.maximumYear = "2026"
         requestDraft.maximumMileage = "20000"
+        requestDraft.maximumUnitPrice = "500000"
         requestDraft.deliveryCity = "Puebla"
+        requestDraft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        requestDraft.deliveryTermsFilename = "condiciones-test.txt"
+        requestDraft.deliveryTermsMimeType = "text/plain"
         requestDraft.deadlineAt = AcquisitionRequestDraft.defaultDate(daysFromNow: 14)
         requestDraft.targetDeliveryDate = AcquisitionRequestDraft.defaultDate(daysFromNow: 30)
         let publishedRequest = try await repository.publishRequest(requestDraft)

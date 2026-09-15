@@ -131,6 +131,7 @@ final class AcquisitionViewModel {
             return
         }
         repeat {
+            let startedAt = ContinuousClock.now
             reloadRequested = false
             isLoading = true
             if membership == nil { state = .loading }
@@ -150,33 +151,21 @@ final class AcquisitionViewModel {
                 throw ViewModelError.roleMismatch
             }
 
-            let loadedRequests = try await repository.loadRequests()
-            let loadedOffers = try await repository.loadOffers()
-            let loadedActivities: [UUID: AcquisitionOfferActivity]
-            do {
-                loadedActivities = try await repository.loadOfferActivities()
-            } catch {
-                loadedActivities = [:]
-                print("[Adquisiciones] La actividad comercial no está disponible.")
-            }
-            let loadedUnreadActivityOfferIDs = (try? await repository.unreadNotificationOfferIDs()) ?? []
-            let loadedSuppliers = try await repository.loadSuppliers()
-            let loadedContacts: [AcquisitionInstitutionalContact]
-            do {
-                loadedContacts = try await repository.loadContacts()
-            } catch {
-                // El directorio institucional es información secundaria. Una
-                // indisponibilidad no debe ocultar solicitudes u operaciones.
-                loadedContacts = []
-                print("[Adquisiciones] El directorio de contactos no está disponible.")
-            }
-            let loadedChatThreads: [AcquisitionChatThreadSummary]
-            do {
-                loadedChatThreads = try await repository.loadChatThreads()
-            } catch {
-                loadedChatThreads = []
-                print("[Adquisiciones] Las conversaciones no están disponibles.")
-            }
+            async let requestsTask = repository.loadRequests()
+            async let offersTask = repository.loadOffers()
+            async let activitiesTask = repository.loadOfferActivities()
+            async let unreadTask = repository.unreadNotificationOfferIDs()
+            async let suppliersTask = repository.loadSuppliers()
+            async let contactsTask = repository.loadContacts()
+            async let chatTask = repository.loadChatThreads()
+
+            let loadedRequests = try await requestsTask
+            let loadedOffers = try await offersTask
+            let loadedSuppliers = try await suppliersTask
+            let loadedActivities = (try? await activitiesTask) ?? [:]
+            let loadedUnreadActivityOfferIDs = (try? await unreadTask) ?? []
+            let loadedContacts = (try? await contactsTask) ?? []
+            let loadedChatThreads = (try? await chatTask) ?? []
 
             membership = loadedMembership
             requests = loadedRequests
@@ -187,6 +176,8 @@ final class AcquisitionViewModel {
             contacts = loadedContacts
             chatThreads = loadedChatThreads
             state = loadedRequests.isEmpty ? .empty : .content
+            let duration = startedAt.duration(to: ContinuousClock.now)
+            print("[Adquisiciones][Rendimiento] inicio=\(duration)")
 
         } catch {
             membership = nil

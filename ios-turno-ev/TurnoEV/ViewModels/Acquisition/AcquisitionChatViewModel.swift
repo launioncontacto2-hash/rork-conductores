@@ -58,6 +58,7 @@ final class AcquisitionChatListViewModel {
             isLoading = true
             feedbackMessage = nil
             do {
+                let startedAt = ContinuousClock.now
                 if membership.role == .provider,
                    let supplierID = membership.supplierID {
                     _ = try await repository.ensureChatThread(
@@ -68,6 +69,7 @@ final class AcquisitionChatListViewModel {
                 threads = AcquisitionChatOrdering.newestFirst(
                     try await repository.loadChatThreads()
                 )
+                print("[Adquisiciones][Rendimiento] conversaciones=\(startedAt.duration(to: ContinuousClock.now))")
             } catch {
                 feedbackMessage = "No pudimos cargar las conversaciones."
             }
@@ -152,6 +154,7 @@ final class AcquisitionChatViewModel {
             isLoading = true
             feedbackMessage = nil
             do {
+                let startedAt = ContinuousClock.now
                 messages = try await repository.loadChatMessages(threadID: thread.id)
                 if let sequence = messages.last?.sequence,
                    sequence > lastMarkedReadSequence {
@@ -162,6 +165,7 @@ final class AcquisitionChatViewModel {
                     threadID: thread.id,
                     offerID: thread.offerID
                 ))
+                print("[Adquisiciones][Rendimiento] chat=\(startedAt.duration(to: ContinuousClock.now)) mensajes=\(messages.count)")
             } catch {
                 feedbackMessage = "No pudimos actualizar esta conversación."
             }

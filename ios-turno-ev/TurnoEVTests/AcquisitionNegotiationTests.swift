@@ -59,6 +59,12 @@ struct AcquisitionNegotiationModelTests {
         #expect(detail.commercialHistory.last?.actorRole == .doriAdmin)
     }
 
+    @Test func pendingCounterofferDoesNotReplaceTheCurrentPurchasablePrice() {
+        let detail = Self.detail(lastActor: .doriAdmin, status: "negotiating")
+        #expect(detail.pendingCounterofferMxn == 268_000)
+        #expect(detail.commercialPriceMxn == 274_000)
+    }
+
     fileprivate static let offerID = UUID(uuidString: "AD710000-0000-4000-8000-000000000001")!
     fileprivate static let requestID = UUID(uuidString: "AD710000-0000-4000-8000-000000000002")!
     fileprivate static let environmentID = UUID(uuidString: "AD710000-0000-4000-8000-000000000003")!

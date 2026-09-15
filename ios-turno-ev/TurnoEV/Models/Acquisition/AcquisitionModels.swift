@@ -105,6 +105,14 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     let deliveryCity: String
     let deadlineAt: Date?
     let targetDeliveryDate: Date?
+    /// Accounting period selected explicitly by DORI. It is never inferred from
+    /// the request creation timestamp.
+    let fiscalPeriod: Date
+    let maximumUnitPriceMxn: Int
+    let minimumSoh: Int
+    let sohDiagnosisMaximumAgeDays: Int
+    let destinationStationName: String
+    let deliveryTermsDocumentPath: String?
     /// Backend lifecycle value. It is retained so every request badge is
     /// rendered from persisted state instead of assuming that it is active.
     let status: String
@@ -126,6 +134,12 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         deliveryCity: String,
         deadlineAt: Date?,
         targetDeliveryDate: Date? = nil,
+        fiscalPeriod: Date = Date(),
+        maximumUnitPriceMxn: Int = 0,
+        minimumSoh: Int = 90,
+        sohDiagnosisMaximumAgeDays: Int = 30,
+        destinationStationName: String = "DORI Puebla",
+        deliveryTermsDocumentPath: String? = nil,
         status: String = "published",
         detailedRequirements: [AcquisitionRequestRequirement] = []
     ) {
@@ -141,6 +155,12 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         self.deliveryCity = deliveryCity
         self.deadlineAt = deadlineAt
         self.targetDeliveryDate = targetDeliveryDate
+        self.fiscalPeriod = fiscalPeriod
+        self.maximumUnitPriceMxn = maximumUnitPriceMxn
+        self.minimumSoh = minimumSoh
+        self.sohDiagnosisMaximumAgeDays = sohDiagnosisMaximumAgeDays
+        self.destinationStationName = destinationStationName
+        self.deliveryTermsDocumentPath = deliveryTermsDocumentPath
         self.status = status
         self.detailedRequirements = detailedRequirements
     }
@@ -158,6 +178,14 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = 0
         return formatter.string(from: NSNumber(value: maximumMileage)) ?? "\(maximumMileage)"
+    }
+
+    var fiscalPeriodText: String {
+        fiscalPeriod.formatted(.dateTime.month(.wide).year()).capitalized
+    }
+
+    var maximumUnitPriceText: String {
+        AcquisitionOfferSummary.currencyText(maximumUnitPriceMxn)
     }
 
     var visibleStatus: AcquisitionRequestStatusPresentation {
@@ -272,7 +300,17 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     var minimumYear = ""
     var maximumYear = ""
     var maximumMileage = ""
+    var maximumUnitPrice = ""
     var deliveryCity = "Puebla"
+    var destinationStationName = "DORI Puebla"
+    var fiscalPeriod = Calendar.current.date(
+        from: Calendar.current.dateComponents([.year, .month], from: Date())
+    ) ?? Date()
+    var minimumSoh = "90"
+    var sohDiagnosisMaximumAgeDays = "30"
+    var deliveryTermsDocument: Data?
+    var deliveryTermsFilename: String?
+    var deliveryTermsMimeType: String?
     var deadlineAt: Date? = Self.defaultDate(daysFromNow: 14)
     var targetDeliveryDate: Date? = Self.defaultDate(daysFromNow: 30)
     var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
@@ -313,8 +351,23 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         guard let mileage = Int(maximumMileage.replacingOccurrences(of: ",", with: "")), mileage >= 0 else {
             throw AcquisitionRequestDraftIssue.invalidMileage
         }
+        guard let maximumPrice = Int(maximumUnitPrice.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "")), maximumPrice > 0 else {
+            throw AcquisitionRequestDraftIssue.invalidMaximumPrice
+        }
+        guard let minimumSohValue = Int(minimumSoh), (0...100).contains(minimumSohValue) else {
+            throw AcquisitionRequestDraftIssue.invalidMinimumSoh
+        }
+        guard let diagnosisAge = Int(sohDiagnosisMaximumAgeDays), diagnosisAge > 0 else {
+            throw AcquisitionRequestDraftIssue.invalidDiagnosisAge
+        }
         let city = deliveryCity.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !city.isEmpty else { throw AcquisitionRequestDraftIssue.cityRequired }
+        let station = destinationStationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !station.isEmpty else { throw AcquisitionRequestDraftIssue.stationRequired }
+        guard let deliveryTermsDocument, !deliveryTermsDocument.isEmpty,
+              let deliveryTermsFilename, !deliveryTermsFilename.isEmpty else {
+            throw AcquisitionRequestDraftIssue.deliveryTermsRequired
+        }
         guard !requirements.isEmpty else { throw AcquisitionRequestDraftIssue.requirementsRequired }
         guard Set(requirements.map(\.id)).count == requirements.count else {
             throw AcquisitionRequestDraftIssue.duplicateRequirements
@@ -330,7 +383,17 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
             minimumYear: minimum,
             maximumYear: maximum,
             maximumMileage: mileage,
+            maximumUnitPriceMxn: maximumPrice,
             deliveryCity: city,
+            destinationStationName: station,
+            fiscalPeriod: Calendar.current.date(
+                from: Calendar.current.dateComponents([.year, .month], from: fiscalPeriod)
+            ) ?? fiscalPeriod,
+            minimumSoh: minimumSohValue,
+            sohDiagnosisMaximumAgeDays: diagnosisAge,
+            deliveryTermsDocument: deliveryTermsDocument,
+            deliveryTermsFilename: deliveryTermsFilename,
+            deliveryTermsMimeType: deliveryTermsMimeType ?? "application/pdf",
             deadlineAt: deadlineAt,
             targetDeliveryDate: targetDeliveryDate,
             requirements: requirements,
@@ -346,7 +409,15 @@ nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
     let minimumYear: Int
     let maximumYear: Int
     let maximumMileage: Int
+    let maximumUnitPriceMxn: Int
     let deliveryCity: String
+    let destinationStationName: String
+    let fiscalPeriod: Date
+    let minimumSoh: Int
+    let sohDiagnosisMaximumAgeDays: Int
+    let deliveryTermsDocument: Data
+    let deliveryTermsFilename: String
+    let deliveryTermsMimeType: String
     let deadlineAt: Date?
     let targetDeliveryDate: Date?
     let requirements: [AcquisitionRequestRequirement]
@@ -354,7 +425,8 @@ nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
 }
 
 nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
-    case modelRequired, invalidQuantity, invalidYears, invalidMileage, cityRequired, requirementsRequired
+    case modelRequired, invalidQuantity, invalidYears, invalidMileage, invalidMaximumPrice
+    case invalidMinimumSoh, invalidDiagnosisAge, cityRequired, stationRequired, deliveryTermsRequired, requirementsRequired
     case duplicateRequirements
     case deadlineRequired, targetDeliveryRequired
 
@@ -364,7 +436,12 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
         case .invalidQuantity: "Captura una cantidad válida."
         case .invalidYears: "Revisa los años permitidos."
         case .invalidMileage: "Captura un kilometraje válido."
+        case .invalidMaximumPrice: "Captura un precio máximo válido."
+        case .invalidMinimumSoh: "Captura un SOH mínimo entre 0 y 100 %."
+        case .invalidDiagnosisAge: "Captura una vigencia válida para el diagnóstico SOH."
         case .cityRequired: "Captura la ciudad de entrega."
+        case .stationRequired: "Captura la estación destino."
+        case .deliveryTermsRequired: "Adjunta las condiciones de entrega de esta solicitud."
         case .requirementsRequired: "Agrega al menos un requisito."
         case .duplicateRequirements: "Cada requisito debe ser único."
         case .deadlineRequired: "Selecciona la fecha límite para recibir ofertas."
@@ -420,6 +497,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     let color: String?
     let agreedPriceMxn: Int?
     let committedDeliveryDate: Date?
+    let fiscalPeriod: Date?
     let submittedAt: Date?
 
     init(
@@ -438,6 +516,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         color: String? = nil,
         agreedPriceMxn: Int? = nil,
         committedDeliveryDate: Date? = nil,
+        fiscalPeriod: Date? = nil,
         submittedAt: Date? = nil
     ) {
         self.id = id
@@ -455,6 +534,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         self.color = color
         self.agreedPriceMxn = agreedPriceMxn
         self.committedDeliveryDate = committedDeliveryDate
+        self.fiscalPeriod = fiscalPeriod
         self.submittedAt = submittedAt
     }
 
@@ -486,6 +566,10 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     var abbreviatedVin: String {
         guard vin.count >= 8 else { return vin }
         return "•••• \(vin.suffix(6))"
+    }
+
+    var fiscalPeriodText: String? {
+        fiscalPeriod?.formatted(.dateTime.month(.wide).year()).capitalized
     }
 
     static func currencyText(_ amount: Int) -> String {

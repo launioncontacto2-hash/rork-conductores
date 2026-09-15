@@ -36,9 +36,6 @@ final class AcquisitionOfferFormViewModel {
         self.onSubmitted = onSubmitted
         self.pendingOfferID = attemptID
         self.pendingIdempotencyKey = "ios-acquisition-offer-\(attemptID.uuidString.lowercased())"
-        if let targetDate = request.targetDeliveryDate {
-            self.form.committedDeliveryDate = targetDate
-        }
     }
 
     var isSubmitting: Bool {
@@ -57,9 +54,35 @@ final class AcquisitionOfferFormViewModel {
 
     private var failureMessage: String?
 
+    func deliveryTermsURL() async throws -> URL? {
+        try await repository.requestDocumentURL(for: request)
+    }
+
     func capture(_ data: Data, for kind: AcquisitionEvidenceKind) {
-        form.evidence[kind] = data
+        let normalized = AcquisitionEvidenceValidator.normalizedJPEG(data)
+        form.evidence[kind] = normalized
+        if kind == .odometer || kind == .originInvoice {
+            Task { await validate(kind: kind, data: normalized) }
+        }
         if case .needsData = state { state = .editing }
+    }
+
+    private func validate(kind: AcquisitionEvidenceKind, data: Data) async {
+        switch kind {
+        case .odometer:
+            let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
+            form.validationResults.odometer = await AcquisitionEvidenceValidator.validateOdometer(
+                data,
+                expectedMileage: mileage
+            )
+        case .originInvoice:
+            form.validationResults.vin = await AcquisitionEvidenceValidator.validateVIN(
+                data,
+                expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            )
+        default:
+            break
+        }
     }
 
     func toggleRequirement(_ requirement: AcquisitionOfferRequirement) {
@@ -73,6 +96,8 @@ final class AcquisitionOfferFormViewModel {
 
     func submit() async {
         guard !isSubmitting else { return }
+
+        await refreshAutomaticValidations()
 
         let submission: AcquisitionOfferSubmission
         do {
@@ -115,6 +140,22 @@ final class AcquisitionOfferFormViewModel {
             failureMessage = "Intenta nuevamente. Tus datos siguen en el formulario."
             state = .failed
             print("[Adquisiciones][TEST] envío fallido etapa=desconocida tipo=\(String(describing: type(of: error)))")
+        }
+    }
+
+    private func refreshAutomaticValidations() async {
+        let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
+        if let data = form.evidence[.odometer] {
+            form.validationResults.odometer = await AcquisitionEvidenceValidator.validateOdometer(
+                data,
+                expectedMileage: mileage
+            )
+        }
+        if let data = form.evidence[.originInvoice] {
+            form.validationResults.vin = await AcquisitionEvidenceValidator.validateVIN(
+                data,
+                expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            )
         }
     }
 

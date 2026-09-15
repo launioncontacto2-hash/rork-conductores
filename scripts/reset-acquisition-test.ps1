@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 
 $expectedURL = 'https://yyxzuiantrmoyozetswv.supabase.co'
 $expectedEnvironmentID = '9f8d4a52-0f0e-4a3f-9a1e-2c6f5b8d7e10'
-$allowedBuckets = @('acquisition-evidence', 'acquisition-chat-attachments')
+$allowedBuckets = @('acquisition-evidence', 'acquisition-chat-attachments', 'acquisition-request-documents')
 
 function Read-LocalValue {
     param([string[]]$Lines, [string]$Prefix)

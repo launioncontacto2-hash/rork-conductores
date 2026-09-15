@@ -25,6 +25,7 @@ final class AcquisitionOfferDetailViewModel {
     private var reloadRequested = false
     private var isObserving = false
     private var isLoading = false
+    private var mediaLoadTask: Task<Void, Never>?
 
     init(
         offerID: UUID,
@@ -54,6 +55,7 @@ final class AcquisitionOfferDetailViewModel {
     func stopObserving() {
         isObserving = false
         realtime.stop()
+        mediaLoadTask?.cancel()
     }
 
     func sendCounteroffer(amountText: String) async {
@@ -240,18 +242,47 @@ final class AcquisitionOfferDetailViewModel {
             isLoading = true
             if detail == nil { state = .loading }
             do {
+                let metadataStartedAt = ContinuousClock.now
                 detail = try await repository.loadOfferDetail(
                     offerID: offerID,
                     membership: membership
                 )
                 state = .content
-            await AcquisitionPushCoordinator.shared.markRead(.offer(offerID))
+                print("[Adquisiciones][Rendimiento] unidad_datos=\(metadataStartedAt.duration(to: ContinuousClock.now))")
+                await AcquisitionPushCoordinator.shared.markRead(.offer(offerID))
+                loadMediaProgressively()
             } catch {
                 if detail == nil { state = .failed }
                 feedbackMessage = "No pudimos actualizar esta propuesta."
             }
             isLoading = false
         } while reloadRequested
+    }
+
+    private func loadMediaProgressively() {
+        guard let snapshot = detail, snapshot.evidence.contains(where: { $0.imageData == nil }) else { return }
+        mediaLoadTask?.cancel()
+        mediaLoadTask = Task { [weak self] in
+            guard let self else { return }
+            let mediaStartedAt = ContinuousClock.now
+            let dataByID = await repository.loadOfferEvidenceData(snapshot.evidence)
+            guard !Task.isCancelled, let current = detail, current.offer.id == snapshot.offer.id else { return }
+            let evidence = current.evidence.map { item in
+                var updated = item
+                if let data = dataByID[item.id] { updated.imageData = data }
+                return updated
+            }
+            detail = AcquisitionOfferDetail(
+                offer: current.offer,
+                assessment: current.assessment,
+                negotiations: current.negotiations,
+                evidence: evidence,
+                requirements: current.requirements,
+                delivery: current.delivery,
+                supplierName: current.supplierName
+            )
+            print("[Adquisiciones][Rendimiento] unidad_galeria=\(mediaStartedAt.duration(to: ContinuousClock.now)) archivos=\(dataByID.count)")
+        }
     }
 
     nonisolated static func amount(from text: String) -> Int? {

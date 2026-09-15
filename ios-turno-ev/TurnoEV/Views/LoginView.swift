@@ -1038,8 +1038,8 @@ private struct RoleHandoffOverlay: View {
     }
 }
 
-/// Premium TEST access backdrop. It reuses the vehicle artwork already licensed for
-/// this target and never changes the authentication or role-resolution path.
+/// Premium TEST access backdrop using the exact user-supplied login clip. The
+/// bundled asset contains video only; playback is additionally muted defensively.
 private struct AcquisitionLoginBackground: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1049,7 +1049,7 @@ private struct AcquisitionLoginBackground: View {
                 AcquisitionTheme.canvas
 
                 LoopingVideoView(
-                    resourceName: "electric_car_charging_night",
+                    resourceName: "dori_login",
                     isPlaying: !reduceMotion
                 )
                     .frame(width: proxy.size.width, height: proxy.size.height)

@@ -167,7 +167,7 @@ struct AcquisitionRootView: View {
         switch selectedDestination {
         case .home: "Inicio"
         case .requests: "Solicitudes"
-        case .vehicles: membership.role == .doriAdmin ? "Operaciones" : "Mis vehículos"
+        case .vehicles: "Compras"
         case .contact: "Conversaciones"
         case .account: "Cuenta"
         }
@@ -297,7 +297,6 @@ struct AcquisitionRootView: View {
 
             homeStats(offers: inProgress, role: .doriAdmin)
 
-            compactRequestsSummary(summary: summary, role: .doriAdmin)
         }
     }
 
@@ -317,7 +316,6 @@ struct AcquisitionRootView: View {
 
             homeStats(offers: inProgress, role: .provider)
 
-            compactRequestsSummary(summary: summary, role: .provider)
         }
     }
 
@@ -444,12 +442,13 @@ struct AcquisitionRootView: View {
             ForEach(model.requests) { request in
                 let summary = AcquisitionRequestSummary(request: request, offers: model.uniqueOffers)
                 if membership.role == .provider {
-                    AcquisitionRequestCard(
-                        request: request,
-                        progressText: "\(summary.missingCount)",
-                        audience: membership.role
-                    )
-                    HStack(spacing: 10) {
+                    VStack(spacing: 10) {
+                        ZStack(alignment: .bottomTrailing) {
+                            AcquisitionRequestCard(
+                                request: request,
+                                progressText: "\(summary.missingCount)",
+                                audience: membership.role
+                            )
                         NavigationLink {
                             AcquisitionRequestDetailView(
                                 summary: summary,
@@ -459,10 +458,14 @@ struct AcquisitionRootView: View {
                             )
                         } label: {
                             Label("Ver requisitos", systemImage: "list.bullet.rectangle")
-                                .frame(maxWidth: .infinity)
+                                .font(.acquisition(.caption, weight: .semibold))
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 7)
                         }
                         .buttonStyle(.bordered)
                         .tint(AcquisitionTheme.accent)
+                        .padding(10)
+                        }
 
                         NavigationLink {
                             AcquisitionOfferFormView(
@@ -523,17 +526,25 @@ struct AcquisitionRootView: View {
     private func vehicles(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 24) {
             offerSection(
-                title: membership.role == .doriAdmin ? "Operaciones activas" : "Unidades activas",
-                offers: groupedOffers(.attention, role: membership.role)
-                    + groupedOffers(.inProgress, role: membership.role),
+                title: "Propuestas",
+                offers: model.uniqueOffers.filter { $0.status == "submitted" },
                 membership: membership,
-                emptyText: "No hay vehículos activos."
+                emptyText: "No hay propuestas nuevas."
             )
             offerSection(
-                title: "Terminadas",
-                offers: groupedOffers(.finished, role: membership.role),
+                title: "Contraofertas",
+                offers: model.uniqueOffers.filter { ["negotiating", "price_agreed"].contains($0.status) },
                 membership: membership,
-                emptyText: "Aún no hay operaciones terminadas."
+                emptyText: "No hay negociaciones activas."
+            )
+            offerSection(
+                title: "Compras",
+                offers: model.uniqueOffers.filter {
+                    ["awarded", "ready_for_delivery", "received", "accepted",
+                     "accepted_with_observations", "accepted_with_condition", "closed"].contains($0.status)
+                },
+                membership: membership,
+                emptyText: "Aún no hay compras confirmadas."
             )
         }
     }
@@ -857,6 +868,8 @@ private struct AcquisitionRequestDetailView: View {
     let membership: AcquisitionMembership
     let repository: any AcquisitionRepository
     let onSubmitted: (AcquisitionOfferSummary) -> Void
+    @State private var termsURL: URL?
+    @State private var showsTerms = false
 
     var body: some View {
         ZStack {
@@ -885,6 +898,24 @@ private struct AcquisitionRequestDetailView: View {
                     } else {
                         AcquisitionAdminRequestCard(summary: summary)
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Periodo: \(summary.request.fiscalPeriodText)")
+                        Text("Precio máximo por unidad: \(summary.request.maximumUnitPriceText)")
+                        Text("Fecha límite de entrega: \(summary.request.targetDeliveryDate?.formatted(date: .abbreviated, time: .omitted) ?? "Pendiente")")
+                        Text("Estación destino: \(summary.request.destinationStationName)")
+                        Button("Ver condiciones de entrega") {
+                            Task {
+                                termsURL = try? await repository.requestDocumentURL(for: summary.request)
+                                showsTerms = true
+                            }
+                        }
+                        .font(.acquisition(.subheadline, weight: .bold))
+                    }
+                    .font(.acquisition(.subheadline))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
+                    .padding(16)
+                    .acquisitionGlass()
 
                     AcquisitionOperationalSectionHeader(
                         title: "Requisitos de la unidad",
@@ -928,6 +959,25 @@ private struct AcquisitionRequestDetailView: View {
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showsTerms) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let termsURL {
+                        Link("Abrir documento", destination: termsURL)
+                            .buttonStyle(.borderedProminent)
+                        ShareLink(item: termsURL) { Label("Compartir o descargar", systemImage: "square.and.arrow.up") }
+                    } else {
+                        Text("Información de condiciones pendiente.")
+                            .foregroundStyle(AcquisitionTheme.attention)
+                    }
+                    Spacer()
+                }
+                .padding(20)
+                .navigationTitle("Condiciones de entrega")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     private func requestStatusColor(_ tone: AcquisitionRequestStatusTone) -> Color {

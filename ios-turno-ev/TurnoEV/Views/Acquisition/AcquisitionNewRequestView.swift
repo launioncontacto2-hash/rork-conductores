@@ -1,5 +1,6 @@
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 @Observable
@@ -84,6 +85,7 @@ final class AcquisitionNewRequestViewModel {
 struct AcquisitionNewRequestView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AcquisitionNewRequestViewModel
+    @State private var isImportingTerms = false
 
     init(repository: any AcquisitionRepository, onPublished: @escaping (AcquisitionRequest) -> Void) {
         _model = State(initialValue: AcquisitionNewRequestViewModel(repository: repository, onPublished: onPublished))
@@ -152,6 +154,23 @@ struct AcquisitionNewRequestView: View {
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
+        .fileImporter(
+            isPresented: $isImportingTerms,
+            allowedContentTypes: [.pdf, .plainText, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result, let url = urls.first else { return }
+            let granted = url.startAccessingSecurityScopedResource()
+            defer { if granted { url.stopAccessingSecurityScopedResource() } }
+            do {
+                model.draft.deliveryTermsDocument = try Data(contentsOf: url)
+                model.draft.deliveryTermsFilename = url.lastPathComponent
+                model.draft.deliveryTermsMimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+                model.feedback = nil
+            } catch {
+                model.feedback = "No pudimos leer el documento seleccionado."
+            }
+        }
         .alert("Solicitud publicada", isPresented: Binding(
             get: { model.published != nil }, set: { _ in }
         )) {
@@ -167,6 +186,13 @@ struct AcquisitionNewRequestView: View {
             requestField("Modelo", text: draft.model)
             requestField("Versiones (separadas por coma)", text: draft.versions)
             requestField("Cantidad", text: draft.targetQuantity, keyboard: .numberPad)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Periodo fiscal")
+                    .font(.acquisition(.caption, weight: .bold))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
+                MonthYearWheel(selection: draft.fiscalPeriod)
+                    .frame(height: 116)
+            }
         }
         .padding(18).acquisitionGlass()
     }
@@ -179,7 +205,13 @@ struct AcquisitionNewRequestView: View {
                 requestField("Año máximo", text: draft.maximumYear, keyboard: .numberPad)
             }
             requestField("Kilometraje máximo", text: draft.maximumMileage, keyboard: .numberPad)
+            requestField("Precio máximo por unidad", text: draft.maximumUnitPrice, keyboard: .numberPad)
+            HStack {
+                requestField("SOH mínimo (%)", text: draft.minimumSoh, keyboard: .numberPad)
+                requestField("Vigencia diagnóstico (días)", text: draft.sohDiagnosisMaximumAgeDays, keyboard: .numberPad)
+            }
             requestField("Ciudad de entrega", text: draft.deliveryCity)
+            requestField("Estación destino", text: draft.destinationStationName)
             if draft.deadlineAt.wrappedValue != nil {
                 AcquisitionAutoDismissDateRow(
                     title: "Fecha límite para recibir ofertas",
@@ -193,7 +225,7 @@ struct AcquisitionNewRequestView: View {
             }
             if draft.targetDeliveryDate.wrappedValue != nil {
                 AcquisitionAutoDismissDateRow(
-                    title: "Fecha objetivo de entrega",
+                    title: "Fecha límite de entrega",
                     selection: nonOptionalDate(draft.targetDeliveryDate),
                     displayedComponents: .date
                 )
@@ -214,7 +246,7 @@ struct AcquisitionNewRequestView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Requisitos de esta solicitud").font(.acquisition(.headline))
-            Text("Incluye las 14 evidencias aprobadas. Puedes agregar condiciones o documentos propios de esta solicitud.")
+            Text("Incluye las evidencias aprobadas. Puedes agregar condiciones o documentos propios de esta solicitud.")
                 .font(.acquisition(.subheadline)).foregroundStyle(AcquisitionTheme.textSecondary)
             ForEach(model.draft.requirements) { requirement in
                 HStack(alignment: .top) {
@@ -248,6 +280,23 @@ struct AcquisitionNewRequestView: View {
             Toggle("Requiere verificación DORI", isOn: customRequiresVerification)
             Button("Agregar requisito") { model.addRequirement() }
                 .buttonStyle(.bordered).tint(AcquisitionTheme.accent)
+            Divider()
+            Text("Condiciones de entrega de unidades")
+                .font(.acquisition(.headline))
+            Text("Este documento pertenece únicamente a esta solicitud.")
+                .font(.acquisition(.caption))
+                .foregroundStyle(AcquisitionTheme.textSecondary)
+            Button {
+                isImportingTerms = true
+            } label: {
+                Label(
+                    model.draft.deliveryTermsFilename ?? "Cargar documento",
+                    systemImage: model.draft.deliveryTermsDocument == nil ? "doc.badge.plus" : "checkmark.circle.fill"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+            .tint(AcquisitionTheme.accent)
         }
         .padding(18).acquisitionGlass()
     }
@@ -259,9 +308,13 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Cantidad", model.draft.targetQuantity)
             reviewLine("Años", "\(model.draft.minimumYear)–\(model.draft.maximumYear)")
             reviewLine("Kilometraje", "\(model.draft.maximumMileage) km")
+            reviewLine("Precio máximo", model.draft.maximumUnitPrice)
+            reviewLine("Periodo", model.draft.fiscalPeriod.formatted(.dateTime.month(.wide).year()).capitalized)
             reviewLine("Requisitos", "\(model.draft.requirements.count)")
             reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
-            reviewLine("Entrega objetivo", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
+            reviewLine("Fecha límite de entrega", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
+            reviewLine("Estación destino", model.draft.destinationStationName)
+            reviewLine("Condiciones", model.draft.deliveryTermsFilename ?? "Pendiente")
             Text("La publicación será autoritativa y compartida con los proveedores del entorno TEST.")
                 .font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
         }
@@ -296,6 +349,43 @@ struct AcquisitionNewRequestView: View {
 
     private static func dateText(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .omitted)
+    }
+}
+
+private struct MonthYearWheel: View {
+    @Binding var selection: Date
+
+    private var month: Binding<Int> {
+        Binding(
+            get: { Calendar.current.component(.month, from: selection) },
+            set: { update(month: $0, year: Calendar.current.component(.year, from: selection)) }
+        )
+    }
+
+    private var year: Binding<Int> {
+        Binding(
+            get: { Calendar.current.component(.year, from: selection) },
+            set: { update(month: Calendar.current.component(.month, from: selection), year: $0) }
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Picker("Mes", selection: month) {
+                ForEach(1...12, id: \.self) { value in
+                    Text(Calendar.current.monthSymbols[value - 1].capitalized).tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            Picker("Año", selection: year) {
+                ForEach(2024...2035, id: \.self) { Text(String($0)).tag($0) }
+            }
+            .pickerStyle(.wheel)
+        }
+    }
+
+    private func update(month: Int, year: Int) {
+        selection = Calendar.current.date(from: DateComponents(year: year, month: month, day: 1)) ?? selection
     }
 }
 

@@ -100,9 +100,15 @@ struct AcquisitionRoleAndPresentationTests {
             minimum_year: 2024,
             maximum_year: 2026,
             maximum_mileage: 30_000,
+            maximum_unit_price_mxn: 290_000,
             delivery_city: "Puebla",
+            destination_station_name: "DORI Puebla",
             deadline_at: nil,
             target_delivery_date: "2026-10-15",
+            fiscal_period: "2026-09-01",
+            minimum_soh: 90,
+            soh_diagnosis_max_age_days: 30,
+            delivery_terms_document_path: "env/admin/document/terms.pdf",
             status: "published"
         )
         let request = SupabaseAcquisitionRepository.request(from: row)
@@ -230,13 +236,17 @@ struct AcquisitionRoleAndPresentationTests {
         draft.minimumYear = "2025"
         draft.maximumYear = "2026"
         draft.maximumMileage = "15,000"
+        draft.maximumUnitPrice = "500000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
+        draft.deliveryTermsMimeType = "text/plain"
 
         let publication = try draft.makePublication(idempotencyKey: "request-test")
 
         #expect(publication.model == "BYD King")
         #expect(publication.versions == ["GL", "GS"])
         #expect(publication.maximumMileage == 15_000)
-        #expect(publication.requirements.filter { $0.category == .evidence }.count == 14)
+        #expect(publication.requirements.filter { $0.category == .evidence }.count == 17)
         #expect(Set(publication.requirements.map(\.id)).count == publication.requirements.count)
         #expect(publication.deadlineAt != nil)
         #expect(publication.targetDeliveryDate != nil)
@@ -249,6 +259,9 @@ struct AcquisitionRoleAndPresentationTests {
         draft.minimumYear = "2025"
         draft.maximumYear = "2026"
         draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "500000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
         draft.requirements.append(draft.requirements[0])
 
         #expect(throws: AcquisitionRequestDraftIssue.duplicateRequirements) {
@@ -280,7 +293,13 @@ struct AcquisitionRoleAndPresentationTests {
             p_minimum_year: 2025,
             p_maximum_year: 2026,
             p_maximum_mileage: 20_000,
+            p_maximum_unit_price_mxn: 290_000,
             p_delivery_city: "Puebla",
+            p_destination_station_name: "DORI Puebla",
+            p_fiscal_period: "2026-09-01",
+            p_minimum_soh: 90,
+            p_soh_diagnosis_max_age_days: 30,
+            p_delivery_terms_document_path: "env/admin/document/terms.pdf",
             p_deadline_at: target.addingTimeInterval(-86_400),
             p_target_delivery_date: SupabaseAcquisitionRepository.postgresDateString(from: target),
             p_requirements: [],
@@ -304,7 +323,7 @@ struct AcquisitionRoleAndPresentationTests {
     }
 
     @Test func detailedEvidenceUsesTheApprovedDriverSidePrimaryKind() {
-        #expect(AcquisitionEvidenceKind.detailedStandard.count == 14)
+        #expect(AcquisitionEvidenceKind.detailedStandard.count == 17)
         #expect(AcquisitionEvidenceKind.detailedStandard.contains(.exteriorDriverSide))
         #expect(AcquisitionEvidenceKind.detailedStandard.contains(.originInvoice))
     }

@@ -105,7 +105,12 @@ nonisolated struct AcquisitionOfferDetail: Equatable, Sendable {
     }
 
     var commercialPriceMxn: Int {
-        offer.agreedPriceMxn ?? lastCounteroffer?.amountMxn ?? offer.priceMxn
+        offer.agreedPriceMxn ?? offer.priceMxn
+    }
+
+    var pendingCounterofferMxn: Int? {
+        guard offer.status == "negotiating" else { return nil }
+        return lastCounteroffer?.amountMxn
     }
 
     /// Shared commercial history only. The initial price comes from the

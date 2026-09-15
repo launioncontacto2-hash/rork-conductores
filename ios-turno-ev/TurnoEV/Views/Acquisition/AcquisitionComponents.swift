@@ -139,7 +139,7 @@ nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable,
         switch self {
         case .home: "Inicio"
         case .requests: "Solicitudes"
-        case .vehicles: role == .doriAdmin ? "Operaciones" : "Vehículos"
+        case .vehicles: "Compras"
         case .contact: "Contacto"
         case .account: "Cuenta"
         }
@@ -429,8 +429,8 @@ struct AcquisitionRequestCard: View {
                         .font(.acquisitionFixed(13.5, weight: .semibold))
                         .foregroundStyle(AcquisitionTheme.text)
                     Text(audience == .doriAdmin
-                         ? "\(request.yearRange) · \(request.deliveryCity)"
-                         : "\(request.modelAndVersions) · \(request.yearRange)")
+                         ? "Periodo: \(request.fiscalPeriodText) · \(request.yearRange)"
+                         : "\(request.modelAndVersions) · Periodo: \(request.fiscalPeriodText)")
                         .font(.acquisitionFixed(10.5, weight: .regular))
                         .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
@@ -448,6 +448,9 @@ struct AcquisitionRequestCard: View {
                     value: progressText ?? "—"
                 )
             }
+            Text("\(request.maximumUnitPriceText) · \(request.destinationStationName)")
+                .font(.acquisitionFixed(10.5, weight: .regular))
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(15)
@@ -687,6 +690,11 @@ struct AcquisitionDashboardVehicleCard: View {
                         .font(.acquisition(.headline, weight: .bold))
                         .foregroundStyle(AcquisitionTheme.text)
                         .lineLimit(2)
+                    if let fiscalPeriod = offer.fiscalPeriodText {
+                        Text("Periodo: \(fiscalPeriod)")
+                            .font(.acquisition(.caption2, weight: .semibold))
+                            .foregroundStyle(AcquisitionTheme.accent)
+                    }
                     if group == .attention {
                         Text("\(offer.mileageText) km · \(offer.agreedPriceText ?? offer.priceText)")
                             .font(.acquisition(.subheadline))
