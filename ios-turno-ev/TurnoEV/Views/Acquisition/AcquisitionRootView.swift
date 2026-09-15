@@ -250,153 +250,57 @@ struct AcquisitionRootView: View {
 
     @ViewBuilder
     private func home(membership: AcquisitionMembership) -> some View {
-        if let summary = model.activeSummary {
-            switch membership.role {
-            case .doriAdmin:
-                administratorHome(summary: summary, membership: membership)
-            case .provider:
-                providerHome(summary: summary, membership: membership)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(membership.role == .doriAdmin
-                     ? "No hay solicitudes activas."
-                     : "No hay solicitudes disponibles por ahora.")
-                    .font(.acquisitionFixed(12, weight: .medium))
-                    .foregroundStyle(AcquisitionTheme.textSecondary)
-                if membership.role == .doriAdmin {
-                    Button("Crear nueva solicitud") { selectedDestination = .requests }
-                        .font(.acquisitionFixed(11, weight: .semibold))
-                        .foregroundStyle(AcquisitionTheme.canvas)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 11)
-                        .background(AcquisitionTheme.accent, in: Capsule())
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(15)
-            .acquisitionGlass(cornerRadius: AcquisitionTheme.radiusPanel)
+        switch membership.role {
+        case .doriAdmin:
+            administratorHome(membership: membership)
+        case .provider:
+            providerHome(membership: membership)
         }
     }
 
     private func administratorHome(
-        summary: AcquisitionRequestSummary,
         membership: AcquisitionMembership
     ) -> some View {
-        let attention = groupedOffers(.attention, role: .doriAdmin)
-        let inProgress = groupedOffers(.inProgress, role: .doriAdmin)
+        let proposals = offers(in: .proposal)
+        let negotiations = offers(in: .negotiation)
         return VStack(alignment: .leading, spacing: 24) {
             administratorOfferSection(
-                title: "Necesita tu atención",
+                title: "Propuestas de proveedores",
                 symbol: "exclamationmark.triangle.fill",
                 tint: AcquisitionTheme.attention,
-                offers: attention,
+                offers: proposals,
                 membership: membership,
-                emptyText: "No tienes decisiones pendientes."
+                emptyText: "No hay propuestas nuevas."
             )
-
-            homeStats(offers: inProgress, role: .doriAdmin)
-
+            administratorOfferSection(
+                title: "Contraofertas",
+                symbol: "arrow.left.arrow.right.circle.fill",
+                tint: AcquisitionTheme.info,
+                offers: negotiations,
+                membership: membership,
+                emptyText: "No hay negociaciones activas."
+            )
         }
     }
 
     private func providerHome(
-        summary: AcquisitionRequestSummary,
         membership: AcquisitionMembership
     ) -> some View {
-        let attention = groupedOffers(.attention, role: .provider)
-        let inProgress = groupedOffers(.inProgress, role: .provider)
+        let proposals = offers(in: .proposal)
+        let negotiations = offers(in: .negotiation)
         return VStack(alignment: .leading, spacing: 24) {
             offerSection(
-                title: "Necesita tu atención",
-                offers: attention,
+                title: "Propuestas enviadas",
+                offers: proposals,
                 membership: membership,
-                emptyText: "No tienes acciones pendientes."
+                emptyText: "No has enviado propuestas."
             )
-
-            homeStats(offers: inProgress, role: .provider)
-
-        }
-    }
-
-    private func homeStats(offers: [AcquisitionOfferSummary], role: AcquisitionRole) -> some View {
-        let groups: [(String, (AcquisitionOfferSummary) -> Bool)] = role == .doriAdmin
-            ? [
-                ("Compras\nconfirmadas", { ["awarded", "accepted"].contains($0.status) }),
-                ("Preparando\nunidad", { $0.status == "awarded" }),
-                ("Listas para\nentrega", { $0.status == "ready_for_delivery" }),
-                ("En\nrevisión", { ["received", "accepted_with_observations"].contains($0.status) }),
-                ("Condiciones\npendientes", { $0.status == "accepted_with_condition" }),
-            ]
-            : [
-                ("Ofertas en\nnegociación", { ["submitted", "dori_countered", "provider_countered"].contains($0.status) }),
-                ("Preparando\nunidad", { $0.status == "awarded" }),
-                ("En\nrevisión", { ["ready_for_delivery", "received", "accepted_with_condition"].contains($0.status) }),
-            ]
-
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("En proceso")
-                .font(.acquisitionFixed(10, weight: .semibold))
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(AcquisitionTheme.textTertiary)
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(Array(groups.enumerated()), id: \.offset) { _, item in
-                        AcquisitionStatChip(count: offers.filter(item.1).count, label: item.0)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-        }
-    }
-
-    private func compactRequestsSummary(
-        summary: AcquisitionRequestSummary,
-        role: AcquisitionRole
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Solicitudes activas")
-                .font(.acquisitionFixed(10, weight: .semibold))
-                .tracking(0.8)
-                .textCase(.uppercase)
-                .foregroundStyle(AcquisitionTheme.textTertiary)
-            VStack(spacing: 9) {
-                HStack {
-                    Text(summary.request.modelAndVersions)
-                        .font(.acquisitionFixed(12, weight: .semibold))
-                    Spacer()
-                    Text(role == .doriAdmin
-                         ? "\(summary.securedCount)/\(summary.request.targetQuantity)"
-                         : "Faltan \(summary.missingCount)")
-                        .font(.acquisitionFixed(10.5, weight: .medium))
-                        .foregroundStyle(AcquisitionTheme.textSecondary)
-                }
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Rectangle().fill(AcquisitionTheme.subtleBorder).frame(height: 2)
-                        Rectangle().fill(AcquisitionTheme.accent)
-                            .frame(
-                                width: proxy.size.width * min(
-                                    Double(summary.securedCount) / Double(max(summary.request.targetQuantity, 1)),
-                                    1
-                                ),
-                                height: 2
-                            )
-                    }
-                }
-                .frame(height: 2)
-            }
-            .padding(13)
-            .acquisitionGlass(cornerRadius: 16)
-            Button("Ver solicitudes") {
-                selectedDestination = .requests
-            }
-            .font(.acquisitionFixed(11.5, weight: .semibold))
-            .foregroundStyle(AcquisitionTheme.text)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .acquisitionGlass(cornerRadius: 24)
+            offerSection(
+                title: "Contraofertas",
+                offers: negotiations,
+                membership: membership,
+                emptyText: "No hay negociaciones activas."
+            )
         }
     }
 
@@ -524,28 +428,23 @@ struct AcquisitionRootView: View {
     }
 
     private func vehicles(membership: AcquisitionMembership) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            offerSection(
-                title: "Propuestas",
-                offers: model.uniqueOffers.filter { $0.status == "submitted" },
-                membership: membership,
-                emptyText: "No hay propuestas nuevas."
-            )
-            offerSection(
-                title: "Contraofertas",
-                offers: model.uniqueOffers.filter { ["negotiating", "price_agreed"].contains($0.status) },
-                membership: membership,
-                emptyText: "No hay negociaciones activas."
-            )
-            offerSection(
-                title: "Compras",
-                offers: model.uniqueOffers.filter {
-                    ["awarded", "ready_for_delivery", "received", "accepted",
-                     "accepted_with_observations", "accepted_with_condition", "closed"].contains($0.status)
-                },
-                membership: membership,
-                emptyText: "Aún no hay compras confirmadas."
-            )
+        let purchases = offers(in: .purchase)
+        return Group {
+            if purchases.isEmpty {
+                Text("Aún no hay compras confirmadas.")
+                    .font(.acquisition(.subheadline))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(18)
+                    .acquisitionGlass()
+            } else {
+                offerSection(
+                    title: "Compras confirmadas",
+                    offers: purchases,
+                    membership: membership,
+                    emptyText: "Aún no hay compras confirmadas."
+                )
+            }
         }
     }
 
@@ -749,11 +648,17 @@ struct AcquisitionRootView: View {
 
     private func dockBadges(for role: AcquisitionRole) -> [AcquisitionDockDestination: Int] {
         let attention = groupedOffers(.attention, role: role).count
-        let vehicleActivity = model.unreadActivityOfferIDs.count
+        let commercialActivity = model.unreadActivityOfferIDs.filter { offerID in
+            model.uniqueOffers.first(where: { $0.id == offerID })
+                .map { AcquisitionCommercialLane.resolve(status: $0.status) != .purchase } ?? false
+        }.count
+        let purchaseActivity = model.unreadActivityOfferIDs.filter { offerID in
+            model.uniqueOffers.first(where: { $0.id == offerID })
+                .map { AcquisitionCommercialLane.resolve(status: $0.status) == .purchase } ?? false
+        }.count
         var badges: [AcquisitionDockDestination: Int] = [:]
-        if max(attention, vehicleActivity) > 0 {
-            badges[.vehicles] = max(attention, vehicleActivity)
-        }
+        if max(attention, commercialActivity) > 0 { badges[.home] = max(attention, commercialActivity) }
+        if purchaseActivity > 0 { badges[.vehicles] = purchaseActivity }
         if model.unreadChatCount > 0 { badges[.contact] = model.unreadChatCount }
         return badges
     }
@@ -795,6 +700,15 @@ struct AcquisitionRootView: View {
             let rightDate = model.activity(for: right)?.createdAt ?? right.submittedAt ?? .distantPast
             return leftDate > rightDate
         }
+    }
+
+    private func offers(in lane: AcquisitionCommercialLane) -> [AcquisitionOfferSummary] {
+        model.uniqueOffers.filter { AcquisitionCommercialLane.resolve(status: $0.status) == lane }
+            .sorted { left, right in
+                let leftDate = model.activity(for: left)?.createdAt ?? left.submittedAt ?? .distantPast
+                let rightDate = model.activity(for: right)?.createdAt ?? right.submittedAt ?? .distantPast
+                return leftDate > rightDate
+            }
     }
 
     private func phasePlaceholder(title: String, message: String) -> some View {

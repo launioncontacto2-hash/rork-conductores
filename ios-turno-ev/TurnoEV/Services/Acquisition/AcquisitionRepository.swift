@@ -84,6 +84,22 @@ nonisolated struct AcquisitionTestResetResult: Sendable, Equatable {
     let deletedStorageObjects: Int
 }
 
+nonisolated struct AcquisitionRequestPublicationError: LocalizedError, Sendable {
+    enum Stage: Sendable { case documentUpload, rpc }
+
+    let stage: Stage
+    let technicalDescription: String
+
+    var errorDescription: String? {
+        switch stage {
+        case .documentUpload:
+            "No pudimos cargar el documento de condiciones. Usa un archivo PDF o TXT de máximo 10 MB."
+        case .rpc:
+            "No pudimos publicar la solicitud. Intenta nuevamente."
+        }
+    }
+}
+
 nonisolated enum AcquisitionQueries {
     static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
     static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, maximum_unit_price_mxn, delivery_city, destination_station_name, deadline_at, target_delivery_date, fiscal_period, minimum_soh, soh_diagnosis_max_age_days, delivery_terms_document_path, status"
@@ -750,13 +766,34 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             UUID().uuidString.lowercased(),
             safeFilename,
         ].joined(separator: "/")
-        try await client.storage.from("acquisition-request-documents").upload(
-            documentPath,
-            data: publication.deliveryTermsDocument,
-            options: FileOptions(contentType: publication.deliveryTermsMimeType, upsert: false)
-        )
-        let row: RequestRow = try await client
-            .rpc(
+        do {
+            _ = try await client.auth.session
+            try await client.storage.from("acquisition-request-documents").upload(
+                documentPath,
+                data: publication.deliveryTermsDocument,
+                options: FileOptions(contentType: publication.deliveryTermsMimeType, upsert: false)
+            )
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "storage.upload acquisition-request-documents",
+                context: [
+                    "bucket": "acquisition-request-documents",
+                    "path": AcquisitionRemoteDiagnostic.redact(path: documentPath),
+                    "mime": publication.deliveryTermsMimeType,
+                    "bytes": String(publication.deliveryTermsDocument.count),
+                    "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environment_id),
+                    "profile_id": AcquisitionRemoteDiagnostic.redact(membership.profile_id),
+                    "upsert": "false",
+                ]
+            )
+            print("[Adquisiciones][TEST][Solicitud][Storage] \(diagnostic)")
+            throw AcquisitionRequestPublicationError(stage: .documentUpload, technicalDescription: diagnostic)
+        }
+
+        do {
+            let row: RequestRow = try await client
+                .rpc(
                 "publish_acquisition_request_v2",
                 params: PublishRequestParameters(
                     p_model: publication.model,
@@ -790,10 +827,28 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     },
                     p_idempotency_key: publication.idempotencyKey
                 )
+                )
+                .execute()
+                .value
+            return Self.request(from: row, requirements: publication.requirements)
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc publish_acquisition_request_v2",
+                context: [
+                    "document_path": AcquisitionRemoteDiagnostic.redact(path: documentPath),
+                    "fiscal_period": Self.postgresDateString(from: publication.fiscalPeriod) ?? "null",
+                    "target_delivery_date": Self.postgresDateString(from: publication.targetDeliveryDate) ?? "null",
+                    "deadline_present": publication.deadlineAt == nil ? "false" : "true",
+                    "requirements": String(publication.requirements.count),
+                    "maximum_price_present": publication.maximumUnitPriceMxn > 0 ? "true" : "false",
+                    "station_present": publication.destinationStationName.isEmpty ? "false" : "true",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(publication.idempotencyKey),
+                ]
             )
-            .execute()
-            .value
-        return Self.request(from: row, requirements: publication.requirements)
+            print("[Adquisiciones][TEST][Solicitud][RPC] \(diagnostic)")
+            throw AcquisitionRequestPublicationError(stage: .rpc, technicalDescription: diagnostic)
+        }
     }
 
     func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? {

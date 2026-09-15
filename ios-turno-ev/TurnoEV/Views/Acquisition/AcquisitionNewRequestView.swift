@@ -67,10 +67,14 @@ final class AcquisitionNewRequestViewModel {
             published = request
             onPublished(request)
         } catch {
-            feedback = "No pudimos publicar la solicitud. Intenta nuevamente."
+            if let publicationError = error as? AcquisitionRequestPublicationError {
+                feedback = publicationError.errorDescription
+            } else {
+                feedback = "No pudimos publicar la solicitud. Intenta nuevamente."
+            }
             let diagnostic = AcquisitionRemoteDiagnostic.describe(
                 error,
-                operation: "rpc publish_acquisition_request",
+                operation: "publish acquisition request",
                 context: [
                     "deadline_present": draft.deadlineAt == nil ? "false" : "true",
                     "target_delivery_present": draft.targetDeliveryDate == nil ? "false" : "true",
@@ -156,7 +160,7 @@ struct AcquisitionNewRequestView: View {
         .navigationBarTitleDisplayMode(.inline)
         .fileImporter(
             isPresented: $isImportingTerms,
-            allowedContentTypes: [.pdf, .plainText, .data],
+            allowedContentTypes: [.pdf, .plainText],
             allowsMultipleSelection: false
         ) { result in
             guard case .success(let urls) = result, let url = urls.first else { return }
@@ -309,7 +313,7 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Años", "\(model.draft.minimumYear)–\(model.draft.maximumYear)")
             reviewLine("Kilometraje", "\(model.draft.maximumMileage) km")
             reviewLine("Precio máximo", model.draft.maximumUnitPrice)
-            reviewLine("Periodo", model.draft.fiscalPeriod.formatted(.dateTime.month(.wide).year()).capitalized)
+            reviewLine("Periodo", AcquisitionFiscalPeriodPresentation.text(for: model.draft.fiscalPeriod))
             reviewLine("Requisitos", "\(model.draft.requirements.count)")
             reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
             reviewLine("Fecha límite de entrega", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
@@ -373,7 +377,7 @@ private struct MonthYearWheel: View {
         HStack(spacing: 0) {
             Picker("Mes", selection: month) {
                 ForEach(1...12, id: \.self) { value in
-                    Text(Calendar.current.monthSymbols[value - 1].capitalized).tag(value)
+                    Text(AcquisitionFiscalPeriodPresentation.monthName(value)).tag(value)
                 }
             }
             .pickerStyle(.wheel)

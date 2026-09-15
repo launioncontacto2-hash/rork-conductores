@@ -175,7 +175,7 @@ final class AcquisitionViewModel {
             suppliers = loadedSuppliers
             contacts = loadedContacts
             chatThreads = loadedChatThreads
-            state = loadedRequests.isEmpty ? .empty : .content
+            state = loadedRequests.isEmpty && loadedOffers.isEmpty ? .empty : .content
             let duration = startedAt.duration(to: ContinuousClock.now)
             print("[Adquisiciones][Rendimiento] inicio=\(duration)")
 

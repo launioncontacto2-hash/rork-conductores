@@ -181,7 +181,7 @@ nonisolated struct AcquisitionRequest: Identifiable, Equatable, Sendable {
     }
 
     var fiscalPeriodText: String {
-        fiscalPeriod.formatted(.dateTime.month(.wide).year()).capitalized
+        AcquisitionFiscalPeriodPresentation.text(for: fiscalPeriod)
     }
 
     var maximumUnitPriceText: String {
@@ -294,7 +294,13 @@ nonisolated enum AcquisitionRequestRequirementCategory: String, Codable, CaseIte
 }
 
 nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
+    static let maximumDeliveryTermsBytes = 10 * 1_024 * 1_024
+    static let acceptedDeliveryTermsMIMETypes: Set<String> = [
+        "application/pdf", "text/plain",
+    ]
+
     var model = ""
+    var idempotencyKey = "ios-acquisition-request-\(UUID().uuidString.lowercased())"
     var versions = ""
     var targetQuantity = ""
     var minimumYear = ""
@@ -338,7 +344,7 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day)
     }
 
-    func makePublication(idempotencyKey: String = "ios-acquisition-request-\(UUID().uuidString.lowercased())") throws -> AcquisitionRequestPublication {
+    func makePublication(idempotencyKey: String? = nil) throws -> AcquisitionRequestPublication {
         let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanModel.isEmpty else { throw AcquisitionRequestDraftIssue.modelRequired }
         guard let quantity = Int(targetQuantity), quantity > 0 else {
@@ -368,6 +374,15 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
               let deliveryTermsFilename, !deliveryTermsFilename.isEmpty else {
             throw AcquisitionRequestDraftIssue.deliveryTermsRequired
         }
+        guard deliveryTermsDocument.count <= Self.maximumDeliveryTermsBytes else {
+            throw AcquisitionRequestDraftIssue.deliveryTermsTooLarge
+        }
+        let resolvedDeliveryTermsMimeType = deliveryTermsMimeType
+            ?? Self.deliveryTermsMIMEType(for: deliveryTermsFilename)
+        guard let resolvedDeliveryTermsMimeType,
+              Self.acceptedDeliveryTermsMIMETypes.contains(resolvedDeliveryTermsMimeType) else {
+            throw AcquisitionRequestDraftIssue.invalidDeliveryTermsType
+        }
         guard !requirements.isEmpty else { throw AcquisitionRequestDraftIssue.requirementsRequired }
         guard Set(requirements.map(\.id)).count == requirements.count else {
             throw AcquisitionRequestDraftIssue.duplicateRequirements
@@ -393,12 +408,20 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
             sohDiagnosisMaximumAgeDays: diagnosisAge,
             deliveryTermsDocument: deliveryTermsDocument,
             deliveryTermsFilename: deliveryTermsFilename,
-            deliveryTermsMimeType: deliveryTermsMimeType ?? "application/pdf",
+            deliveryTermsMimeType: resolvedDeliveryTermsMimeType,
             deadlineAt: deadlineAt,
             targetDeliveryDate: targetDeliveryDate,
             requirements: requirements,
-            idempotencyKey: idempotencyKey
+            idempotencyKey: idempotencyKey ?? self.idempotencyKey
         )
+    }
+
+    static func deliveryTermsMIMEType(for filename: String) -> String? {
+        switch URL(fileURLWithPath: filename).pathExtension.lowercased() {
+        case "pdf": "application/pdf"
+        case "txt": "text/plain"
+        default: nil
+        }
     }
 }
 
@@ -427,7 +450,7 @@ nonisolated struct AcquisitionRequestPublication: Equatable, Sendable {
 nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
     case modelRequired, invalidQuantity, invalidYears, invalidMileage, invalidMaximumPrice
     case invalidMinimumSoh, invalidDiagnosisAge, cityRequired, stationRequired, deliveryTermsRequired, requirementsRequired
-    case duplicateRequirements
+    case duplicateRequirements, invalidDeliveryTermsType, deliveryTermsTooLarge
     case deadlineRequired, targetDeliveryRequired
 
     var message: String {
@@ -442,6 +465,8 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
         case .cityRequired: "Captura la ciudad de entrega."
         case .stationRequired: "Captura la estación destino."
         case .deliveryTermsRequired: "Adjunta las condiciones de entrega de esta solicitud."
+        case .invalidDeliveryTermsType: "Adjunta las condiciones en formato PDF o TXT."
+        case .deliveryTermsTooLarge: "El documento de condiciones debe pesar máximo 10 MB."
         case .requirementsRequired: "Agrega al menos un requisito."
         case .duplicateRequirements: "Cada requisito debe ser único."
         case .deadlineRequired: "Selecciona la fecha límite para recibir ofertas."
@@ -569,7 +594,7 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
     }
 
     var fiscalPeriodText: String? {
-        fiscalPeriod?.formatted(.dateTime.month(.wide).year()).capitalized
+        fiscalPeriod.map { AcquisitionFiscalPeriodPresentation.text(for: $0) }
     }
 
     static func currencyText(_ amount: Int) -> String {
@@ -579,6 +604,46 @@ nonisolated struct AcquisitionOfferSummary: Identifiable, Equatable, Sendable {
         formatter.currencyCode = "MXN"
         formatter.maximumFractionDigits = 0
         return formatter.string(from: amount as NSNumber) ?? "$\(amount)"
+    }
+}
+
+nonisolated enum AcquisitionFiscalPeriodPresentation {
+    static let spanishMonthNames = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+
+    static func monthName(_ month: Int) -> String {
+        guard (1...spanishMonthNames.count).contains(month) else { return "Mes" }
+        return spanishMonthNames[month - 1]
+    }
+
+    static func text(for date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return "\(monthName(components.month ?? 0)) \(components.year ?? 0)"
+    }
+}
+
+nonisolated enum AcquisitionCommercialLane: Equatable, Sendable {
+    case proposal
+    case negotiation
+    case purchase
+    case hidden
+
+    static func resolve(status: String) -> Self {
+        switch status {
+        case "submitted":
+            .proposal
+        case "negotiating", "price_agreed":
+            .negotiation
+        case "awarded", "ready_for_delivery", "received", "accepted",
+             "accepted_with_observations", "accepted_with_condition", "closed":
+            .purchase
+        default:
+            .hidden
+        }
     }
 }
 

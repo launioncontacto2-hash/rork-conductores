@@ -312,6 +312,62 @@ struct AcquisitionRoleAndPresentationTests {
         #expect((object["p_target_delivery_date"] as? String)?.contains("T") == false)
     }
 
+    @Test func acquisitionFiscalPeriodAlwaysUsesSpanishMonthNames() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let september = try #require(calendar.date(from: DateComponents(year: 2026, month: 9, day: 1)))
+        #expect(AcquisitionFiscalPeriodPresentation.monthName(8) == "Agosto")
+        #expect(AcquisitionFiscalPeriodPresentation.text(for: september) == "Septiembre 2026")
+        #expect(AcquisitionFiscalPeriodPresentation.monthName(10) == "Octubre")
+    }
+
+    @Test func requestRejectsUnsupportedOrOversizedDeliveryTermsBeforeStorage() {
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD King"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "500000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones.docx"
+        draft.deliveryTermsMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        #expect(throws: AcquisitionRequestDraftIssue.invalidDeliveryTermsType) {
+            _ = try draft.makePublication()
+        }
+
+        draft.deliveryTermsMimeType = "application/pdf"
+        draft.deliveryTermsDocument = Data(repeating: 0, count: AcquisitionRequestDraft.maximumDeliveryTermsBytes + 1)
+        #expect(throws: AcquisitionRequestDraftIssue.deliveryTermsTooLarge) {
+            _ = try draft.makePublication()
+        }
+    }
+
+    @Test func commercialLanesAreExclusiveAcrossHomeAndPurchases() {
+        #expect(AcquisitionCommercialLane.resolve(status: "submitted") == .proposal)
+        #expect(AcquisitionCommercialLane.resolve(status: "negotiating") == .negotiation)
+        #expect(AcquisitionCommercialLane.resolve(status: "price_agreed") == .negotiation)
+        #expect(AcquisitionCommercialLane.resolve(status: "awarded") == .purchase)
+        #expect(AcquisitionCommercialLane.resolve(status: "accepted_with_condition") == .purchase)
+        #expect(AcquisitionCommercialLane.resolve(status: "closed") == .purchase)
+        #expect(AcquisitionCommercialLane.resolve(status: "rejected") == .hidden)
+    }
+
+    @Test func requestPublicationKeepsOneIdempotencyKeyAcrossRetries() throws {
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD King"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "500000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
+        let first = try draft.makePublication()
+        let retry = try draft.makePublication()
+        #expect(first.idempotencyKey == retry.idempotencyKey)
+    }
+
     @Test func requestRequirementKeepsDynamicResponseContract() {
         let requirement = AcquisitionRequestRequirement(
             id: "inspection_note", category: .condition,
