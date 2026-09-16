@@ -411,6 +411,7 @@ private struct AcquisitionAutoDismissDateRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(title), \(AcquisitionSpanishDate.text(selection))")
+        .accessibilityValue(AcquisitionSpanishDate.text(selection))
         .accessibilityIdentifier("acquisition-request-deadline-picker")
         .sheet(isPresented: $isPresented) {
             VStack(spacing: 12) {
