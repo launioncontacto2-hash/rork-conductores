@@ -86,7 +86,7 @@ final class AcquisitionOfferFormViewModel {
             let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
             let result = await odometerEvidenceValidator(
                 data,
-                expectedMileage: mileage
+                mileage
             )
             form.validationResults.odometer = result
             guard result == .match else {
@@ -99,7 +99,7 @@ final class AcquisitionOfferFormViewModel {
         case .vin, .originInvoice:
             let result = await vinEvidenceValidator(
                 data,
-                expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             )
             form.validationResults.vin = result
             guard result == .match else {
@@ -180,13 +180,13 @@ final class AcquisitionOfferFormViewModel {
         if let data = form.evidence[.odometer] ?? form.evidence[.dashboard] {
             form.validationResults.odometer = await odometerEvidenceValidator(
                 data,
-                expectedMileage: mileage
+                mileage
             )
         }
         if let data = form.evidence[.vin] ?? form.evidence[.originInvoice] {
             form.validationResults.vin = await vinEvidenceValidator(
                 data,
-                expectedVIN: form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             )
         }
     }
