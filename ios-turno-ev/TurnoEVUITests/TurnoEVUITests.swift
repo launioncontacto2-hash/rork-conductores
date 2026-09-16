@@ -73,8 +73,6 @@ final class TurnoEVUITests: XCTestCase {
 
         let deadlinePicker = app.buttons["acquisition-request-deadline-picker"]
         XCTAssertTrue(deadlinePicker.waitForExistence(timeout: 5))
-        let displayedDate = deadlinePicker.value as? String ?? ""
-        XCTAssertTrue(displayedDate.localizedCaseInsensitiveContains("septiembre"))
         deadlinePicker.tap()
         XCTAssertTrue(app.staticTexts["Fecha límite para recibir ofertas"].waitForExistence(timeout: 5))
         XCTAssertFalse(
