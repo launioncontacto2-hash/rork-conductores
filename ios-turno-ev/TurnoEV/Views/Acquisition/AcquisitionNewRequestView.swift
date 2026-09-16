@@ -410,6 +410,7 @@ private struct AcquisitionAutoDismissDateRow: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("acquisition-request-deadline-picker")
         .sheet(isPresented: $isPresented) {
             VStack(spacing: 12) {
                 Text(title).font(.acquisition(.headline))

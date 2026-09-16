@@ -385,11 +385,7 @@ struct AcquisitionRootView: View {
                             onSubmitted: { _ in Task { await model.load() } }
                         )
                     } label: {
-                        AcquisitionRequestCard(
-                            request: request,
-                            progressText: "\(summary.securedCount) confirmados · \(summary.missingCount) por conseguir",
-                            audience: membership.role
-                        )
+                        AcquisitionAdminRequestCard(summary: summary)
                     }
                     .buttonStyle(.plain)
                 }

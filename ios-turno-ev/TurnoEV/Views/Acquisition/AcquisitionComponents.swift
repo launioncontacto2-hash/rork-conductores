@@ -313,6 +313,7 @@ struct AcquisitionProviderRequestCard: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(AcquisitionTheme.accent.opacity(0.34), lineWidth: 1)
         }
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("acquisition-provider-request-card")
     }
 
