@@ -414,7 +414,7 @@ private struct AcquisitionAutoDismissDateRow: View {
             VStack(spacing: 12) {
                 Text(title).font(.acquisition(.headline))
                 Text(AcquisitionFiscalPeriodPresentation.text(for: selection))
-                    .foregroundStyle(AcquisitionTheme.muted)
+                    .foregroundStyle(AcquisitionTheme.text.opacity(0.62))
                     .accessibilityIdentifier("acquisition-calendar-month")
                 DatePicker(
                     title,
