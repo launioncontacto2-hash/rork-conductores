@@ -74,7 +74,8 @@ final class TurnoEVUITests: XCTestCase {
         let deadlinePicker = app.buttons["acquisition-request-deadline-picker"]
         XCTAssertTrue(deadlinePicker.waitForExistence(timeout: 5))
         deadlinePicker.tap()
-        let month = app.staticTexts["acquisition-calendar-month"]
+        let month = app.descendants(matching: .any)
+            .matching(identifier: "acquisition-calendar-month").firstMatch
         XCTAssertTrue(month.waitForExistence(timeout: 5))
         XCTAssertTrue(month.label.localizedCaseInsensitiveContains("septiembre"))
         XCTAssertFalse(
