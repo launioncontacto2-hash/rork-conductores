@@ -34,6 +34,20 @@
                ReferencedContainer = "container:TurnoEV.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "105FC5922E9EAD3200EA8BCF"
+               BuildableName = "TurnoEVUITests.xctest"
+               BlueprintName = "TurnoEVUITests"
+               ReferencedContainer = "container:TurnoEV.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -49,6 +63,16 @@
                BlueprintIdentifier = "105FC5882E9EAD3200EA8BCF"
                BuildableName = "TurnoEVTests.xctest"
                BlueprintName = "TurnoEVTests"
+               ReferencedContainer = "container:TurnoEV.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "105FC5922E9EAD3200EA8BCF"
+               BuildableName = "TurnoEVUITests.xctest"
+               BlueprintName = "TurnoEVUITests"
                ReferencedContainer = "container:TurnoEV.xcodeproj">
             </BuildableReference>
          </TestableReference>
