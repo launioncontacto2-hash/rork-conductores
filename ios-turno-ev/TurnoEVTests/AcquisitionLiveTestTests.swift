@@ -56,16 +56,22 @@ struct AcquisitionLiveTestTests {
         defer { SupabaseBridge.useIntegrationTestClient(nil) }
 
         let repository = SupabaseAcquisitionRepository()
-        let adminSession = try await client.auth.signIn(
-            email: "adquisiciones.pue@dori.mx",
-            password: password
-        )
+        let adminSession = try await measured("login.admin.auth") {
+            try await client.auth.signIn(
+                email: "adquisiciones.pue@dori.mx",
+                password: password
+            )
+        }
         #expect((try await client.auth.session).user.id == adminSession.user.id)
-        let adminProfile = try await SupabaseAuthProbe.loadProfile(authUserId: adminSession.user.id)
-        let adminMembership = try await repository.loadMembership(
-            profileID: adminProfile.id,
-            environmentID: adminProfile.environment_id
-        )
+        let adminProfile = try await measured("login.admin.profile") {
+            try await SupabaseAuthProbe.loadProfile(authUserId: adminSession.user.id)
+        }
+        let adminMembership = try await measured("login.admin.membership") {
+            try await repository.loadMembership(
+                profileID: adminProfile.id,
+                environmentID: adminProfile.environment_id
+            )
+        }
         #expect(adminMembership.role == .doriAdmin)
         #expect(adminMembership.environmentID.uuidString.lowercased()
             == "9f8d4a52-0f0e-4a3f-9a1e-2c6f5b8d7e10")
@@ -92,32 +98,71 @@ struct AcquisitionLiveTestTests {
         requestDraft.deliveryTermsMimeType = "application/pdf"
         requestDraft.deadlineAt = AcquisitionRequestDraft.defaultDate(daysFromNow: 14)
         requestDraft.targetDeliveryDate = AcquisitionRequestDraft.defaultDate(daysFromNow: 30)
-        let publishedRequest = try await repository.publishRequest(requestDraft)
+        let publishedRequest = try await measured("requests.admin.publish") {
+            try await repository.publishRequest(requestDraft)
+        }
         #expect(publishedRequest.model == requestDraft.model)
         #expect(publishedRequest.fiscalPeriodText == "Septiembre 2026")
         #expect(publishedRequest.targetDeliveryDate != nil)
-        #expect(try await repository.requestDocumentURL(for: publishedRequest) != nil)
-        let adminRequests = try await repository.loadRequests()
+        let requestDocumentURL = try await measured("requests.admin.document_url") {
+            try await repository.requestDocumentURL(for: publishedRequest)
+        }
+        #expect(requestDocumentURL != nil)
+        let adminRequests = try await measured("requests.admin.list") {
+            try await repository.loadRequests()
+        }
         #expect(adminRequests.contains(where: { $0.id == publishedRequest.id }))
 
         try await client.auth.signOut()
-        let providerSession = try await client.auth.signIn(
-            email: "byd.iztacalco@dori.mx",
-            password: password
-        )
+        let providerSession = try await measured("login.provider.auth") {
+            try await client.auth.signIn(
+                email: "byd.iztacalco@dori.mx",
+                password: password
+            )
+        }
         #expect((try await client.auth.session).user.id == providerSession.user.id)
-        let providerProfile = try await SupabaseAuthProbe.loadProfile(authUserId: providerSession.user.id)
-        let providerMembership = try await repository.loadMembership(
-            profileID: providerProfile.id,
-            environmentID: providerProfile.environment_id
-        )
+        let providerProfile = try await measured("login.provider.profile") {
+            try await SupabaseAuthProbe.loadProfile(authUserId: providerSession.user.id)
+        }
+        let providerMembership = try await measured("login.provider.membership") {
+            try await repository.loadMembership(
+                profileID: providerProfile.id,
+                environmentID: providerProfile.environment_id
+            )
+        }
         #expect(providerMembership.role == .provider)
-        let providerRequests = try await repository.loadRequests()
+        let providerRequests = try await measured("requests.provider.list") {
+            try await repository.loadRequests()
+        }
         let request = try #require(providerRequests.first(where: { $0.id == publishedRequest.id }))
         #expect(request.fiscalPeriodText == "Septiembre 2026")
         #expect(request.detailedRequirements.count == requestDraft.requirements.count)
+        let providerDashboard = AcquisitionViewModel(
+            principal: principal(
+                session: providerSession,
+                profile: providerProfile,
+                role: .provider,
+                email: "byd.iztacalco@dori.mx"
+            ),
+            repository: repository
+        )
+        await measured("dashboard.provider.full") {
+            await providerDashboard.load()
+        }
+        #expect(providerDashboard.state == .content)
+        providerDashboard.stopObserving()
 
-        let jpeg = try #require(makeJPEG())
+        let cameraJPEG = try #require(makeJPEG(size: CGSize(width: 2_048, height: 1_536)))
+        let jpeg = try measuredSync("offer.image.normalize") {
+            try #require(AcquisitionEvidenceValidator.normalizedJPEG(cameraJPEG))
+        }
+        print("DORI_PERF name=offer.image.bytes input=\(cameraJPEG.count) output=\(jpeg.count)")
+        _ = await measured("offer.ocr.vin") {
+            await AcquisitionEvidenceValidator.validateVIN(in: jpeg, expectedVIN: "TESTSDK25PUE\(suffix)")
+        }
+        _ = await measured("offer.ocr.odometer") {
+            await AcquisitionEvidenceValidator.validateOdometer(in: jpeg, expectedMileage: 8_400)
+        }
         var form = AcquisitionOfferFormData()
         form.vin = "TESTSDK25PUE\(suffix)"
         form.year = "2025"
@@ -140,7 +185,9 @@ struct AcquisitionLiveTestTests {
             idempotencyKey: "swift-live-offer-\(offerID.uuidString.lowercased())"
         )
 
-        let offer = try await repository.submitOffer(submission, membership: providerMembership)
+        let offer = try await measured("offer.provider.submit") {
+            try await repository.submitOffer(submission, membership: providerMembership)
+        }
         #expect(offer.id == offerID)
         #expect(offer.status == "submitted")
         #expect(AcquisitionCommercialLane.resolve(status: offer.status) == .proposal)
@@ -171,9 +218,36 @@ struct AcquisitionLiveTestTests {
             email: "adquisiciones.pue@dori.mx",
             password: password
         )
-        let adminOffers = try await repository.loadOffers()
+        let adminOffers = try await measured("offers.admin.list") {
+            try await repository.loadOffers()
+        }
         let submitted = try #require(adminOffers.first(where: { $0.id == offerID }))
         #expect(AcquisitionCommercialLane.resolve(status: submitted.status) == .proposal)
+        let adminDashboard = AcquisitionViewModel(
+            principal: principal(
+                session: adminSession,
+                profile: adminProfile,
+                role: .doriAdmin,
+                email: "adquisiciones.pue@dori.mx"
+            ),
+            repository: repository
+        )
+        await measured("dashboard.admin.full") {
+            await adminDashboard.load()
+        }
+        #expect(adminDashboard.state == .content)
+        adminDashboard.stopObserving()
+
+        let adminDetail = try await measured("detail.admin.first_content") {
+            try await repository.loadOfferDetail(offerID: offerID, membership: adminMembership)
+        }
+        let loadedEvidence = await measured("detail.admin.gallery") {
+            await repository.loadOfferEvidenceData(adminDetail.evidence)
+        }
+        print(
+            "DORI_PERF name=detail.admin.gallery_bytes count=\(loadedEvidence.count) "
+                + "bytes=\(loadedEvidence.compactMap(\.imageData).reduce(0) { $0 + $1.count })"
+        )
 
         let adminGeneral = try await repository.ensureChatThread(
             supplierID: providerMembership.supplierID,
@@ -194,12 +268,14 @@ struct AcquisitionLiveTestTests {
         let adminUnitMessages = try await repository.loadChatMessages(threadID: adminUnit.id)
         #expect(adminUnitMessages.contains(where: { $0.body == adminBody }))
 
-        let doriCounter = try await repository.respondToOffer(
-            AcquisitionOfferCommand(
-                offerID: offerID, action: .counteroffer, amountMxn: 490_000,
-                idempotencyKey: "swift-live-dori-counter-\(offerID.uuidString.lowercased())"
+        let doriCounter = try await measured("negotiation.admin.counteroffer") {
+            try await repository.respondToOffer(
+                AcquisitionOfferCommand(
+                    offerID: offerID, action: .counteroffer, amountMxn: 490_000,
+                    idempotencyKey: "swift-live-dori-counter-\(offerID.uuidString.lowercased())"
+                )
             )
-        )
+        }
         #expect(doriCounter.status == "negotiating")
         #expect(AcquisitionCommercialLane.resolve(status: doriCounter.status) == .negotiation)
 
@@ -208,41 +284,106 @@ struct AcquisitionLiveTestTests {
             email: "byd.iztacalco@dori.mx",
             password: password
         )
-        let providerCounter = try await repository.respondToOffer(
-            AcquisitionOfferCommand(
-                offerID: offerID, action: .counteroffer, amountMxn: 495_000,
-                idempotencyKey: "swift-live-provider-counter-\(offerID.uuidString.lowercased())"
+        let providerCounter = try await measured("negotiation.provider.counteroffer") {
+            try await repository.respondToOffer(
+                AcquisitionOfferCommand(
+                    offerID: offerID, action: .counteroffer, amountMxn: 495_000,
+                    idempotencyKey: "swift-live-provider-counter-\(offerID.uuidString.lowercased())"
+                )
             )
-        )
+        }
         #expect(providerCounter.status == "negotiating")
         #expect(AcquisitionCommercialLane.resolve(status: providerCounter.status) == .negotiation)
 
         try await client.auth.signOut()
         _ = try await client.auth.signIn(email: "adquisiciones.pue@dori.mx", password: password)
-        let purchase = try await repository.respondToOffer(
-            AcquisitionOfferCommand(
-                offerID: offerID, action: .award, amountMxn: 495_000,
-                idempotencyKey: "swift-live-award-\(offerID.uuidString.lowercased())"
+        let purchase = try await measured("purchase.admin.award") {
+            try await repository.respondToOffer(
+                AcquisitionOfferCommand(
+                    offerID: offerID, action: .award, amountMxn: 495_000,
+                    idempotencyKey: "swift-live-award-\(offerID.uuidString.lowercased())"
+                )
             )
-        )
+        }
         #expect(purchase.status == "awarded")
         #expect(purchase.orderID != nil)
         #expect(AcquisitionCommercialLane.resolve(status: purchase.status) == .purchase)
 
         try await client.auth.signOut()
         _ = try await client.auth.signIn(email: "byd.iztacalco@dori.mx", password: password)
-        let purchasedOffers = try await repository.loadOffers()
+        let purchasedOffers = try await measured("purchases.provider.list") {
+            try await repository.loadOffers()
+        }
         let providerPurchasedOffer = try #require(purchasedOffers.first(where: { $0.id == offerID }))
         #expect(providerPurchasedOffer.status == "awarded")
         #expect(AcquisitionCommercialLane.resolve(status: providerPurchasedOffer.status) == .purchase)
     }
 
-    private func makeJPEG() -> Data? {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 12, height: 12))
+    private func measured<T>(
+        _ name: String,
+        operation: () async throws -> T
+    ) async rethrows -> T {
+        let startedAt = ContinuousClock.now
+        let value = try await operation()
+        let elapsed = startedAt.duration(to: ContinuousClock.now)
+        print("DORI_PERF name=\(name) ms=\(milliseconds(elapsed))")
+        return value
+    }
+
+    private func measuredSync<T>(_ name: String, operation: () throws -> T) rethrows -> T {
+        let startedAt = ContinuousClock.now
+        let value = try operation()
+        let elapsed = startedAt.duration(to: ContinuousClock.now)
+        print("DORI_PERF name=\(name) ms=\(milliseconds(elapsed))")
+        return value
+    }
+
+    private func milliseconds(_ duration: Duration) -> String {
+        let components = duration.components
+        let value = Double(components.seconds) * 1_000
+            + Double(components.attoseconds) / 1_000_000_000_000_000
+        return String(format: "%.2f", value)
+    }
+
+    private func principal(
+        session: Session,
+        profile: SupabaseAuthProbe.ProfileRow,
+        role: StaffRole,
+        email: String
+    ) -> SessionPrincipal {
+        SessionPrincipal(
+            authUserId: session.user.id.uuidString,
+            profileId: profile.id.uuidString,
+            name: profile.display_name,
+            employeeNumber: profile.employee_number,
+            email: email,
+            role: role,
+            environmentId: profile.environment_id.uuidString,
+            stationId: nil,
+            stationCode: nil,
+            stationName: role == .doriAdmin ? "DORI Puebla" : nil,
+            shiftGroup: nil,
+            shiftSlot: nil
+        )
+    }
+
+    private func makeJPEG(size: CGSize = CGSize(width: 12, height: 12)) -> Data? {
+        let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { context in
-            UIColor.systemGreen.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 12, height: 12))
+            let tile: CGFloat = max(12, min(size.width, size.height) / 32)
+            for y in stride(from: CGFloat.zero, to: size.height, by: tile) {
+                for x in stride(from: CGFloat.zero, to: size.width, by: tile) {
+                    let seed = Int(x / tile) &* 31 &+ Int(y / tile) &* 17
+                    UIColor(
+                        hue: CGFloat(seed % 255) / 255,
+                        saturation: 0.55,
+                        brightness: 0.82,
+                        alpha: 1
+                    ).setFill()
+                    context.fill(CGRect(x: x, y: y, width: tile, height: tile))
+                }
+            }
         }
-        return image.jpegData(compressionQuality: 0.7)
+        return image.jpegData(compressionQuality: 0.88)
     }
 }
