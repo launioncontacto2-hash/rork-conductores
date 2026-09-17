@@ -23,8 +23,20 @@ protocol AcquisitionRepository {
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
     ) async throws -> AcquisitionOfferSummary
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (_ completed: Int, _ total: Int, _ stage: AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary
     func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult
     func completeDelivery(_ command: AcquisitionDeliveryCommand) async throws -> AcquisitionDeliveryCommandResult
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult
     func loadChatThreads() async throws -> [AcquisitionChatThreadSummary]
     func ensureChatThread(supplierID: UUID?, offerID: UUID?) async throws -> AcquisitionChatThreadSummary
     func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage]
@@ -43,6 +55,25 @@ protocol AcquisitionRepository {
 }
 
 extension AcquisitionRepository {
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        throw CancellationError()
+    }
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary {
+        progress(0, max(submission.evidence.count, 1), .evidenceUpload)
+        let result = try await submitOffer(submission, membership: membership)
+        progress(1, 1, .persistenceCheck)
+        return result
+    }
     func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? { nil }
     func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] { [:] }
 }
@@ -493,6 +524,13 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let status: String
         let recommended_result: AcquisitionReceptionResult?
         let hold_amount_mxn: Decimal?
+    }
+
+    nonisolated struct CompleteArrivalParameters: Encodable, Sendable {
+        let p_order_id: UUID
+        let p_checks: [String: Bool]
+        let p_evidence_paths: [String: String]
+        let p_idempotency_key: String
     }
 
     nonisolated struct ChatThreadRow: Decodable, Sendable {
@@ -1140,6 +1178,22 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         _ submission: AcquisitionOfferSubmission,
         membership: AcquisitionMembership
     ) async throws -> AcquisitionOfferSummary {
+        try await submitOfferInternal(submission, membership: membership, progress: nil)
+    }
+
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary {
+        try await submitOfferInternal(submission, membership: membership, progress: progress)
+    }
+
+    private func submitOfferInternal(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: (@MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void)?
+    ) async throws -> AcquisitionOfferSummary {
         guard let client = SupabaseBridge.client else {
             throw RepositoryError.notConfigured
         }
@@ -1193,6 +1247,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     )
                 )
             }
+        progress?(0, uploadItems.count, .evidenceUpload)
 
         // Refresh once, then let the independent immutable object uploads run in
         // parallel. Their paths remain deterministic and the transactional RPC is
@@ -1259,6 +1314,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                     return uploaded
                 }
                 indexedReferences.append(contentsOf: uploadedBatch)
+                progress?(indexedReferences.count, uploadItems.count, .evidenceUpload)
             }
         } catch {
             throw error
@@ -1266,6 +1322,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         let references = indexedReferences.sorted { $0.0 < $1.0 }.map { $0.1 }
 
         do {
+            progress?(uploadItems.count, uploadItems.count, .rpc)
             // The RPC returns the complete composite row. Do not decode that response
             // here: PostgreSQL `date` fields are serialized as `YYYY-MM-DD`, while the
             // Supabase decoder's `Date` support expects a timestamp. The authoritative
@@ -1301,6 +1358,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         }
 
         do {
+            progress?(1, 1, .persistenceCheck)
             let persisted: [OfferRow] = try await client
                 .from("acquisition_offers")
                 .select(AcquisitionQueries.offerColumns)
@@ -1431,6 +1489,50 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
 
+        return AcquisitionDeliveryCommandResult(
+            orderID: row.order_id,
+            status: row.status,
+            receptionResult: row.recommended_result,
+            holdAmountMxn: row.hold_amount_mxn.map { Self.integer(from: $0) } ?? 0
+        )
+    }
+
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        guard let client = SupabaseBridge.client, membership.role == .doriAdmin else {
+            throw RepositoryError.noMembership
+        }
+        let required = [
+            "vin", "origin_invoice", "reinvoice", "soh", "keys", "charger_110v",
+            "charger_220v", "plates", "registration", "manufacturer_warranty", "used_warranty",
+        ]
+        guard Set(evidence.keys) == Set(required) else { throw RepositoryError.evidenceRequired }
+        let prefix = "\(membership.environmentID.uuidString.lowercased())/\(supplierID.uuidString.lowercased())/\(offerID.uuidString.lowercased())/arrivals"
+        var paths: [String: String] = [:]
+        let bucket = client.storage.from("acquisition-evidence")
+        for key in required {
+            guard let data = evidence[key], !data.isEmpty else { throw RepositoryError.evidenceRequired }
+            let path = "\(prefix)/\(key)-\(UUID().uuidString.lowercased()).jpg"
+            try await bucket.upload(path, data: data, options: FileOptions(contentType: "image/jpeg", upsert: false))
+            paths[key] = path
+        }
+        let row: CompleteDeliveryRow = try await client
+            .rpc(
+                "complete_acquisition_arrival",
+                params: CompleteArrivalParameters(
+                    p_order_id: orderID,
+                    p_checks: Dictionary(uniqueKeysWithValues: required.map { ($0, true) }),
+                    p_evidence_paths: paths,
+                    p_idempotency_key: "ios-acquisition-arrival-\(orderID.uuidString.lowercased())"
+                )
+            )
+            .execute()
+            .value
         return AcquisitionDeliveryCommandResult(
             orderID: row.order_id,
             status: row.status,

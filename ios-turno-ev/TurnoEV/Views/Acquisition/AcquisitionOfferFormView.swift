@@ -6,6 +6,7 @@ struct AcquisitionOfferFormView: View {
     @State private var model: AcquisitionOfferFormViewModel
     @FocusState private var focusedField: String?
     @State private var showsTerms = false
+    @State private var showsLocation = false
     @State private var termsURL: URL?
 
     init(
@@ -84,6 +85,9 @@ struct AcquisitionOfferFormView: View {
                         checkbox("Envío a estación \(model.request.destinationStationName)", isOn: model.form.transferIncluded) {
                             model.form.transferIncluded.toggle()
                         }
+                        Button("Ver ubicación") { showsLocation = true }
+                            .font(.acquisition(.subheadline, weight: .bold))
+                            .foregroundStyle(AcquisitionTheme.accent)
                     }
                     .padding(18)
                     .acquisitionGlass()
@@ -120,7 +124,9 @@ struct AcquisitionOfferFormView: View {
                     .acquisitionGlass()
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Button("Penalizaciones por incumplimiento") {
+                        Text("Penalizaciones por incumplimiento")
+                            .font(.acquisition(.headline))
+                        Button("Ver condiciones de entrega") {
                             Task {
                                 termsURL = try? await model.deliveryTermsURL()
                                 showsTerms = true
@@ -155,21 +161,32 @@ struct AcquisitionOfferFormView: View {
             .scrollDismissesKeyboard(.immediately)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Button {
-                focusedField = nil
-                Task { await model.submit() }
-            } label: {
-                HStack {
-                    if model.isSubmitting { ProgressView() }
-                    Text(model.isSubmitting ? "Enviando propuesta…" : "Enviar propuesta")
-                        .font(.acquisition(.headline))
+            VStack(spacing: 8) {
+                if model.isSubmitting {
+                    ProgressView(value: Double(model.submissionProgress), total: 100)
+                        .tint(AcquisitionTheme.accent)
+                    Text("Cargando propuesta · \(model.submissionProgress)%")
+                        .font(.acquisition(.subheadline, weight: .bold))
+                    Text("No cerrar esta ventana, estamos cargando tu solicitud")
+                        .font(.acquisition(.caption))
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                Button {
+                    focusedField = nil
+                    Task { await model.submit() }
+                } label: {
+                    HStack {
+                        if model.isSubmitting { ProgressView() }
+                        Text(model.isSubmitting ? "Enviando propuesta…" : "Enviar propuesta")
+                            .font(.acquisition(.headline))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AcquisitionTheme.accent)
+                .disabled(model.isSubmitting)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AcquisitionTheme.accent)
-            .disabled(model.isSubmitting)
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
             .background(AcquisitionTheme.surface.opacity(0.98))
@@ -198,6 +215,32 @@ struct AcquisitionOfferFormView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showsLocation) {
+            NavigationStack {
+                VStack(alignment: .leading, spacing: 18) {
+                    Label(model.request.destinationStationName, systemImage: "building.2.fill")
+                        .font(.acquisition(.title3, weight: .bold))
+                    Text(model.request.deliveryCity)
+                        .foregroundStyle(AcquisitionTheme.textSecondary)
+                    if let encoded = "\(model.request.destinationStationName), \(model.request.deliveryCity)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                       let apple = URL(string: "http://maps.apple.com/?q=\(encoded)") {
+                        Link("Abrir en Apple Maps", destination: apple)
+                    }
+                    if let encoded = "\(model.request.destinationStationName), \(model.request.deliveryCity)".addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                       let google = URL(string: "comgooglemaps://?q=\(encoded)") {
+                        Link("Abrir en Google Maps", destination: google)
+                    }
+                    ShareLink(item: "\(model.request.destinationStationName), \(model.request.deliveryCity)") {
+                        Label("Compartir ubicación", systemImage: "square.and.arrow.up")
+                    }
+                    Spacer()
+                }
+                .padding(18)
+                .navigationTitle("Ubicación de estación")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium])
         }
         .alert("Propuesta enviada", isPresented: successBinding) {
             Button("Listo") { dismiss() }

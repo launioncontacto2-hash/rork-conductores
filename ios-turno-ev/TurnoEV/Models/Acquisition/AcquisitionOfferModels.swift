@@ -104,10 +104,11 @@ nonisolated struct AcquisitionEvidenceUpload: Equatable, Sendable {
 }
 
 nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Hashable, Identifiable, Sendable {
-    case charger110
-    case charger220
     case originalInvoice
     case reinvoice
+    case duplicateKeys
+    case charger110
+    case charger220
     case plates
     case ownershipTransfer
     case bydWarranty
@@ -117,14 +118,15 @@ nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Hashable, Id
 
     var title: String {
         switch self {
-        case .charger110: "Cargador 110V incluido"
-        case .charger220: "Cargador 220V incluido"
-        case .originalInvoice: "Factura de origen BYD México"
+        case .originalInvoice: "Factura de origen"
         case .reinvoice: "Refactura a título de DORI"
-        case .plates: "Placas incluidas"
-        case .ownershipTransfer: "Cambio de propietario incluido"
-        case .bydWarranty: "Garantía BYD remanente y comprobable"
-        case .usedWarranty: "Garantía seminuevos de 90 días"
+        case .duplicateKeys: "Duplicado de llaves"
+        case .charger110: "Cargador 110V"
+        case .charger220: "Cargador 220V"
+        case .plates: "Placas"
+        case .ownershipTransfer: "Cambio de propietario a título de DORI"
+        case .bydWarranty: "Garantía remanente del fabricante"
+        case .usedWarranty: "Garantía de 90 días de Seminuevos"
         }
     }
 }

@@ -352,18 +352,25 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     ) ?? Date()
     var minimumSoh = "90"
     var sohDiagnosisMaximumAgeDays = "30"
-    var deliveryTermsDocument: Data?
-    var deliveryTermsFilename: String?
-    var deliveryTermsMimeType: String?
+    // Station policy values: the request author can review them but cannot edit them.
+    var deliveryTermsDocument: Data? = Data(Self.testDeliveryTerms.utf8)
+    var deliveryTermsFilename: String? = "condiciones-entrega-dori-test.txt"
+    var deliveryTermsMimeType: String? = "text/plain"
     var deadlineAt: Date? = Self.defaultDate(daysFromNow: 14)
     var targetDeliveryDate: Date? = Self.defaultDate(daysFromNow: 30)
     var requirements: [AcquisitionRequestRequirement] = AcquisitionRequestDraft.defaultRequirements
 
     static let defaultRequirements: [AcquisitionRequestRequirement] = [
-        .init(id: "condition_charger_110v", category: .condition, title: "Cargador 110V", value: "Incluido"),
-        .init(id: "condition_charger_220v", category: .condition, title: "Cargador 220V", value: "Incluido"),
-        .init(id: "condition_keys", category: .condition, title: "Llaves", value: "Dos llaves completas"),
-        .init(id: "origin_invoice_document", category: .documentation, title: "Factura de origen", value: "Documento legible"),
+        .init(id: "origin_invoice_document", category: .documentation, title: "Factura de origen", value: "Requerido", displayOrder: 1),
+        .init(id: "reinvoice_to_dori", category: .documentation, title: "Refactura a título de DORI", value: "Requerido", displayOrder: 2),
+        .init(id: "soh_report", category: .documentation, title: "Reporte SOH%", value: "Requerido", displayOrder: 3),
+        .init(id: "condition_keys", category: .condition, title: "Duplicado de llaves", value: "Requerido", displayOrder: 4),
+        .init(id: "condition_charger_110v", category: .condition, title: "Cargador 110V", value: "Requerido", displayOrder: 5),
+        .init(id: "condition_charger_220v", category: .condition, title: "Cargador 220V", value: "Requerido", displayOrder: 6),
+        .init(id: "plates", category: .documentation, title: "Placas", value: "Requerido", displayOrder: 7),
+        .init(id: "ownership_to_dori", category: .documentation, title: "Cambio de propietario a título de DORI", value: "Requerido", displayOrder: 8),
+        .init(id: "manufacturer_warranty", category: .documentation, title: "Garantía remanente del fabricante", value: "Requerido", displayOrder: 9),
+        .init(id: "used_vehicle_warranty", category: .documentation, title: "Garantía de 90 días de Seminuevos", value: "Requerido", displayOrder: 10),
     ] + AcquisitionEvidenceKind.detailedStandard.enumerated().map { index, kind in
         .init(
             id: kind.rawValue,
@@ -681,6 +688,11 @@ nonisolated enum AcquisitionFiscalPeriodPresentation {
         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
     ]
+
+    private static let testDeliveryTerms = """
+    Condiciones de entrega DORI Adquisición — entorno TEST.
+    Documento institucional administrado por DORI. El supervisor no puede modificarlo.
+    """
 
     static func monthName(_ month: Int) -> String {
         guard (1...spanishMonthNames.count).contains(month) else { return "Mes" }

@@ -3,6 +3,12 @@ import Testing
 @testable import TurnoEV
 
 struct AcquisitionOfferFormTests {
+    @Test func offerChecklistIncludesTheApprovedInstitutionalItems() {
+        #expect(AcquisitionOfferRequirement.allCases.count == 9)
+        #expect(AcquisitionOfferRequirement.allCases.contains(.duplicateKeys))
+        #expect(AcquisitionOfferRequirement.allCases.first == .originalInvoice)
+    }
+
     @Test func responseRPCIncludesNullableArgumentsAsExplicitNulls() throws {
         let parameters = SupabaseAcquisitionRepository.RespondOfferParameters(
             p_offer_id: UUID(),

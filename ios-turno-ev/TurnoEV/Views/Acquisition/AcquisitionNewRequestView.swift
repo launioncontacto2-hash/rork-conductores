@@ -1,52 +1,22 @@
 import Observation
 import SwiftUI
-import UniformTypeIdentifiers
 
 @MainActor
 @Observable
 final class AcquisitionNewRequestViewModel {
     var draft = AcquisitionRequestDraft()
     var step = 0
-    var customTitle = ""
-    var customValue = ""
-    var customCategory: AcquisitionRequestRequirementCategory = .condition
-    var customResponseType: AcquisitionRequirementResponseType = .confirmation
-    var customRequiresVerification = false
     var isPublishing = false
     var feedback: String?
     var published: AcquisitionRequest?
     private let repository: any AcquisitionRepository
     private let onPublished: (AcquisitionRequest) -> Void
 
-    init(repository: any AcquisitionRepository, onPublished: @escaping (AcquisitionRequest) -> Void) {
+    init(repository: any AcquisitionRepository, stationName: String, deliveryCity: String, onPublished: @escaping (AcquisitionRequest) -> Void) {
         self.repository = repository
         self.onPublished = onPublished
-    }
-
-    func addRequirement() {
-        let title = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let value = customValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, !value.isEmpty else {
-            feedback = "Captura el requisito y su condición."
-            return
-        }
-        let code = "custom_\(UUID().uuidString.lowercased())"
-        draft.requirements.append(
-            .init(
-                id: code, category: customCategory, title: title, value: value,
-                responseType: customResponseType,
-                requiresDORIVerification: customRequiresVerification
-            )
-        )
-        customTitle = ""
-        customValue = ""
-        customResponseType = .confirmation
-        customRequiresVerification = false
-        feedback = nil
-    }
-
-    func removeRequirement(_ requirement: AcquisitionRequestRequirement) {
-        draft.requirements.removeAll { $0.id == requirement.id }
+        draft.destinationStationName = stationName
+        draft.deliveryCity = deliveryCity
     }
 
     func publish() async {
@@ -91,10 +61,9 @@ final class AcquisitionNewRequestViewModel {
 struct AcquisitionNewRequestView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model: AcquisitionNewRequestViewModel
-    @State private var isImportingTerms = false
 
-    init(repository: any AcquisitionRepository, onPublished: @escaping (AcquisitionRequest) -> Void) {
-        _model = State(initialValue: AcquisitionNewRequestViewModel(repository: repository, onPublished: onPublished))
+    init(repository: any AcquisitionRepository, stationName: String = "DORI Puebla", deliveryCity: String = "Puebla", onPublished: @escaping (AcquisitionRequest) -> Void) {
+        _model = State(initialValue: AcquisitionNewRequestViewModel(repository: repository, stationName: stationName, deliveryCity: deliveryCity, onPublished: onPublished))
     }
 
     var body: some View {
@@ -117,14 +86,7 @@ struct AcquisitionNewRequestView: View {
                     switch model.step {
                     case 0: basics($bindable.draft)
                     case 1: limits($bindable.draft)
-                    case 2:
-                        requirements(
-                            customTitle: $bindable.customTitle,
-                            customValue: $bindable.customValue,
-                            customCategory: $bindable.customCategory,
-                            customResponseType: $bindable.customResponseType,
-                            customRequiresVerification: $bindable.customRequiresVerification
-                        )
+                    case 2: requirements
                     default: review
                     }
 
@@ -160,23 +122,6 @@ struct AcquisitionNewRequestView: View {
         }
         .navigationTitle("Solicitud")
         .navigationBarTitleDisplayMode(.inline)
-        .fileImporter(
-            isPresented: $isImportingTerms,
-            allowedContentTypes: [.pdf, .plainText],
-            allowsMultipleSelection: false
-        ) { result in
-            guard case .success(let urls) = result, let url = urls.first else { return }
-            let granted = url.startAccessingSecurityScopedResource()
-            defer { if granted { url.stopAccessingSecurityScopedResource() } }
-            do {
-                model.draft.deliveryTermsDocument = try Data(contentsOf: url)
-                model.draft.deliveryTermsFilename = url.lastPathComponent
-                model.draft.deliveryTermsMimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-                model.feedback = nil
-            } catch {
-                model.feedback = "No pudimos leer el documento seleccionado."
-            }
-        }
         .alert("Solicitud publicada", isPresented: Binding(
             get: { model.published != nil }, set: { _ in }
         )) {
@@ -216,8 +161,18 @@ struct AcquisitionNewRequestView: View {
                 requestField("SOH mínimo (%)", text: draft.minimumSoh, keyboard: .numberPad)
                 requestField("Vigencia diagnóstico (días)", text: draft.sohDiagnosisMaximumAgeDays, keyboard: .numberPad)
             }
-            requestField("Ciudad de entrega", text: draft.deliveryCity)
-            requestField("Estación destino", text: draft.destinationStationName)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Estación destino")
+                    .font(.acquisition(.caption, weight: .bold))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
+                Label("\(draft.destinationStationName.wrappedValue) · \(draft.deliveryCity.wrappedValue)", systemImage: "building.2.fill")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(AcquisitionTheme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+                Text("Asignada automáticamente según tu sesión.")
+                    .font(.acquisition(.caption))
+                    .foregroundStyle(AcquisitionTheme.textSecondary)
+            }
             if draft.deadlineAt.wrappedValue != nil {
                 AcquisitionAutoDismissDateRow(
                     title: "Fecha límite para recibir ofertas",
@@ -243,66 +198,26 @@ struct AcquisitionNewRequestView: View {
         .padding(18).acquisitionGlass()
     }
 
-    private func requirements(
-        customTitle: Binding<String>,
-        customValue: Binding<String>,
-        customCategory: Binding<AcquisitionRequestRequirementCategory>,
-        customResponseType: Binding<AcquisitionRequirementResponseType>,
-        customRequiresVerification: Binding<Bool>
-    ) -> some View {
+    private var requirements: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Requisitos de esta solicitud").font(.acquisition(.headline))
-            Text("Incluye las evidencias aprobadas. Puedes agregar condiciones o documentos propios de esta solicitud.")
+            Text("Lineamientos institucionales definidos por DORI. Esta pantalla es informativa.")
                 .font(.acquisition(.subheadline)).foregroundStyle(AcquisitionTheme.textSecondary)
-            ForEach(model.draft.requirements) { requirement in
+            ForEach(model.draft.requirements.filter { $0.category != .evidence }) { requirement in
                 HStack(alignment: .top) {
-                    Image(systemName: requirement.category == .evidence ? "camera.fill" : "checkmark.circle.fill")
+                    Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(AcquisitionTheme.accent)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(requirement.title).font(.acquisition(.subheadline, weight: .bold))
-                        Text(requirement.value).font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
-                    }
+                    Text(requirement.title).font(.acquisition(.subheadline, weight: .bold))
                     Spacer()
-                    if requirement.id.hasPrefix("custom_") {
-                        Button(role: .destructive) { model.removeRequirement(requirement) } label: {
-                            Image(systemName: "trash")
-                        }
-                    }
                 }
             }
             Divider()
-            Picker("Tipo", selection: customCategory) {
-                ForEach([AcquisitionRequestRequirementCategory.condition, .documentation, .specification], id: \.self) {
-                    Text($0.visibleTitle).tag($0)
-                }
-            }
-            requestField("Nuevo requisito", text: customTitle)
-            requestField("Condición o documento esperado", text: customValue)
-            Picker("Tipo de respuesta", selection: customResponseType) {
-                ForEach(AcquisitionRequirementResponseType.allCases, id: \.self) {
-                    Text($0.visibleTitle).tag($0)
-                }
-            }
-            Toggle("Requiere verificación DORI", isOn: customRequiresVerification)
-            Button("Agregar requisito") { model.addRequirement() }
-                .buttonStyle(.bordered).tint(AcquisitionTheme.accent)
-            Divider()
-            Text("Condiciones de entrega de unidades")
-                .font(.acquisition(.headline))
-            Text("Este documento pertenece únicamente a esta solicitud.")
-                .font(.acquisition(.caption))
-                .foregroundStyle(AcquisitionTheme.textSecondary)
-            Button {
-                isImportingTerms = true
-            } label: {
-                Label(
-                    model.draft.deliveryTermsFilename ?? "Cargar documento",
-                    systemImage: model.draft.deliveryTermsDocument == nil ? "doc.badge.plus" : "checkmark.circle.fill"
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .tint(AcquisitionTheme.accent)
+            Label("Evidencias fotográficas", systemImage: "camera.fill")
+                .font(.acquisition(.subheadline, weight: .bold))
+            Text("\(model.draft.requirements.filter { $0.category == .evidence }.count) fotografías requeridas al proveedor.")
+                .font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
+            Label("Condiciones de entrega administradas por DORI", systemImage: "doc.text.fill")
+                .font(.acquisition(.subheadline, weight: .bold))
         }
         .padding(18).acquisitionGlass()
     }
@@ -313,16 +228,13 @@ struct AcquisitionNewRequestView: View {
             reviewLine("Modelo", model.draft.model)
             reviewLine("Cantidad", model.draft.targetQuantity)
             reviewLine("Años", "\(model.draft.minimumYear)–\(model.draft.maximumYear)")
-            reviewLine("Kilometraje", "\(model.draft.maximumMileage) km")
-            reviewLine("Precio máximo", model.draft.maximumUnitPrice)
+            reviewLine("Kilometraje", formattedInteger(model.draft.maximumMileage, suffix: " km"))
+            reviewLine("Precio máximo", formattedInteger(model.draft.maximumUnitPrice, prefix: "$"))
             reviewLine("Periodo", AcquisitionFiscalPeriodPresentation.text(for: model.draft.fiscalPeriod))
             reviewLine("Requisitos", "\(model.draft.requirements.count)")
             reviewLine("Vigencia", model.draft.deadlineAt.map(Self.dateText) ?? "Pendiente")
             reviewLine("Fecha límite de entrega", model.draft.targetDeliveryDate.map(Self.dateText) ?? "Pendiente")
             reviewLine("Estación destino", model.draft.destinationStationName)
-            reviewLine("Condiciones", model.draft.deliveryTermsFilename ?? "Pendiente")
-            Text("La publicación será autoritativa y compartida con los proveedores del entorno TEST.")
-                .font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.textSecondary)
         }
         .padding(18).acquisitionGlass()
     }
@@ -344,6 +256,11 @@ struct AcquisitionNewRequestView: View {
     private func reviewLine(_ title: String, _ value: String) -> some View {
         HStack { Text(title).foregroundStyle(AcquisitionTheme.textSecondary); Spacer(); Text(value).fontWeight(.bold) }
             .font(.acquisition(.subheadline))
+    }
+
+    private func formattedInteger(_ raw: String, prefix: String = "", suffix: String = "") -> String {
+        let value = Int(raw.replacingOccurrences(of: ",", with: "").replacingOccurrences(of: "$", with: "")) ?? 0
+        return prefix + value.formatted(.number.locale(Locale(identifier: "es_MX")).grouping(.automatic)) + suffix
     }
 
     private func nonOptionalDate(_ date: Binding<Date?>) -> Binding<Date> {

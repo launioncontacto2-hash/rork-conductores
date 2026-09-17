@@ -22,6 +22,9 @@ final class AcquisitionOfferDetailViewModel {
     var isWorking = false
     var feedbackMessage: String?
     var confirmationMessage: String?
+    private(set) var isLoadingMedia = false
+    private(set) var loadedMediaCount = 0
+    private(set) var totalMediaCount = 0
     private var reloadRequested = false
     private var isObserving = false
     private var isLoading = false
@@ -261,6 +264,9 @@ final class AcquisitionOfferDetailViewModel {
 
     private func loadMediaProgressively() {
         guard let snapshot = detail, snapshot.evidence.contains(where: { $0.imageData == nil }) else { return }
+        totalMediaCount = snapshot.evidence.count
+        loadedMediaCount = snapshot.evidence.filter { $0.imageData != nil }.count
+        isLoadingMedia = true
         mediaLoadTask?.cancel()
         mediaLoadTask = Task { [weak self] in
             guard let self else { return }
@@ -281,6 +287,8 @@ final class AcquisitionOfferDetailViewModel {
                 delivery: current.delivery,
                 supplierName: current.supplierName
             )
+            loadedMediaCount = evidence.filter { $0.imageData != nil }.count
+            isLoadingMedia = false
             print("[Adquisiciones][Rendimiento] unidad_galeria=\(mediaStartedAt.duration(to: ContinuousClock.now)) archivos=\(dataByID.count)")
         }
     }

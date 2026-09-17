@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct AcquisitionRootView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -38,11 +39,6 @@ struct AcquisitionRootView: View {
                                 role: role,
                                 badges: dockBadges(for: role)
                             )
-                        }
-                    }
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            SessionMenuButton()
                         }
                     }
                     .navigationDestination(isPresented: $showConversations) {
@@ -135,6 +131,8 @@ struct AcquisitionRootView: View {
                     requests(membership: membership)
                 case .vehicles:
                     vehicles(membership: membership)
+                case .arrivals:
+                    arrivals(membership: membership)
                 case .contact:
                     contactDirectory
                 case .account:
@@ -169,6 +167,7 @@ struct AcquisitionRootView: View {
         case .home: "Inicio"
         case .requests: "Solicitudes"
         case .vehicles: "Compras"
+        case .arrivals: "Llegadas"
         case .contact: "Conversaciones"
         case .account: "Cuenta"
         }
@@ -182,7 +181,7 @@ struct AcquisitionRootView: View {
                 : model.organizationName
         case .requests:
             membership.role == .doriAdmin ? "Adquisiciones" : model.organizationName
-        case .vehicles, .contact, .account:
+        case .vehicles, .arrivals, .contact, .account:
             nil
         }
     }
@@ -194,6 +193,7 @@ struct AcquisitionRootView: View {
             ? "Demanda activa y seguimiento"
             : "Oportunidades disponibles"
         case .vehicles: "Seguimiento operativo por unidad"
+        case .arrivals: "Recepción e inspección de unidades"
         case .contact: "Comunicación institucional"
         case .account: "Identidad y contactos autorizados"
         }
@@ -360,8 +360,6 @@ struct AcquisitionRootView: View {
                         }
                         .buttonStyle(.plain)
 
-                        AcquisitionRequestSupportActions(request: request, repository: repository)
-
                         NavigationLink {
                             AcquisitionOfferFormView(
                                 request: request,
@@ -397,6 +395,8 @@ struct AcquisitionRootView: View {
                     NavigationLink {
                         AcquisitionNewRequestView(
                             repository: repository,
+                            stationName: model.principal.stationName ?? "DORI Puebla",
+                            deliveryCity: (model.principal.stationName ?? "DORI Puebla").replacingOccurrences(of: "DORI ", with: ""),
                             onPublished: { _ in Task { await model.load() } }
                         )
                     } label: {
@@ -437,6 +437,8 @@ struct AcquisitionRootView: View {
 
     private func account(membership: AcquisitionMembership) -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            SessionMenuButton()
+                .frame(maxWidth: .infinity, alignment: .trailing)
             AcquisitionContactCard(
                 organization: model.organizationName,
                 roleDescription: membership.role == .doriAdmin
@@ -522,6 +524,24 @@ struct AcquisitionRootView: View {
             }
         } message: {
             Text("Se eliminarán únicamente solicitudes, ofertas, operaciones y conversaciones de prueba. Usuarios y membresías permanecerán intactos.")
+        }
+    }
+
+    @ViewBuilder
+    private func arrivals(membership: AcquisitionMembership) -> some View {
+        if membership.role == .provider {
+            ContentUnavailableView(
+                "Recepción administrada por DORI",
+                systemImage: "shippingbox.fill",
+                description: Text("Aquí verás la confirmación cuando DORI reciba tus unidades.")
+            )
+        } else {
+            AcquisitionArrivalsView(
+                offers: offers(in: .purchase),
+                membership: membership,
+                repository: repository,
+                onChanged: { Task { await model.load() } }
+            )
         }
     }
 
@@ -746,6 +766,172 @@ struct AcquisitionRootView: View {
             }
         }
         .padding(28)
+    }
+}
+
+private struct AcquisitionArrivalsView: View {
+    let offers: [AcquisitionOfferSummary]
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    let onChanged: () -> Void
+
+    private var readyOffers: [AcquisitionOfferSummary] {
+        offers.filter { ["ready_for_delivery", "awarded"].contains($0.status) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Escanea y revisa cada unidad antes de formalizar su recepción.")
+                .font(.acquisition(.subheadline))
+                .foregroundStyle(AcquisitionTheme.textSecondary)
+            if readyOffers.isEmpty {
+                ContentUnavailableView("Sin llegadas pendientes", systemImage: "shippingbox.fill")
+            } else {
+                ForEach(readyOffers) { offer in
+                    NavigationLink {
+                        AcquisitionArrivalInspectionView(
+                            offer: offer,
+                            membership: membership,
+                            repository: repository,
+                            onCompleted: onChanged
+                        )
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(offer.model) \(offer.version ?? "")")
+                                .font(.acquisition(.headline, weight: .bold))
+                            Text("VIN …\(offer.vin.suffix(6)) · \(offer.mileage.formatted(.number.grouping(.automatic))) km")
+                                .font(.acquisition(.caption))
+                                .foregroundStyle(AcquisitionTheme.textSecondary)
+                            Label("Leer nueva unidad", systemImage: "barcode.viewfinder")
+                                .font(.acquisition(.subheadline, weight: .bold))
+                                .foregroundStyle(AcquisitionTheme.accent)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .acquisitionGlass()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+private struct AcquisitionArrivalInspectionView: View {
+    private struct Step: Identifiable {
+        let id: String
+        let title: String
+        let automaticVerification: Bool
+    }
+
+    let offer: AcquisitionOfferSummary
+    let membership: AcquisitionMembership
+    let repository: any AcquisitionRepository
+    let onCompleted: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var detail: AcquisitionOfferDetail?
+    @State private var index = 0
+    @State private var photos: [String: Data] = [:]
+    @State private var selections: [String: PhotosPickerItem] = [:]
+    @State private var accepted: Set<String> = []
+    @State private var feedback: String?
+    @State private var isSubmitting = false
+
+    private let steps = [
+        Step(id: "vin", title: "Número de VIN", automaticVerification: true),
+        Step(id: "origin_invoice", title: "Factura de origen", automaticVerification: true),
+        Step(id: "reinvoice", title: "Refactura a título de DORI", automaticVerification: true),
+        Step(id: "soh", title: "Reporte SOH%", automaticVerification: false),
+        Step(id: "keys", title: "Duplicado de llaves", automaticVerification: false),
+        Step(id: "charger_110v", title: "Cargador 110V", automaticVerification: false),
+        Step(id: "charger_220v", title: "Cargador 220V", automaticVerification: false),
+        Step(id: "plates", title: "Placas", automaticVerification: false),
+        Step(id: "registration", title: "Tarjeta de circulación a título de DORI", automaticVerification: true),
+        Step(id: "manufacturer_warranty", title: "Garantía remanente del fabricante", automaticVerification: false),
+        Step(id: "used_warranty", title: "Garantía de 90 días de Seminuevos", automaticVerification: false),
+    ]
+
+    var body: some View {
+        ZStack {
+            AcquisitionBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Inspección \(index + 1) de \(steps.count)")
+                        .font(.acquisition(.subheadline, weight: .bold))
+                        .foregroundStyle(AcquisitionTheme.accent)
+                    ProgressView(value: Double(index + 1), total: Double(steps.count)).tint(AcquisitionTheme.accent)
+                    let step = steps[index]
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text(step.title).font(.acquisition(.title2, weight: .bold))
+                        PhotosPicker(selection: Binding(
+                            get: { selections[step.id] },
+                            set: { if let value = $0 { selections[step.id] = value; load(value, for: step.id) } }
+                        ), matching: .images) {
+                            Label(photos[step.id] == nil ? "Tomar o elegir foto" : "Foto lista", systemImage: photos[step.id] == nil ? "camera.fill" : "checkmark.circle.fill")
+                                .frame(maxWidth: .infinity).padding(14)
+                        }
+                        .buttonStyle(.borderedProminent).tint(AcquisitionTheme.accent)
+                        if step.automaticVerification, photos[step.id] != nil {
+                            Label("Lista para verificación automática del VIN", systemImage: "viewfinder.circle.fill")
+                                .font(.acquisition(.caption)).foregroundStyle(AcquisitionTheme.info)
+                        }
+                        Toggle("Requisito revisado y correcto", isOn: Binding(
+                            get: { accepted.contains(step.id) },
+                            set: { isAccepted in
+                                if isAccepted { accepted.insert(step.id) }
+                                else { accepted.remove(step.id) }
+                            }
+                        ))
+                    }
+                    .padding(18).acquisitionGlass()
+                    if let feedback { Text(feedback).foregroundStyle(AcquisitionTheme.attention) }
+                    Button(index == steps.count - 1 ? "Recibir unidad" : "Siguiente") {
+                        if photos[step.id] == nil || !accepted.contains(step.id) {
+                            feedback = "Toma la fotografía y confirma el requisito para continuar."
+                        } else if index < steps.count - 1 {
+                            feedback = nil; index += 1
+                        } else {
+                            Task { await complete() }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent).tint(AcquisitionTheme.accent)
+                    .frame(maxWidth: .infinity).disabled(isSubmitting)
+                }
+                .padding(18)
+            }
+        }
+        .navigationTitle("Nueva llegada")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            detail = try? await repository.loadOfferDetail(offerID: offer.id, membership: membership)
+        }
+    }
+
+    private func load(_ item: PhotosPickerItem, for id: String) {
+        Task { if let data = try? await item.loadTransferable(type: Data.self) { photos[id] = data } }
+    }
+
+    private func complete() async {
+        guard accepted.count == steps.count, photos.count == steps.count,
+              let orderID = detail?.delivery?.orderID,
+              let supplierID = offer.supplierID else {
+            feedback = "La unidad todavía no está lista para recepción autoritativa."
+            return
+        }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            _ = try await repository.completeArrival(
+                orderID: orderID,
+                offerID: offer.id,
+                supplierID: supplierID,
+                evidence: photos,
+                membership: membership
+            )
+            onCompleted(); dismiss()
+        } catch {
+            feedback = "No pudimos registrar la recepción. Intenta nuevamente."
+        }
     }
 }
 

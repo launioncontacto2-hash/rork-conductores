@@ -28,6 +28,7 @@ final class AcquisitionOfferFormViewModel {
     private(set) var validatingEvidence: Set<AcquisitionEvidenceKind> = []
     private(set) var validationIssue: AcquisitionOfferFormIssue?
     private(set) var failureStage: AcquisitionOfferSubmissionStage?
+    private(set) var submissionProgress = 0
     private var pendingOfferID: UUID
     private var pendingIdempotencyKey: String
     private var validatedMileage: Int?
@@ -157,11 +158,25 @@ final class AcquisitionOfferFormViewModel {
         }
 
         state = .submitting
+        submissionProgress = 5
         validationIssue = nil
         failureStage = nil
         failureMessage = nil
         do {
-            let result = try await repository.submitOffer(submission, membership: membership)
+            let result = try await repository.submitOffer(
+                submission,
+                membership: membership,
+                progress: { [weak self] completed, total, stage in
+                    guard let self else { return }
+                    switch stage {
+                    case .authorization: self.submissionProgress = 5
+                    case .evidenceUpload:
+                        self.submissionProgress = 10 + Int((Double(completed) / Double(max(total, 1))) * 70)
+                    case .rpc: self.submissionProgress = 90
+                    case .persistenceCheck: self.submissionProgress = 100
+                    }
+                }
+            )
             state = .succeeded(result)
             onSubmitted(result)
         } catch let submissionError as AcquisitionOfferSubmissionError {

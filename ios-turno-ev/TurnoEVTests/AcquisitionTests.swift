@@ -241,6 +241,26 @@ struct AcquisitionRoleAndPresentationTests {
         let photoSummary = try #require(visible.first { $0.id == "required_photos_summary" })
         #expect(photoSummary.value == "18 fotos requeridas")
         #expect(visible.filter { $0.title.localizedCaseInsensitiveContains("llaves") }.count == 1)
+        #expect(visible.filter { $0.category != .evidence }.count == 10)
+        #expect(visible.contains { $0.title == "Refactura a título de DORI" })
+        #expect(visible.contains { $0.title == "Garantía de 90 días de Seminuevos" })
+    }
+
+    @Test func requestDraftUsesInstitutionalPolicyWithoutSupervisorInput() throws {
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD Dolphin Mini"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "295000"
+
+        let publication = try draft.makePublication(idempotencyKey: "institutional-policy-test")
+
+        #expect(publication.deliveryTermsFilename == "condiciones-entrega-dori-test.txt")
+        #expect(publication.destinationStationName == "DORI Puebla")
+        #expect(publication.requirements.filter { $0.category == .evidence }.count == 18)
+        #expect(publication.requirements.filter { $0.category != .evidence }.count == 10)
     }
 
     @Test func newRequestKeepsFlexibleRequirementsWithoutInternalRules() throws {

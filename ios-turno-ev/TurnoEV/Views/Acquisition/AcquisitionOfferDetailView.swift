@@ -213,7 +213,9 @@ struct AcquisitionOfferDetailView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.largeTitle)
-                        Text("Fotografía no disponible")
+                        Text(model.isLoadingMedia
+                             ? "Cargando fotografías · \(model.loadedMediaCount) de \(model.totalMediaCount)"
+                             : "Fotografía no disponible")
                             .font(.acquisition(.subheadline, weight: .semibold))
                     }
                     .foregroundStyle(AcquisitionTheme.textSecondary)
@@ -317,39 +319,20 @@ struct AcquisitionOfferDetailView: View {
                     CapsLabel(text: "Requisitos comerciales")
                 }
                 ForEach(commercialRequirements) { requirement in
-                    requirementRow(
-                        title: requirement.title,
-                        value: requirement.value,
-                        complete: nil
-                    )
+                    HStack(spacing: 9) {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(AcquisitionTheme.textSecondary)
+                        Text(requirement.title).font(.acquisition(.subheadline, weight: .semibold))
+                        Spacer()
+                    }
                 }
 
                 if !photographicRequirements.isEmpty {
                     Divider().overlay(AcquisitionTheme.subtleBorder)
                     CapsLabel(text: "Fotografías de la unidad")
-                    Button {
-                        if let first = availableEvidence(in: detail.evidence).first {
-                            showEvidenceGallery(detail.evidence, initial: first)
-                        }
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: capturedCount >= photographicRequirements.count ? "checkmark.circle.fill" : "photo.stack")
-                                .foregroundStyle(capturedCount >= photographicRequirements.count ? AcquisitionTheme.accent : AcquisitionTheme.attention)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(capturedCount) de \(photographicRequirements.count) fotos capturadas")
-                                    .font(.acquisition(.subheadline, weight: .semibold))
-                                Text("Activar para abrir la galería")
-                                    .font(.acquisition(.caption))
-                                    .foregroundStyle(AcquisitionTheme.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.acquisition(.caption, weight: .bold))
-                                .foregroundStyle(AcquisitionTheme.textSecondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(availableEvidence(in: detail.evidence).isEmpty)
+                    Label("\(capturedCount) de \(photographicRequirements.count) fotos capturadas", systemImage: capturedCount >= photographicRequirements.count ? "checkmark.circle.fill" : "photo.stack")
+                        .font(.acquisition(.subheadline, weight: .semibold))
+                        .foregroundStyle(capturedCount >= photographicRequirements.count ? AcquisitionTheme.accent : AcquisitionTheme.attention)
                 }
             }
             .padding(.top, 12)
@@ -418,13 +401,8 @@ struct AcquisitionOfferDetailView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("\(movement.actorLabel) · \(movement.movementLabel)")
                                 .font(.acquisition(.subheadline, weight: .semibold))
-                            if index > 0 {
-                                Text("\(detail.commercialHistory[index - 1].amountText) → \(movement.amountText)")
-                                    .font(.subheadline.monospacedDigit().weight(.bold))
-                            } else {
-                                Text(movement.amountText)
-                                    .font(.subheadline.monospacedDigit().weight(.bold))
-                            }
+                            Text(movement.amountText)
+                                .font(.subheadline.monospacedDigit().weight(.bold))
                             if let createdAt = movement.createdAt {
                                 Text(AcquisitionSpanishDate.dateTime(createdAt))
                                     .font(.acquisition(.caption2))
@@ -472,16 +450,22 @@ struct AcquisitionOfferDetailView: View {
             deliveryActions(delivery)
         } else if model.membership.role == .doriAdmin {
             if !["awarded", "rejected"].contains(detail.offer.status) {
-                Button("Comprar · \(AcquisitionOfferSummary.currencyText(detail.commercialPriceMxn))") {
+                Button {
                     showsAward = true
+                } label: {
+                    Text("Comprar · \(AcquisitionOfferSummary.currencyText(detail.commercialPriceMxn))")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(AcquisitionTheme.accent)
                 .frame(maxWidth: .infinity)
 
                 if detail.hasPendingCounteroffer(for: .doriAdmin) {
-                    Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
+                    Button {
                         Task { await model.accept() }
+                    } label: {
+                        Text(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar")
+                            .frame(maxWidth: .infinity)
                     }
                         .buttonStyle(.borderedProminent)
                         .tint(AcquisitionTheme.accent)
@@ -491,35 +475,48 @@ struct AcquisitionOfferDetailView: View {
                 if detail.canCounteroffer(as: .doriAdmin),
                    detail.offer.status == "submitted"
                     || detail.hasPendingCounteroffer(for: .doriAdmin) {
-                    Button("Negociar") { showsNegotiation = true }
+                    Button { showsNegotiation = true } label: {
+                        Text("Negociar").frame(maxWidth: .infinity)
+                    }
                         .buttonStyle(.bordered)
                         .frame(maxWidth: .infinity)
                 }
 
-                Button("No continuar", role: .destructive) { showsRejection = true }
+                Button(role: .destructive) { showsRejection = true } label: {
+                    Text("No continuar").frame(maxWidth: .infinity)
+                }
                     .frame(maxWidth: .infinity)
             } else {
                 finalStatus(detail.offer.status)
             }
         } else if detail.hasPendingCounteroffer(for: .provider) {
-            Button(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar") {
+            Button {
                 Task { await model.accept() }
+            } label: {
+                Text(detail.bothPartiesReachedCounterofferLimit ? "Aceptar último precio" : "Aceptar")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(AcquisitionTheme.accent)
             .disabled(model.isWorking)
 
             if detail.canCounteroffer(as: .provider) {
-                Button("Contraofertar") { showsNegotiation = true }
+                Button { showsNegotiation = true } label: {
+                    Text("Contraofertar").frame(maxWidth: .infinity)
+                }
                     .buttonStyle(.bordered)
                     .disabled(model.isWorking)
             }
 
-            Button("No continuar", role: .destructive) { showsRejection = true }
+            Button(role: .destructive) { showsRejection = true } label: {
+                Text("No continuar").frame(maxWidth: .infinity)
+            }
                 .disabled(model.isWorking)
         } else if model.membership.role == .provider,
                   ["submitted", "negotiating", "price_agreed"].contains(detail.offer.status) {
-            Button("No continuar", role: .destructive) { showsRejection = true }
+            Button(role: .destructive) { showsRejection = true } label: {
+                Text("No continuar").frame(maxWidth: .infinity)
+            }
                 .disabled(model.isWorking)
         } else {
             finalStatus(detail.offer.status)

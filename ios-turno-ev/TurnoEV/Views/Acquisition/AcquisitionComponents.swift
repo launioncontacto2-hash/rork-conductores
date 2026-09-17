@@ -130,6 +130,7 @@ nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable,
     case home
     case requests
     case vehicles
+    case arrivals
     case contact
     case account
 
@@ -140,6 +141,7 @@ nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable,
         case .home: "Inicio"
         case .requests: "Solicitudes"
         case .vehicles: "Compras"
+        case .arrivals: "Llegadas"
         case .contact: "Contacto"
         case .account: "Cuenta"
         }
@@ -150,6 +152,7 @@ nonisolated enum AcquisitionDockDestination: String, CaseIterable, Identifiable,
         case .home: "house.fill"
         case .requests: "doc.text.fill"
         case .vehicles: "car.fill"
+        case .arrivals: "shippingbox.and.arrow.backward.fill"
         case .contact: "bubble.left.and.bubble.right.fill"
         case .account: "person.crop.circle.fill"
         }
@@ -250,13 +253,8 @@ struct AcquisitionProviderRequestCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 13) {
-                Image(systemName: "doc.text.fill")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(AcquisitionTheme.accent)
-                    .frame(width: 42, height: 42)
-                    .background(AcquisitionTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("DORI \(summary.request.deliveryCity) busca \(summary.request.modelAndVersions)")
+                    Text("\(summary.request.targetQuantity) \(summary.request.modelAndVersions) · \(summary.request.deliveryCity) · \(summary.request.maximumUnitPriceText)")
                         .font(.acquisition(.headline, weight: .bold))
                         .foregroundStyle(AcquisitionTheme.text)
                     Text("\(summary.request.yearRange) · Máx. \(summary.request.maximumMileageText) km")
@@ -272,26 +270,10 @@ struct AcquisitionProviderRequestCard: View {
                     .foregroundStyle(requestStatusColor(summary.request.visibleStatus.tone))
             }
 
-            HStack(spacing: 13) {
-                AcquisitionVehicleVisual(compact: true)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Solicitados")
-                        .font(.acquisition(.caption, weight: .bold))
-                        .foregroundStyle(AcquisitionTheme.textSecondary)
-                    Text("\(summary.request.targetQuantity) vehículos")
-                        .font(.acquisition(.headline, weight: .bold))
-                    Text(summary.request.maximumUnitPriceText)
-                        .font(.acquisition(.title3, weight: .bold))
-                        .foregroundStyle(AcquisitionTheme.accent)
-                }
-            }
-
             VStack(alignment: .leading, spacing: 5) {
                 Label("Vigencia: \(summary.request.deadlineText)", systemImage: "calendar.badge.clock")
                 Label("Entrega límite: \(summary.request.targetDeliveryText)", systemImage: "shippingbox.fill")
                 Label("Periodo: \(summary.request.fiscalPeriodText)", systemImage: "calendar")
-                Label("Destino: \(summary.request.destinationStationName)", systemImage: "mappin.and.ellipse")
-                Label("Condiciones de entrega disponibles", systemImage: "doc.text.fill")
             }
             .font(.acquisition(.caption))
             .foregroundStyle(AcquisitionTheme.textSecondary)
@@ -532,22 +514,6 @@ struct AcquisitionAdminRequestCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
             HStack(spacing: 14) {
-                ZStack {
-                    Circle()
-                        .stroke(AcquisitionTheme.accent.opacity(0.18), lineWidth: 8)
-                    Circle()
-                        .trim(from: 0, to: max(progress, 0.06))
-                        .stroke(
-                            AcquisitionTheme.accent,
-                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                        )
-                        .rotationEffect(.degrees(-90))
-                    Image(systemName: "car.side.fill")
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundStyle(AcquisitionTheme.accent)
-                }
-                .frame(width: 64, height: 64)
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(summary.request.targetQuantity) vehículos requeridos")
                         .font(.acquisition(.title3, weight: .bold))
@@ -579,11 +545,12 @@ struct AcquisitionAdminRequestCard: View {
                     .foregroundStyle(AcquisitionTheme.accent)
                 Text("Vigencia: \(summary.request.deadlineText)")
                 Text("Entrega límite: \(summary.request.targetDeliveryText)")
-                Text("Estación destino: \(summary.request.destinationStationName)")
-                Text("Condiciones de entrega disponibles")
             }
             .font(.acquisition(.caption))
             .foregroundStyle(AcquisitionTheme.textSecondary)
+            Label("Ver detalles y requisitos", systemImage: "list.bullet.clipboard.fill")
+                .font(.acquisition(.subheadline, weight: .bold))
+                .foregroundStyle(AcquisitionTheme.accent)
         }
         .padding(18)
         .acquisitionGlass(cornerRadius: 24, emphasized: true)
