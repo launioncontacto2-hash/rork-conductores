@@ -336,6 +336,10 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     static let acceptedDeliveryTermsMIMETypes: Set<String> = [
         "application/pdf", "text/plain",
     ]
+    private static let testDeliveryTerms = """
+    Condiciones de entrega DORI Adquisición — entorno TEST.
+    Documento institucional administrado por DORI. El supervisor no puede modificarlo.
+    """
 
     var model = ""
     var idempotencyKey = "ios-acquisition-request-\(UUID().uuidString.lowercased())"
@@ -688,11 +692,6 @@ nonisolated enum AcquisitionFiscalPeriodPresentation {
         "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
         "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
     ]
-
-    private static let testDeliveryTerms = """
-    Condiciones de entrega DORI Adquisición — entorno TEST.
-    Documento institucional administrado por DORI. El supervisor no puede modificarlo.
-    """
 
     static func monthName(_ month: Int) -> String {
         guard (1...spanishMonthNames.count).contains(month) else { return "Mes" }
