@@ -45,7 +45,8 @@ final class TurnoEVUITests: XCTestCase {
         XCTAssertTrue(providerCard.label.contains("15 Dolphin Mini / Plus"))
         XCTAssertTrue(providerCard.label.contains("Puebla"))
         XCTAssertTrue(providerCard.label.contains("$295,000"))
-        XCTAssertTrue(app.buttons["Ver condiciones de entrega"].exists)
+        XCTAssertTrue(app.buttons["Ofrecer una unidad"].exists)
+        XCTAssertFalse(app.buttons["Ver condiciones de entrega"].exists)
         XCTAssertFalse(app.staticTexts["Ver requisitos"].exists)
         keepScreenshot(named: "Proveedor-solicitud-aprobada")
     }
