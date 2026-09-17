@@ -367,7 +367,7 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
     static let defaultRequirements: [AcquisitionRequestRequirement] = [
         .init(id: "origin_invoice_document", category: .documentation, title: "Factura de origen", value: "Requerido", displayOrder: 1),
         .init(id: "reinvoice_to_dori", category: .documentation, title: "Refactura a título de DORI", value: "Requerido", displayOrder: 2),
-        .init(id: "soh_report", category: .documentation, title: "Reporte SOH%", value: "Requerido", displayOrder: 3),
+        .init(id: "soh_report_document", category: .documentation, title: "Reporte SOH%", value: "Requerido", displayOrder: 3),
         .init(id: "condition_keys", category: .condition, title: "Duplicado de llaves", value: "Requerido", displayOrder: 4),
         .init(id: "condition_charger_110v", category: .condition, title: "Cargador 110V", value: "Requerido", displayOrder: 5),
         .init(id: "condition_charger_220v", category: .condition, title: "Cargador 220V", value: "Requerido", displayOrder: 6),
