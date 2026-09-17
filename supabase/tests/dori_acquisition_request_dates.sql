@@ -60,6 +60,17 @@ SELECT is(
     1::bigint,
     'Storage permite al administrador TEST seleccionar objetos huérfanos antes de borrarlos'
 );
+SELECT ok(
+    (
+        SELECT qual LIKE '%acquisition-request-documents%'
+        FROM pg_catalog.pg_policies
+        WHERE schemaname = 'storage'
+          AND tablename = 'objects'
+          AND policyname = 'acquisition_test_objects_reset_select'
+          AND cmd = 'SELECT'
+    ),
+    'la limpieza TEST puede seleccionar documentos de solicitud huérfanos'
+);
 SELECT table_privs_are(
     'public', 'acquisition_delivery_commitment_history', 'authenticated', ARRAY['SELECT'],
     'el cliente no altera directamente el historial'
