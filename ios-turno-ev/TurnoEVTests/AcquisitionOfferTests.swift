@@ -328,6 +328,33 @@ struct AcquisitionOfferSubmissionTests {
         #expect(model.form.evidence.count == 18)
     }
 
+    @Test func doesNotRepeatVinRecognitionWhenTheCapturedValueDidNotChange() async {
+        let repository = Repository()
+        let counter = ValidationCounter()
+        let model = Self.model(
+            repository: repository,
+            vinEvidenceValidator: { _, _ in
+                await counter.incrementVIN()
+                return .match
+            }
+        )
+        model.form = AcquisitionOfferFormTests.validForm()
+        model.form.evidence[.vin] = nil
+
+        model.capture(Data([0xFF, 0xD8, 0xFF, 0xD9]), for: .vin)
+        for _ in 0..<100 where model.validatingEvidence.contains(.vin) || model.form.evidence[.vin] == nil {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let callsAfterCapture = await counter.vinCalls
+        #expect(callsAfterCapture == 1)
+
+        await model.submit()
+
+        let callsAfterSubmit = await counter.vinCalls
+        #expect(callsAfterSubmit == 1)
+        #expect(repository.submission != nil)
+    }
+
     @Test func storageAuthorizationFailureDoesNotPretendToBeAConnectionProblem() {
         let error = AcquisitionOfferSubmissionError(
             stage: .evidenceUpload,
@@ -341,6 +368,7 @@ struct AcquisitionOfferSubmissionTests {
 
     private static func model(
         repository: Repository,
+        vinEvidenceValidator: @escaping AcquisitionOfferFormViewModel.VINEvidenceValidator = { _, _ in .match },
         onSubmitted: @escaping (AcquisitionOfferSummary) -> Void = { _ in }
     ) -> AcquisitionOfferFormViewModel {
         AcquisitionOfferFormViewModel(
@@ -354,9 +382,17 @@ struct AcquisitionOfferSubmissionTests {
             ),
             repository: repository,
             odometerEvidenceValidator: { _, _ in .match },
-            vinEvidenceValidator: { _, _ in .match },
+            vinEvidenceValidator: vinEvidenceValidator,
             onSubmitted: onSubmitted
         )
+    }
+
+    private actor ValidationCounter {
+        private(set) var vinCalls = 0
+
+        func incrementVIN() {
+            vinCalls += 1
+        }
     }
 
     private enum Failure: Error { case unavailable }

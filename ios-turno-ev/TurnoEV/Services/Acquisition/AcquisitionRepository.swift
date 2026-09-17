@@ -119,10 +119,18 @@ nonisolated enum AcquisitionQueries {
 
 @MainActor
 final class SupabaseAcquisitionRepository: AcquisitionRepository {
-    /// The repository has no actor-owned state, so constructing it is safe from
-    /// SwiftUI's synchronous default-argument context. Database access remains
-    /// isolated to the main actor through the protocol methods below.
-    nonisolated init() {}
+    private let evidenceDataCache: NSCache<NSString, NSData>
+    private var signedDocumentURLs: [String: (url: URL, expiresAt: Date)] = [:]
+    private var offersLoadTask: Task<[AcquisitionOfferSummary], Error>?
+
+    /// Cache only decoded transport data and let `NSCache` evict it under memory
+    /// pressure. Database access remains isolated to the main actor.
+    nonisolated init() {
+        let cache = NSCache<NSString, NSData>()
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        cache.countLimit = 48
+        evidenceDataCache = cache
+    }
 
     nonisolated struct MembershipRow: Decodable, Sendable {
         let id: UUID
@@ -856,24 +864,45 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? {
         guard let path = request.deliveryTermsDocumentPath,
               let client = SupabaseBridge.client else { return nil }
-        return try await client.storage
+        if let cached = signedDocumentURLs[path], cached.expiresAt > Date() {
+            return cached.url
+        }
+        let url = try await client.storage
             .from("acquisition-request-documents")
             .createSignedURL(path: path, expiresIn: 300)
+        signedDocumentURLs[path] = (url, Date().addingTimeInterval(240))
+        return url
     }
 
     func loadOffers() async throws -> [AcquisitionOfferSummary] {
         guard let client = SupabaseBridge.client else {
             throw RepositoryError.notConfigured
         }
+        if let existing = offersLoadTask {
+            return try await existing.value
+        }
 
-        let rows: [OfferRow] = try await client
-            .from("acquisition_offers")
-            .select(AcquisitionQueries.offerColumns)
-            .order("submitted_at", ascending: false)
-            .execute()
-            .value
-
-        return rows.map { Self.offer(from: $0) }
+        // Dashboard sections request the same projection concurrently. Coalesce
+        // only the in-flight read; completed reads are never retained, so a later
+        // authoritative reload still reaches the backend.
+        let task = Task { @MainActor in
+            let rows: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .order("submitted_at", ascending: false)
+                .execute()
+                .value
+            return rows.map { Self.offer(from: $0) }
+        }
+        offersLoadTask = task
+        do {
+            let result = try await task.value
+            offersLoadTask = nil
+            return result
+        } catch {
+            offersLoadTask = nil
+            throw error
+        }
     }
 
     func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity] {
@@ -968,7 +997,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .value
         guard let offerRow = offerRows.first else { throw RepositoryError.offerNotFound }
 
-        let negotiationRows: [NegotiationRow] = try await client
+        async let negotiationRowsTask: [NegotiationRow] = client
             .from("acquisition_negotiations")
             .select(AcquisitionQueries.negotiationColumns)
             .eq("offer_id", value: offerID.uuidString)
@@ -976,7 +1005,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
 
-        let evidenceRows: [EvidenceRow] = try await client
+        async let evidenceRowsTask: [EvidenceRow] = client
             .from("acquisition_evidence")
             .select(AcquisitionQueries.evidenceColumns)
             .eq("offer_id", value: offerID.uuidString)
@@ -984,7 +1013,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
 
-        let requirementRows: [RequestRequirementRow] = try await client
+        async let requirementRowsTask: [RequestRequirementRow] = client
             .from("acquisition_request_requirements")
             .select(AcquisitionQueries.requestRequirementColumns)
             .eq("request_id", value: offerRow.request_id.uuidString)
@@ -992,41 +1021,48 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
 
-        let evidence = evidenceRows.map {
-            AcquisitionEvidenceItem(
-                id: $0.id,
-                kind: $0.kind,
-                objectPath: $0.object_path,
-                verified: $0.verified,
-                imageData: nil
-            )
-        }
-
-        let assessment: AcquisitionOfferAssessment?
-        if membership.role == .doriAdmin {
-            let rows: [AssessmentRow] = try await client
+        async let assessmentRowsTask: [AssessmentRow] = {
+            guard membership.role == .doriAdmin else { return [] }
+            return try await client
                 .from("acquisition_offer_assessments")
                 .select(AcquisitionQueries.assessmentColumns)
                 .eq("offer_id", value: offerID.uuidString)
                 .execute()
                 .value
-            assessment = rows.first.map { Self.assessment(from: $0) }
-        } else {
-            assessment = nil
-        }
+        }()
 
-        let delivery = try await loadDeliveryJourney(
+        async let deliveryTask = loadDeliveryJourney(
             offerID: offerID,
             membership: membership,
             client: client
         )
-        let supplierRows: [SupplierRow] = try await client
+        async let supplierRowsTask: [SupplierRow] = client
             .from("acquisition_suppliers")
             .select(AcquisitionQueries.supplierColumns)
             .eq("id", value: offerRow.supplier_id.uuidString)
             .limit(1)
             .execute()
             .value
+
+        let (negotiationRows, evidenceRows, requirementRows, assessmentRows, delivery, supplierRows) =
+            try await (
+                negotiationRowsTask,
+                evidenceRowsTask,
+                requirementRowsTask,
+                assessmentRowsTask,
+                deliveryTask,
+                supplierRowsTask
+            )
+        let evidence = evidenceRows.map {
+            AcquisitionEvidenceItem(
+                id: $0.id,
+                kind: $0.kind,
+                objectPath: $0.object_path,
+                verified: $0.verified,
+                imageData: evidenceDataCache.object(forKey: $0.object_path as NSString).map { $0 as Data }
+            )
+        }
+        let assessment = assessmentRows.first.map { Self.assessment(from: $0) }
 
         return AcquisitionOfferDetail(
             offer: Self.offer(from: offerRow),
@@ -1053,18 +1089,32 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
     func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] {
         guard let client = SupabaseBridge.client else { return [:] }
         let bucket = client.storage.from("acquisition-evidence")
-        return await withTaskGroup(of: (UUID, Data?).self, returning: [UUID: Data].self) { group in
-            for item in evidence where item.imageData == nil {
+        var result = Dictionary(
+            uniqueKeysWithValues: evidence.compactMap { item -> (UUID, Data)? in
+                if let data = item.imageData { return (item.id, data) }
+                guard let cached = evidenceDataCache.object(forKey: item.objectPath as NSString) else {
+                    return nil
+                }
+                return (item.id, cached as Data)
+            }
+        )
+        let downloaded = await withTaskGroup(of: (UUID, String, Data?).self, returning: [(UUID, String, Data)].self) { group in
+            for item in evidence where result[item.id] == nil {
                 group.addTask {
-                    (item.id, try? await bucket.download(path: item.objectPath))
+                    (item.id, item.objectPath, try? await bucket.download(path: item.objectPath))
                 }
             }
-            var result: [UUID: Data] = [:]
-            for await (id, data) in group {
-                if let data { result[id] = data }
+            var values: [(UUID, String, Data)] = []
+            for await (id, path, data) in group {
+                if let data { values.append((id, path, data)) }
             }
-            return result
+            return values
         }
+        for (id, path, data) in downloaded {
+            result[id] = data
+            evidenceDataCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
+        }
+        return result
     }
 
     func submitOffer(
@@ -1106,54 +1156,95 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
         }
 
         let bucket = client.storage.from("acquisition-evidence")
-        var references: [EvidenceReference] = []
-        for item in submission.evidence {
-            guard !item.data.isEmpty else { throw RepositoryError.evidenceRequired }
-            guard item.data.count <= 10 * 1_024 * 1_024 else {
-                throw RepositoryError.evidenceTooLarge
+        let uploadItems: [(index: Int, item: AcquisitionEvidenceUpload, path: String)] = try submission.evidence
+            .enumerated()
+            .map { index, item in
+                guard !item.data.isEmpty else { throw RepositoryError.evidenceRequired }
+                guard item.data.count <= 10 * 1_024 * 1_024 else {
+                    throw RepositoryError.evidenceTooLarge
+                }
+                return (
+                    index,
+                    item,
+                    AcquisitionEvidencePath.make(
+                        environmentID: membership.environmentID,
+                        supplierID: supplierID,
+                        offerID: submission.offerID,
+                        kind: item.kind
+                    )
+                )
             }
 
-            let path = AcquisitionEvidencePath.make(
-                environmentID: membership.environmentID,
-                supplierID: supplierID,
-                offerID: submission.offerID,
-                kind: item.kind
+        // Refresh once, then let the independent immutable object uploads run in
+        // parallel. Their paths remain deterministic and the transactional RPC is
+        // still invoked only after every object succeeds.
+        do {
+            _ = try await client.auth.session
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
             )
-            do {
-                // Force the SDK to recover/refresh the persisted Auth session before
-                // Storage builds its authenticated request. The same client still
-                // performs the upload; no parallel authentication path is introduced.
-                _ = try await client.auth.session
-                try await bucket.upload(
-                    path,
-                    data: item.data,
-                    options: FileOptions(contentType: "image/jpeg", upsert: false)
-                )
-            } catch {
-                let diagnostic = AcquisitionRemoteDiagnostic.describe(
-                    error,
-                    operation: "storage.upload acquisition-evidence",
-                    context: [
-                        "bucket": "acquisition-evidence",
-                        "path": AcquisitionRemoteDiagnostic.redact(path: path),
-                        "mime": "image/jpeg",
-                        "bytes": String(item.data.count),
-                        "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environmentID),
-                        "supplier_id": AcquisitionRemoteDiagnostic.redact(supplierID),
-                        "offer_id": AcquisitionRemoteDiagnostic.redact(submission.offerID),
-                        "evidence": item.kind.rawValue,
-                        "upsert": "false",
-                    ]
-                )
-                print("[Adquisiciones][TEST][Storage] \(diagnostic)")
-                throw AcquisitionOfferSubmissionError(
-                    stage: .evidenceUpload,
-                    evidenceKind: item.kind,
-                    technicalDescription: diagnostic
-                )
-            }
-            references.append(EvidenceReference(kind: item.kind.rawValue, path: path))
         }
+
+        var indexedReferences: [(Int, EvidenceReference)] = []
+        do {
+            // Four concurrent uploads keep memory/network pressure predictable on
+            // physical devices while removing the serial round-trip bottleneck.
+            for offset in stride(from: 0, to: uploadItems.count, by: 4) {
+                let batch = Array(uploadItems[offset..<min(offset + 4, uploadItems.count)])
+                let uploadedBatch = try await withThrowingTaskGroup(
+                    of: (Int, EvidenceReference).self,
+                    returning: [(Int, EvidenceReference)].self
+                ) { group in
+                    for upload in batch {
+                        group.addTask {
+                            do {
+                                try await bucket.upload(
+                                    upload.path,
+                                    data: upload.item.data,
+                                    options: FileOptions(contentType: "image/jpeg", upsert: false)
+                                )
+                                return (
+                                    upload.index,
+                                    EvidenceReference(kind: upload.item.kind.rawValue, path: upload.path)
+                                )
+                            } catch {
+                                let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                                    error,
+                                    operation: "storage.upload acquisition-evidence",
+                                    context: [
+                                        "bucket": "acquisition-evidence",
+                                        "path": AcquisitionRemoteDiagnostic.redact(path: upload.path),
+                                        "mime": "image/jpeg",
+                                        "bytes": String(upload.item.data.count),
+                                        "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environmentID),
+                                        "supplier_id": AcquisitionRemoteDiagnostic.redact(supplierID),
+                                        "offer_id": AcquisitionRemoteDiagnostic.redact(submission.offerID),
+                                        "evidence": upload.item.kind.rawValue,
+                                        "upsert": "false",
+                                    ]
+                                )
+                                print("[Adquisiciones][TEST][Storage] \(diagnostic)")
+                                throw AcquisitionOfferSubmissionError(
+                                    stage: .evidenceUpload,
+                                    evidenceKind: upload.item.kind,
+                                    technicalDescription: diagnostic
+                                )
+                            }
+                        }
+                    }
+                    var uploaded: [(Int, EvidenceReference)] = []
+                    for try await value in group { uploaded.append(value) }
+                    return uploaded
+                }
+                indexedReferences.append(contentsOf: uploadedBatch)
+            }
+        } catch {
+            throw error
+        }
+        let references = indexedReferences.sorted { $0.0 < $1.0 }.map { $0.1 }
 
         do {
             // The RPC returns the complete composite row. Do not decode that response
@@ -1363,19 +1454,34 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             uniquingKeysWith: { first, _ in first }
         )
         let bucket = client.storage.from("acquisition-evidence")
-        let thumbnailByOffer = await withTaskGroup(
-            of: (UUID, Data?).self,
-            returning: [UUID: Data].self
-        ) { group in
-            for offerID in Set(rows.compactMap(\.offer_id)) {
-                guard let path = pathByOffer[offerID] else { continue }
-                group.addTask { (offerID, try? await bucket.download(path: path)) }
+        var cachedThumbnails: [UUID: Data] = [:]
+        var missingThumbnails: [(offerID: UUID, path: String)] = []
+        for offerID in Set(rows.compactMap(\.offer_id)) {
+            guard let path = pathByOffer[offerID] else { continue }
+            if let cached = evidenceDataCache.object(forKey: path as NSString) {
+                cachedThumbnails[offerID] = cached as Data
+            } else {
+                missingThumbnails.append((offerID, path))
             }
-            var result: [UUID: Data] = [:]
-            for await (offerID, data) in group {
-                if let data { result[offerID] = data }
+        }
+        let thumbnailByOffer = await withTaskGroup(
+            of: (UUID, String, Data?).self,
+            returning: [(UUID, String, Data)].self
+        ) { group in
+            for item in missingThumbnails {
+                group.addTask {
+                    (item.offerID, item.path, try? await bucket.download(path: item.path))
+                }
+            }
+            var result: [(UUID, String, Data)] = []
+            for await (offerID, path, data) in group {
+                if let data { result.append((offerID, path, data)) }
             }
             return result
+        }
+        for (offerID, path, data) in thumbnailByOffer {
+            cachedThumbnails[offerID] = data
+            evidenceDataCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
         }
 
         let summaries = rows.map { row in
@@ -1388,7 +1494,7 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
                         mileage: $0.mileage,
                         currentPriceMxn: $0.agreedPriceMxn ?? $0.priceMxn,
                         status: AcquisitionHumanStatus.title(for: $0.status, role: .provider),
-                        thumbnailData: thumbnailByOffer[$0.id]
+                        thumbnailData: cachedThumbnails[$0.id]
                     )
                 }
                 return Self.chatThread(from: row, vehicle: vehicle)

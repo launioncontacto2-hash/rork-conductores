@@ -8,6 +8,7 @@ final class AcquisitionRealtimeObserver {
     private var channel: RealtimeChannelV2?
     private var listenTasks: [Task<Void, Never>] = []
     private var observationKey: String?
+    private var reloadDebounceTask: Task<Void, Never>?
 
     func start(
         environmentID: UUID,
@@ -71,7 +72,7 @@ final class AcquisitionRealtimeObserver {
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
-                    onChange()
+                    scheduleReload(onChange)
                 }
             }
         }
@@ -133,7 +134,7 @@ final class AcquisitionRealtimeObserver {
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
-                    onChange()
+                    scheduleReload(onChange)
                 }
             }
         }
@@ -192,7 +193,7 @@ final class AcquisitionRealtimeObserver {
             Task {
                 for await _ in changes {
                     guard !Task.isCancelled else { return }
-                    onChange()
+                    scheduleReload(onChange)
                 }
             }
         }
@@ -204,11 +205,25 @@ final class AcquisitionRealtimeObserver {
 
     func stop() {
         observationKey = nil
+        reloadDebounceTask?.cancel()
+        reloadDebounceTask = nil
         listenTasks.forEach { $0.cancel() }
         listenTasks = []
         if let channel {
             Task { await channel.unsubscribe() }
         }
         channel = nil
+    }
+
+    /// One backend command can update an offer, negotiation, notification and order.
+    /// Treat that transaction burst as one invalidation instead of rebuilding the
+    /// complete screen once per changed table.
+    private func scheduleReload(_ onChange: @escaping @MainActor () -> Void) {
+        reloadDebounceTask?.cancel()
+        reloadDebounceTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            onChange()
+        }
     }
 }

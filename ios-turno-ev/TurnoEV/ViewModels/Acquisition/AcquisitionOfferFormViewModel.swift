@@ -30,6 +30,8 @@ final class AcquisitionOfferFormViewModel {
     private(set) var failureStage: AcquisitionOfferSubmissionStage?
     private var pendingOfferID: UUID
     private var pendingIdempotencyKey: String
+    private var validatedMileage: Int?
+    private var validatedVIN: String?
 
     init(
         request: AcquisitionRequest,
@@ -71,9 +73,13 @@ final class AcquisitionOfferFormViewModel {
     }
 
     func capture(_ data: Data, for kind: AcquisitionEvidenceKind) {
-        let normalized = AcquisitionEvidenceValidator.normalizedJPEG(data)
-        Task { await acceptCapture(normalized, for: kind) }
         if case .needsData = state { state = .editing }
+        Task {
+            let normalized = await Task.detached(priority: .userInitiated) {
+                AcquisitionEvidenceValidator.normalizedJPEG(data)
+            }.value
+            await acceptCapture(normalized, for: kind)
+        }
     }
 
     private func acceptCapture(_ data: Data, for kind: AcquisitionEvidenceKind) async {
@@ -90,25 +96,30 @@ final class AcquisitionOfferFormViewModel {
             )
             form.validationResults.odometer = result
             guard result == .match else {
+                validatedMileage = nil
                 form.evidence[kind] = nil
                 evidenceMessages[kind] = result == .mismatch
                     ? AcquisitionOfferFormIssue.odometerMismatch.message
                     : AcquisitionOfferFormIssue.odometerNotDetected.message
                 return
             }
+            validatedMileage = mileage
         case .vin, .originInvoice:
+            let expectedVIN = form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
             let result = await vinEvidenceValidator(
                 data,
-                form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                expectedVIN
             )
             form.validationResults.vin = result
             guard result == .match else {
+                validatedVIN = nil
                 form.evidence[kind] = nil
                 evidenceMessages[kind] = result == .mismatch
                     ? AcquisitionOfferFormIssue.vinMismatch.message
                     : AcquisitionOfferFormIssue.vinNotDetected.message
                 return
             }
+            validatedVIN = expectedVIN
         default:
             break
         }
@@ -177,17 +188,22 @@ final class AcquisitionOfferFormViewModel {
 
     private func refreshAutomaticValidations() async {
         let mileage = Int(form.mileage.replacingOccurrences(of: ",", with: ""))
-        if let data = form.evidence[.odometer] ?? form.evidence[.dashboard] {
+        if validatedMileage != mileage,
+           let data = form.evidence[.odometer] ?? form.evidence[.dashboard] {
             form.validationResults.odometer = await odometerEvidenceValidator(
                 data,
                 mileage
             )
+            validatedMileage = form.validationResults.odometer == .match ? mileage : nil
         }
-        if let data = form.evidence[.vin] ?? form.evidence[.originInvoice] {
+        let expectedVIN = form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if validatedVIN != expectedVIN,
+           let data = form.evidence[.vin] ?? form.evidence[.originInvoice] {
             form.validationResults.vin = await vinEvidenceValidator(
                 data,
-                form.vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                expectedVIN
             )
+            validatedVIN = form.validationResults.vin == .match ? expectedVIN : nil
         }
     }
 
