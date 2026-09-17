@@ -52,7 +52,7 @@ final class AcquisitionNewRequestViewModel {
     func publish() async {
         guard !isPublishing else { return }
         do {
-            _ = try draft.makePublication()
+            _ = try draft.makePublication(authoritativeNow: AppClock.now())
         } catch let issue as AcquisitionRequestDraftIssue {
             feedback = issue.message
             return
@@ -67,7 +67,9 @@ final class AcquisitionNewRequestViewModel {
             published = request
             onPublished(request)
         } catch {
-            if let publicationError = error as? AcquisitionRequestPublicationError {
+            if let issue = error as? AcquisitionRequestDraftIssue {
+                feedback = issue.message
+            } else if let publicationError = error as? AcquisitionRequestPublicationError {
                 feedback = publicationError.errorDescription
             } else {
                 feedback = "No pudimos publicar la solicitud. Intenta nuevamente."

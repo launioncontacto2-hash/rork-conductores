@@ -85,13 +85,15 @@ nonisolated struct AcquisitionTestResetResult: Sendable, Equatable {
 }
 
 nonisolated struct AcquisitionRequestPublicationError: LocalizedError, Sendable {
-    enum Stage: Sendable { case documentUpload, rpc }
+    enum Stage: Sendable { case clock, documentUpload, rpc }
 
     let stage: Stage
     let technicalDescription: String
 
     var errorDescription: String? {
         switch stage {
+        case .clock:
+            "No pudimos validar la hora del entorno TEST. Revisa tu conexión e intenta nuevamente."
         case .documentUpload:
             "No pudimos cargar el documento de condiciones. Usa un archivo PDF o TXT de máximo 10 MB."
         case .rpc:
@@ -755,7 +757,6 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
 
     func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest {
         guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
-        let publication = try draft.makePublication()
         let session = try await client.auth.session
         let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
         let memberships: [MembershipRow] = try await client
@@ -768,6 +769,24 @@ final class SupabaseAcquisitionRepository: AcquisitionRepository {
             .execute()
             .value
         guard let membership = memberships.first else { throw RepositoryError.noMembership }
+
+        // TEST has a shared logical clock. Refresh it immediately before validating the
+        // period so the phone cannot accept a date that Postgres already considers expired.
+        // This preflight intentionally runs before Storage to avoid orphaned documents.
+        let authoritativeNow: Date
+        if EnvironmentControl.usesSharedTestClock {
+            await SharedClockSync.shared.refresh()
+            guard SharedClockSync.shared.status == .synced else {
+                throw AcquisitionRequestPublicationError(
+                    stage: .clock,
+                    technicalDescription: SharedClockSync.shared.lastError ?? "shared_test_clock_unavailable"
+                )
+            }
+            authoritativeNow = AppClock.now()
+        } else {
+            authoritativeNow = Date()
+        }
+        let publication = try draft.makePublication(authoritativeNow: authoritativeNow)
         let safeFilename = publication.deliveryTermsFilename
             .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
         let documentPath = [

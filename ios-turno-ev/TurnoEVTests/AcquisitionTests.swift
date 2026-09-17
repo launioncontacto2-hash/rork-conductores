@@ -295,6 +295,75 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(components.second == 0)
     }
 
+    @Test func newRequestRejectsExpiredDeadlineUsingAuthoritativeClock() throws {
+        let now = try #require(
+            Calendar(identifier: .gregorian).date(
+                from: DateComponents(year: 2026, month: 9, day: 20, hour: 6)
+            )
+        )
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD Dolphin Mini"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "295000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
+        draft.deadlineAt = now.addingTimeInterval(-86_400)
+        draft.targetDeliveryDate = now.addingTimeInterval(10 * 86_400)
+
+        #expect(throws: AcquisitionRequestDraftIssue.deadlineMustBeFuture) {
+            _ = try draft.makePublication(authoritativeNow: now)
+        }
+    }
+
+    @Test func newRequestRejectsDeliveryBeforeOfferDeadline() throws {
+        let now = try #require(
+            Calendar(identifier: .gregorian).date(
+                from: DateComponents(year: 2026, month: 9, day: 20, hour: 6)
+            )
+        )
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD Dolphin Mini"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "295000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
+        draft.deadlineAt = now.addingTimeInterval(10 * 86_400)
+        draft.targetDeliveryDate = now.addingTimeInterval(9 * 86_400)
+
+        #expect(throws: AcquisitionRequestDraftIssue.targetDeliveryBeforeDeadline) {
+            _ = try draft.makePublication(authoritativeNow: now)
+        }
+    }
+
+    @Test func newRequestAcceptsFutureDatesUsingAuthoritativeClock() throws {
+        let now = try #require(
+            Calendar(identifier: .gregorian).date(
+                from: DateComponents(year: 2026, month: 9, day: 20, hour: 6)
+            )
+        )
+        var draft = AcquisitionRequestDraft()
+        draft.model = "BYD Dolphin Mini"
+        draft.targetQuantity = "2"
+        draft.minimumYear = "2025"
+        draft.maximumYear = "2026"
+        draft.maximumMileage = "20000"
+        draft.maximumUnitPrice = "295000"
+        draft.deliveryTermsDocument = Data("Condiciones TEST".utf8)
+        draft.deliveryTermsFilename = "condiciones-test.txt"
+        draft.deadlineAt = now.addingTimeInterval(7 * 86_400)
+        draft.targetDeliveryDate = now.addingTimeInterval(14 * 86_400)
+
+        let publication = try draft.makePublication(authoritativeNow: now)
+        #expect(publication.deadlineAt == draft.deadlineAt)
+        #expect(publication.targetDeliveryDate == draft.targetDeliveryDate)
+    }
+
     @Test func publishRequestUsesCanonicalPostgresDateArgument() throws {
         let target = try #require(
             Calendar(identifier: .gregorian).date(

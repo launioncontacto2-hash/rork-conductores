@@ -382,7 +382,10 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         return calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day)
     }
 
-    func makePublication(idempotencyKey: String? = nil) throws -> AcquisitionRequestPublication {
+    func makePublication(
+        idempotencyKey: String? = nil,
+        authoritativeNow: Date? = nil
+    ) throws -> AcquisitionRequestPublication {
         let cleanModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanModel.isEmpty else { throw AcquisitionRequestDraftIssue.modelRequired }
         guard let quantity = Int(targetQuantity), quantity > 0 else {
@@ -427,6 +430,13 @@ nonisolated struct AcquisitionRequestDraft: Equatable, Sendable {
         }
         guard let deadlineAt else { throw AcquisitionRequestDraftIssue.deadlineRequired }
         guard let targetDeliveryDate else { throw AcquisitionRequestDraftIssue.targetDeliveryRequired }
+        if let authoritativeNow, deadlineAt <= authoritativeNow {
+            throw AcquisitionRequestDraftIssue.deadlineMustBeFuture
+        }
+        let calendar = Calendar.current
+        guard calendar.startOfDay(for: targetDeliveryDate) >= calendar.startOfDay(for: deadlineAt) else {
+            throw AcquisitionRequestDraftIssue.targetDeliveryBeforeDeadline
+        }
         return AcquisitionRequestPublication(
             model: cleanModel,
             versions: versions.split(separator: ",")
@@ -489,7 +499,7 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
     case modelRequired, invalidQuantity, invalidYears, invalidMileage, invalidMaximumPrice
     case invalidMinimumSoh, invalidDiagnosisAge, cityRequired, stationRequired, deliveryTermsRequired, requirementsRequired
     case duplicateRequirements, invalidDeliveryTermsType, deliveryTermsTooLarge
-    case deadlineRequired, targetDeliveryRequired
+    case deadlineRequired, targetDeliveryRequired, deadlineMustBeFuture, targetDeliveryBeforeDeadline
 
     var message: String {
         switch self {
@@ -509,6 +519,10 @@ nonisolated enum AcquisitionRequestDraftIssue: Error, Equatable, Sendable {
         case .duplicateRequirements: "Cada requisito debe ser único."
         case .deadlineRequired: "Selecciona la fecha límite para recibir ofertas."
         case .targetDeliveryRequired: "Selecciona la fecha objetivo de entrega."
+        case .deadlineMustBeFuture:
+            "La fecha límite para recibir ofertas ya venció. Selecciona una fecha futura."
+        case .targetDeliveryBeforeDeadline:
+            "La fecha objetivo de entrega no puede ser anterior al cierre de ofertas."
         }
     }
 }
