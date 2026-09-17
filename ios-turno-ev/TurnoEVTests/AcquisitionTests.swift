@@ -16,6 +16,20 @@ struct AcquisitionRoleAndPresentationTests {
         #expect(route == .staff)
     }
 
+    @Test func multiRoleAccountCanEnterAcquisitionWithoutLosingStaffMembership() throws {
+        let membership = try Self.membership(
+            role: "dori_admin",
+            supplierID: nil
+        )
+        let route = try SupabaseSessionResolver.preferredRoute(
+            hasStaffMembership: true,
+            acquisitionMembership: membership
+        )
+        #expect(
+            route == SessionMembershipRoute.acquisition(AcquisitionRole.doriAdmin)
+        )
+    }
+
     @Test func acquisitionAdminWithoutTraditionalMembershipUsesAcquisition() throws {
         let membership = try Self.membership(
             role: "dori_admin",

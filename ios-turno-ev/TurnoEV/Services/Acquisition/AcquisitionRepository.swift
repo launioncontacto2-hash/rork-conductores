@@ -2061,20 +2061,19 @@ nonisolated enum SessionMembershipRoute: Equatable {
     case acquisition(AcquisitionRole)
 }
 
-/// One sign-in door for both existing station staff and acquisition-only accounts.
-/// Existing staff resolution remains first, so adding this module cannot steal an
-/// operational account's established route.
+/// One sign-in door for existing station staff, acquisition-only accounts and the
+/// explicitly authorised multi-role identities that belong to both systems.
 @MainActor
 enum SupabaseSessionResolver {
     nonisolated static func preferredRoute(
         hasStaffMembership: Bool,
         acquisitionMembership: AcquisitionMembership?
     ) throws -> SessionMembershipRoute {
-        if hasStaffMembership { return .staff }
-        guard let acquisitionMembership else {
-            throw SupabaseAcquisitionRepository.RepositoryError.noMembership
+        if let acquisitionMembership {
+            return .acquisition(acquisitionMembership.role)
         }
-        return .acquisition(acquisitionMembership.role)
+        if hasStaffMembership { return .staff }
+        throw SupabaseAcquisitionRepository.RepositoryError.noMembership
     }
 
     static func run(email: String, password: String) async throws -> SupabaseSessionResolution {
@@ -2089,32 +2088,43 @@ enum SupabaseSessionResolver {
 
         let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
 
-        if let staff = try await SupabaseAuthProbe.resolveStaff(
+        let staff = try await SupabaseAuthProbe.resolveStaff(
             authUserId: session.user.id,
             profile: profile
-        ) {
-            _ = try Self.preferredRoute(
-                hasStaffMembership: true,
-                acquisitionMembership: nil
+        )
+
+        let membership: AcquisitionMembership?
+        do {
+            membership = try await SupabaseAcquisitionRepository().loadMembership(
+                profileID: profile.id,
+                environmentID: profile.environment_id
             )
-            return .staff(staff)
+        } catch SupabaseAcquisitionRepository.RepositoryError.noMembership {
+            membership = nil
         }
 
-        let membership = try await SupabaseAcquisitionRepository().loadMembership(
-            profileID: profile.id,
-            environmentID: profile.environment_id
-        )
-        _ = try Self.preferredRoute(
-            hasStaffMembership: false,
+        switch try Self.preferredRoute(
+            hasStaffMembership: staff != nil,
             acquisitionMembership: membership
-        )
-        return .acquisition(
-            AcquisitionSessionIdentity(
-                authUserID: session.user.id,
-                profile: profile,
-                membership: membership
+        ) {
+        case .staff:
+            guard let staff else {
+                throw SupabaseAcquisitionRepository.RepositoryError.noMembership
+            }
+            return .staff(staff)
+
+        case .acquisition:
+            guard let membership else {
+                throw SupabaseAcquisitionRepository.RepositoryError.noMembership
+            }
+            return .acquisition(
+                AcquisitionSessionIdentity(
+                    authUserID: session.user.id,
+                    profile: profile,
+                    membership: membership
+                )
             )
-        )
+        }
     }
 }
 
