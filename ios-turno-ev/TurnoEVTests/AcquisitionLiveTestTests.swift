@@ -158,10 +158,10 @@ struct AcquisitionLiveTestTests {
         }
         print("DORI_PERF name=offer.image.bytes input=\(cameraJPEG.count) output=\(jpeg.count)")
         _ = await measured("offer.ocr.vin") {
-            await AcquisitionEvidenceValidator.validateVIN(in: jpeg, expectedVIN: "TESTSDK25PUE\(suffix)")
+            await AcquisitionEvidenceValidator.validateVIN(jpeg, expectedVIN: "TESTSDK25PUE\(suffix)")
         }
         _ = await measured("offer.ocr.odometer") {
-            await AcquisitionEvidenceValidator.validateOdometer(in: jpeg, expectedMileage: 8_400)
+            await AcquisitionEvidenceValidator.validateOdometer(jpeg, expectedMileage: 8_400)
         }
         var form = AcquisitionOfferFormData()
         form.vin = "TESTSDK25PUE\(suffix)"
@@ -244,10 +244,8 @@ struct AcquisitionLiveTestTests {
         let loadedEvidence = await measured("detail.admin.gallery") {
             await repository.loadOfferEvidenceData(adminDetail.evidence)
         }
-        print(
-            "DORI_PERF name=detail.admin.gallery_bytes count=\(loadedEvidence.count) "
-                + "bytes=\(loadedEvidence.compactMap(\.imageData).reduce(0) { $0 + $1.count })"
-        )
+        let loadedEvidenceBytes = loadedEvidence.values.reduce(0) { $0 + $1.count }
+        print("DORI_PERF name=detail.admin.gallery_bytes count=\(loadedEvidence.count) bytes=\(loadedEvidenceBytes)")
 
         let adminGeneral = try await repository.ensureChatThread(
             supplierID: providerMembership.supplierID,
