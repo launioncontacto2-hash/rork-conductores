@@ -42,7 +42,8 @@ final class TurnoEVUITests: XCTestCase {
         let providerCard = app.descendants(matching: .any)
             .matching(identifier: "acquisition-provider-request-card").firstMatch
         XCTAssertTrue(providerCard.waitForExistence(timeout: 5))
-        XCTAssertTrue(providerCard.label.contains("Solicitados"))
+        XCTAssertTrue(providerCard.label.contains("2 BYD Dolphin Mini / Plus"))
+        XCTAssertTrue(providerCard.label.contains("Puebla"))
         XCTAssertTrue(providerCard.label.contains("$295,000"))
         XCTAssertTrue(app.buttons["Ver condiciones de entrega"].exists)
         XCTAssertFalse(app.staticTexts["Ver requisitos"].exists)
