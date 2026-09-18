@@ -166,6 +166,7 @@ struct BackendDriverCoverageView: View {
                     myGuardsCard
                     absenceForm
                     myAbsencesCard
+                    pendingDriverSectionsCard
                 }
                 .padding(18)
             }
@@ -401,6 +402,49 @@ struct BackendDriverCoverageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .panel()
+    }
+
+    /// Historical navigation exposed the calendar and driver dossier from this area.
+    /// The current TEST contract does not yet provide those read models, so keep the
+    /// destinations visible without falling back to CoverageStore/DossierBook demo data.
+    private var pendingDriverSectionsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PRÓXIMAS SECCIONES")
+                .font(.caption.weight(.black))
+                .foregroundStyle(Palette.textMuted)
+
+            pendingSectionRow(
+                title: "Mi calendario",
+                detail: "Disponible cuando el backend publique el calendario operativo del conductor.",
+                symbol: "calendar"
+            )
+            pendingSectionRow(
+                title: "Documentación de unidad y conductor",
+                detail: "La consulta documental TEST aún no tiene contrato remoto para esta sesión.",
+                symbol: "doc.text.magnifyingglass"
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panel()
+    }
+
+    private func pendingSectionRow(title: String, detail: String, symbol: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .foregroundStyle(Palette.textMuted)
+                .frame(width: 28, height: 28)
+                .background(Palette.surfaceRaised, in: .circle)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(Palette.textMuted)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private func slotLabel(_ raw: String) -> String {
