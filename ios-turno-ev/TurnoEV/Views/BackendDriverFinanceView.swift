@@ -106,6 +106,7 @@ struct BackendDriverFinanceView: View {
                                 .panel()
                         } else if let snapshot {
                             summaryCard(snapshot)
+                            bonusesPendingCard
                             incomeCaptureCard(snapshot)
                             bankCard(snapshot)
                             settlementsCard(snapshot)
@@ -208,6 +209,15 @@ struct BackendDriverFinanceView: View {
         .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .panelFlat(cornerRadius: 13)
+    }
+
+    private var bonusesPendingCard: some View {
+        NoticeBanner(
+            symbol: "rosette",
+            title: "Bonos — Próximamente",
+            message: "Esta sesión muestra únicamente movimientos financieros confirmados por Supabase. Los bonos aparecerán cuando exista su contrato operativo.",
+            tone: .info
+        )
     }
 
     private func incomeCaptureCard(_ value: SupabaseFinancialService.DriverSnapshot) -> some View {
