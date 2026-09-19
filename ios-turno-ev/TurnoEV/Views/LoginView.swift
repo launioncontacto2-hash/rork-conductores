@@ -1,4 +1,5 @@
 import LocalAuthentication
+import Supabase
 import SwiftUI
 
 nonisolated enum BackendAuthenticationRouting {
