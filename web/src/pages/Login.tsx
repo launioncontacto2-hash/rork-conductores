@@ -10,11 +10,11 @@ import { useConsoleAuth } from "@/console/ConsoleAuth";
 
 /**
  * The only access door for Consola DORI. Supabase Auth proves the credential and
- * console_identity then proves the active supervisor membership and station scope.
+ * console_identity then proves the active console/supervisor membership and station scope.
  * There is deliberately no local directory, biometric shortcut or simulated recovery.
  */
 const Login = () => {
-  const { accessMessage, isResolving, signInSupervisor } = useConsoleAuth();
+  const { accessMessage, isResolving, signInConsole } = useConsoleAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +24,7 @@ const Login = () => {
   const submitCredentials = async (): Promise<void> => {
     setError(null);
     try {
-      await signInSupervisor(email.trim(), password);
+      await signInConsole(email.trim(), password);
       setPassword("");
       toast.success("Acceso autorizado", { description: "Abriendo tu estación en Consola DORI." });
       navigate("/console", { replace: true });
@@ -56,7 +56,7 @@ const Login = () => {
         </div>
         <h1 className="text-3xl font-black tracking-tight">Identifícate</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Supabase verificará tu cuenta, tu rol de supervisión y la estación que puedes coordinar.
+          Supabase verificará tu cuenta, tu identidad autorizada y la estación que puedes coordinar.
         </p>
 
         <form
@@ -123,7 +123,7 @@ const Login = () => {
           <DialogHeader>
             <DialogTitle>Recuperar acceso</DialogTitle>
             <DialogDescription>
-              La consola no crea contraseñas ni simula solicitudes. Pide al responsable autorizado de DORI que restablezca tu cuenta en Supabase Auth y confirme que conservas una membresía supervisora vigente en tu estación.
+              La consola no crea contraseñas ni simula solicitudes. Pide al responsable autorizado de DORI que restablezca tu cuenta en Supabase Auth y confirme que conservas una membresía autorizada vigente en tu estación.
             </DialogDescription>
           </DialogHeader>
           <BigButton onClick={() => setIsRecoveryOpen(false)}>Entendido</BigButton>

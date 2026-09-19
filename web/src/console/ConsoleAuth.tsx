@@ -21,7 +21,7 @@ interface ConsoleAuthValue {
   isResolving: boolean;
   accessMessage: string | null;
   realtimeConnections: number;
-  signInSupervisor: (email: string, password: string) => Promise<void>;
+  signInConsole: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshIdentity: () => Promise<ConsoleIdentity | null>;
 }
@@ -91,7 +91,7 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
     [clearConsole],
   );
 
-  const signInSupervisor = useCallback(
+  const signInConsole = useCallback(
     async (email: string, password: string) => {
       if (!supabase) throw new Error(supabaseConfigurationError ?? "Supabase no está disponible.");
       setIsResolving(true);
@@ -103,7 +103,7 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
         const resolved = await refreshIdentity();
         if (!resolved) {
           await supabase.auth.signOut();
-          throw new Error("La cuenta no tiene una membresía supervisora vigente para esta consola.");
+          throw new Error("La cuenta no tiene una membresía autorizada vigente para esta consola.");
         }
 
         const { error: heartbeatError } = await supabase.rpc("touch_device", {
@@ -199,11 +199,11 @@ export const ConsoleAuthProvider = ({ children }: { children: ReactNode }) => {
       isResolving,
       accessMessage,
       realtimeConnections,
-      signInSupervisor,
+      signInConsole,
       signOut,
       refreshIdentity,
     }),
-    [accessMessage, identity, isResolving, realtimeConnections, refreshIdentity, signInSupervisor, signOut],
+    [accessMessage, identity, isResolving, realtimeConnections, refreshIdentity, signInConsole, signOut],
   );
 
   return <ConsoleAuthContext.Provider value={value}>{children}</ConsoleAuthContext.Provider>;
