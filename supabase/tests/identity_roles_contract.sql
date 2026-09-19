@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(8);
+SELECT plan(18);
 
 SELECT ok(
     EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'staff_memberships_role_check'
@@ -34,6 +34,50 @@ SELECT ok(
 SELECT ok(
     EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'staff_memberships_role_check'),
     'staff role constraint remains present'
+);
+
+-- Functional contract probes run in this transaction and are rolled back below.
+-- They intentionally inspect the effective authorization functions without creating
+-- Auth users or relying on email addresses.
+SELECT ok(
+    pg_get_functiondef('app.auth_station_ids()'::regprocedure) LIKE '%role <> ''administration''%',
+    'administration is excluded from station scope'
+);
+SELECT ok(
+    pg_get_functiondef('app.auth_has_role(text,uuid)'::regprocedure) NOT LIKE '%copilot%',
+    'auth_has_role has no copilot grant'
+);
+SELECT ok(
+    pg_get_functiondef('public.console_audit_history(integer)'::regprocedure) LIKE '%membership.role IN (''supervisor'',''console'')%',
+    'audit history accepts supervisor or console memberships'
+);
+SELECT ok(
+    pg_get_functiondef('public.console_audit_history(integer)'::regprocedure) LIKE '%auth_can_operate_station(event.station_id)%',
+    'audit history remains station scoped'
+);
+SELECT ok(
+    pg_get_functiondef('public.console_audit_history(integer)'::regprocedure) LIKE '%console_or_supervisor_role_required%',
+    'audit history uses neutral authorization error'
+);
+SELECT ok(
+    pg_get_functiondef('app.update_test_clock_authorized(uuid,timestamptz,timestamptz,double precision,boolean,bigint)'::regprocedure) LIKE '%auth_has_role(''console'')%',
+    'test clock accepts console authorization'
+);
+SELECT ok(
+    pg_get_functiondef('app.update_test_clock_authorized(uuid,timestamptz,timestamptz,double precision,boolean,bigint)'::regprocedure) NOT LIKE '%administration%',
+    'test clock does not accept administration'
+);
+SELECT ok(
+    pg_get_functiondef('public.console_create_test_vehicle(text,text,text)'::regprocedure) LIKE '%pg_advisory_xact_lock%',
+    'vehicle creation serializes unit numbering'
+);
+SELECT ok(
+    pg_get_functiondef('public.console_create_test_vehicle(text,text,text)'::regprocedure) LIKE '%result_payload%',
+    'vehicle creation records idempotent result payload'
+);
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='shift_evidence' AND policyname='shift_evidence_console_read'),
+    'console shift evidence read policy exists'
 );
 
 SELECT * FROM finish();
