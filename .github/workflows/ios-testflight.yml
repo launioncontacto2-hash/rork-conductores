@@ -351,6 +351,11 @@ jobs:
               f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{os.environ["PROVISIONING_PROFILE_NAME"]}";',
               1,
           )
+          settings = settings.replace(
+              'INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";',
+              'INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";',
+              1,
+          )
           project_file.write_text(
               source[:settings_start] + settings + source[settings_end:],
               encoding="utf-8",
