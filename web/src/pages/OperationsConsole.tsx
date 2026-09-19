@@ -240,6 +240,8 @@ const OperationsConsole = () => {
   const [evidenceURLs, setEvidenceURLs] = useState<Array<ShiftEvidence & { signedURL: string }>>([]);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [vehicleColor, setVehicleColor] = useState("");
+  const [vehicleNote, setVehicleNote] = useState("");
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -327,6 +329,22 @@ const OperationsConsole = () => {
     onSuccess: async () => {
       setAssignmentVehicleId("");
       setAssignmentReason("");
+      await snapshot.refetch();
+    },
+  });
+  const vehicleMutation = useMutation({
+    mutationFn: async () => {
+      if (!supabase) throw new Error("Supabase no está disponible.");
+      const { error } = await supabase.rpc("console_create_test_vehicle", {
+        p_color: vehicleColor.trim() || null,
+        p_note: vehicleNote.trim() || null,
+        p_idempotency_key: `console-create-vehicle-${crypto.randomUUID()}`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: async () => {
+      setVehicleColor("");
+      setVehicleNote("");
       await snapshot.refetch();
     },
   });
@@ -577,8 +595,18 @@ const OperationsConsole = () => {
         </section>
 
         <Card id="flota" className="panel scroll-mt-4">
-          <CardHeader><CardTitle className="text-lg">Flotilla</CardTitle><CardDescription>{data?.vehicles.length ?? 0} unidades visibles dentro de la membresía de estación.</CardDescription></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-lg">Unidades</CardTitle>
+            <CardDescription>{data?.vehicles.length ?? 0} unidades visibles dentro de la membresía de estación. Las altas se limitan a TEST y quedan auditadas.</CardDescription>
+          </CardHeader>
           <CardContent>
+            <div className="mb-5 grid gap-3 rounded-xl border border-border bg-muted/20 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+              <label className="grid gap-2 text-sm font-semibold">Color (opcional)<input className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={vehicleColor} onChange={(event) => setVehicleColor(event.target.value)} placeholder="Color no registrado" /></label>
+              <label className="grid gap-2 text-sm font-semibold">Motivo<input className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={vehicleNote} onChange={(event) => setVehicleNote(event.target.value)} placeholder="Alta de unidad TEST" /></label>
+              <Button onClick={() => vehicleMutation.mutate()} disabled={vehicleMutation.isPending}>{vehicleMutation.isPending ? "Creando…" : "Nueva unidad TEST"}</Button>
+              {vehicleMutation.isError && <p className="text-sm text-destructive md:col-span-3">No se pudo crear: {vehicleMutation.error.message}</p>}
+              {vehicleMutation.isSuccess && <p className="text-sm text-emerald-300 md:col-span-3">Unidad creada y disponible para asignación.</p>}
+            </div>
             <Table>
               <TableHeader><TableRow><TableHead>Unidad</TableHead><TableHead>Modelo</TableHead><TableHead>Estado</TableHead><TableHead>Batería</TableHead><TableHead>Odómetro</TableHead><TableHead>Conductor</TableHead></TableRow></TableHeader>
               <TableBody>
