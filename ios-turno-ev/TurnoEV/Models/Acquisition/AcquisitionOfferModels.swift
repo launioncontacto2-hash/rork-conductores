@@ -1,0 +1,385 @@
+import Foundation
+
+nonisolated enum AcquisitionBatteryKnowledge: String, CaseIterable, Identifiable, Sendable {
+    case diagnosed
+    case requiresDORIVerification
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .diagnosed: "Tengo diagnóstico"
+        case .requiresDORIVerification: "DORI deberá verificarla"
+        }
+    }
+}
+
+nonisolated enum AcquisitionEvidenceKind: String, CaseIterable, Codable, Identifiable, Sendable {
+    // Legacy identifiers remain decodable for offers created before this cut.
+    case vin
+    case dashboard
+    case front
+    case exteriorFront = "exterior_front"
+    case exteriorDriverSide = "exterior_driver_side"
+    case exteriorPassengerSide = "exterior_passenger_side"
+    case exteriorRear = "exterior_rear"
+    case interiorDashboard = "interior_dashboard"
+    case steeringWheel = "steering_wheel"
+    case odometer
+    case driverSeat = "driver_seat"
+    case passengerSeat = "passenger_seat"
+    case rearSeats = "rear_seats"
+    case keys
+    case charger110V = "charger_110v"
+    case charger220V = "charger_220v"
+    case originInvoice = "origin_invoice"
+    case sohReport = "soh_report"
+    case frontCompartment = "front_compartment"
+    case trunk
+
+    static let detailedStandard: [Self] = [
+        .vin, .exteriorFront, .exteriorDriverSide, .exteriorPassengerSide,
+        .exteriorRear, .interiorDashboard, .steeringWheel, .odometer,
+        .driverSeat, .passengerSeat, .rearSeats, .keys,
+        .charger110V, .charger220V, .originInvoice,
+        .sohReport, .frontCompartment, .trunk,
+    ]
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .vin: "Foto del VIN"
+        case .dashboard: "Tablero y kilometraje"
+        case .front: "Vista general"
+        case .exteriorFront: "Exterior frontal"
+        case .exteriorDriverSide: "Exterior lateral conductor"
+        case .exteriorPassengerSide: "Exterior lateral copiloto"
+        case .exteriorRear: "Exterior trasera"
+        case .interiorDashboard: "Interior y tablero general"
+        case .steeringWheel: "Volante"
+        case .odometer: "Odómetro encendido"
+        case .driverSeat: "Asiento conductor"
+        case .passengerSeat: "Asiento copiloto"
+        case .rearSeats: "Asientos traseros"
+        case .keys: "Ambas llaves"
+        case .charger110V: "Cargador de emergencia 110V"
+        case .charger220V: "Cargador de pared 220V"
+        case .originInvoice: "Factura de origen"
+        case .sohReport: "Reporte SOH %"
+        case .frontCompartment: "Compartimento frontal / cofre"
+        case .trunk: "Cajuela"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .vin: "Que el número sea legible"
+        case .dashboard: "Enciende el tablero y muestra los km"
+        case .front: "Fotografía completa del vehículo"
+        case .exteriorFront: "Encuadra frente y ambos faros"
+        case .exteriorDriverSide: "Muestra completo el costado del conductor"
+        case .exteriorPassengerSide: "Muestra completo el costado del copiloto"
+        case .exteriorRear: "Encuadra parte trasera y placas"
+        case .interiorDashboard: "Muestra tablero y consola completos"
+        case .steeringWheel: "Fotografía frontal del volante"
+        case .odometer: "Enciende el tablero y muestra los km"
+        case .driverSeat: "Muestra completo el asiento del conductor"
+        case .passengerSeat: "Muestra completo el asiento del copiloto"
+        case .rearSeats: "Muestra la banca trasera completa"
+        case .keys: "Coloca ambas llaves juntas y visibles"
+        case .charger110V: "Muestra cable y conectores completos"
+        case .charger220V: "Muestra cargador y conectores completos"
+        case .originInvoice: "Oculta datos sensibles no necesarios"
+        case .sohReport: "El diagnóstico debe ser legible y estar vigente"
+        case .frontCompartment: "Muestra completo el compartimento frontal"
+        case .trunk: "Muestra completa la cajuela"
+        }
+    }
+}
+
+nonisolated struct AcquisitionEvidenceUpload: Equatable, Sendable {
+    let kind: AcquisitionEvidenceKind
+    let data: Data
+}
+
+nonisolated enum AcquisitionOfferRequirement: String, CaseIterable, Hashable, Identifiable, Sendable {
+    case originalInvoice
+    case reinvoice
+    case duplicateKeys
+    case charger110
+    case charger220
+    case plates
+    case ownershipTransfer
+    case bydWarranty
+    case usedWarranty
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .originalInvoice: "Factura de origen"
+        case .reinvoice: "Refactura a título de DORI"
+        case .duplicateKeys: "Duplicado de llaves"
+        case .charger110: "Cargador 110V"
+        case .charger220: "Cargador 220V"
+        case .plates: "Placas"
+        case .ownershipTransfer: "Cambio de propietario a título de DORI"
+        case .bydWarranty: "Garantía remanente del fabricante"
+        case .usedWarranty: "Garantía de 90 días de Seminuevos"
+        }
+    }
+}
+
+nonisolated struct AcquisitionOfferSubmission: Equatable, Sendable {
+    let offerID: UUID
+    let requestID: UUID
+    let model: String
+    let version: String?
+    let vin: String
+    let year: Int
+    let mileage: Int
+    let declaredSoh: Int?
+    let color: String
+    let priceMxn: Int
+    let transferIncluded: Bool
+    let deliveryTermsAccepted: Bool
+    let validationResults: AcquisitionEvidenceValidationResults
+    let evidence: [AcquisitionEvidenceUpload]
+    let idempotencyKey: String
+}
+
+nonisolated enum AcquisitionOfferSubmissionStage: String, Equatable, Sendable {
+    case authorization
+    case evidenceUpload
+    case rpc
+    case persistenceCheck
+}
+
+nonisolated struct AcquisitionOfferSubmissionError: LocalizedError, Sendable {
+    let stage: AcquisitionOfferSubmissionStage
+    let evidenceKind: AcquisitionEvidenceKind?
+    let technicalDescription: String
+
+    var errorDescription: String? {
+        switch stage {
+        case .authorization:
+            return "Tu acceso de proveedor no está disponible. Vuelve a iniciar sesión."
+        case .evidenceUpload:
+            let lower = technicalDescription.lowercased()
+            if let evidenceKind {
+                if lower.contains("nsurlerrordomain") || lower.contains("network") || lower.contains("offline") {
+                    return "No pudimos subir \(evidenceKind.title.lowercased()) por un problema de red. Intenta nuevamente."
+                } else if lower.contains("401") || lower.contains("403") || lower.contains("42501")
+                    || lower.contains("row-level security") {
+                    return "Tu sesión no autorizó la carga de \(evidenceKind.title.lowercased()). Vuelve a iniciar sesión."
+                } else {
+                    return "No pudimos guardar \(evidenceKind.title.lowercased()). Intenta nuevamente."
+                }
+            } else {
+                return "No pudimos guardar las fotografías. Intenta nuevamente."
+            }
+        case .rpc:
+            if technicalDescription.localizedCaseInsensitiveContains("duplicate")
+                || technicalDescription.localizedCaseInsensitiveContains("unique") {
+                return "Ya existe una propuesta para ese VIN. Revisa Mis vehículos."
+            } else {
+                return "Las fotografías se guardaron, pero no pudimos registrar la propuesta. Intenta nuevamente."
+            }
+        case .persistenceCheck:
+            return "La propuesta se envió, pero no pudimos confirmar su carga. Actualiza Mis vehículos."
+        }
+    }
+}
+
+nonisolated struct AcquisitionOfferFormData: Equatable, Sendable {
+    var vin = ""
+    var year = ""
+    var mileage = ""
+    var price = ""
+    var color = ""
+    var transferIncluded = false
+    var deliveryTermsAccepted = false
+    var batteryKnowledge: AcquisitionBatteryKnowledge = .diagnosed
+    var soh = ""
+    var confirmedRequirements: Set<AcquisitionOfferRequirement> = []
+    var evidence: [AcquisitionEvidenceKind: Data] = [:]
+    var validationResults = AcquisitionEvidenceValidationResults.pending
+
+    func makeSubmission(
+        request: AcquisitionRequest,
+        offerID: UUID = UUID(),
+        idempotencyKey: String? = nil
+    ) throws -> AcquisitionOfferSubmission {
+        let normalizedVin = vin
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !normalizedVin.isEmpty else { throw AcquisitionOfferFormIssue.vinRequired }
+        guard normalizedVin.range(
+            of: "^[A-HJ-NPR-Z0-9]{17}$",
+            options: .regularExpression
+        ) != nil else {
+            throw AcquisitionOfferFormIssue.invalidVin
+        }
+
+        guard let parsedYear = Self.integer(from: year), (2000...2100).contains(parsedYear) else {
+            throw AcquisitionOfferFormIssue.invalidYear
+        }
+        guard (request.minimumYear...request.maximumYear).contains(parsedYear) else {
+            throw AcquisitionOfferFormIssue.yearOutsideRequest(request.minimumYear, request.maximumYear)
+        }
+        guard let parsedMileage = Self.integer(from: mileage), parsedMileage >= 0 else {
+            throw AcquisitionOfferFormIssue.invalidMileage
+        }
+        guard parsedMileage <= request.maximumMileage else {
+            throw AcquisitionOfferFormIssue.mileageExceedsMaximum(request.maximumMileage)
+        }
+        guard let parsedPrice = Self.integer(from: price), parsedPrice > 0 else {
+            throw AcquisitionOfferFormIssue.invalidPrice
+        }
+        guard parsedPrice <= request.maximumUnitPriceMxn else {
+            throw AcquisitionOfferFormIssue.priceExceedsMaximum(request.maximumUnitPriceMxn)
+        }
+
+        let normalizedColor = color.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedColor.isEmpty else { throw AcquisitionOfferFormIssue.colorRequired }
+
+        guard confirmedRequirements.count == AcquisitionOfferRequirement.allCases.count else {
+            throw AcquisitionOfferFormIssue.requirementsRequired
+        }
+        guard transferIncluded else { throw AcquisitionOfferFormIssue.stationDeliveryRequired(request.destinationStationName) }
+        guard deliveryTermsAccepted else { throw AcquisitionOfferFormIssue.deliveryTermsAcceptanceRequired }
+        switch validationResults.odometer {
+        case .match: break
+        case .mismatch: throw AcquisitionOfferFormIssue.odometerMismatch
+        case .manualReview, .pending: throw AcquisitionOfferFormIssue.odometerNotDetected
+        }
+        switch validationResults.vin {
+        case .match: break
+        case .mismatch: throw AcquisitionOfferFormIssue.vinMismatch
+        case .manualReview, .pending: throw AcquisitionOfferFormIssue.vinNotDetected
+        }
+
+        let parsedSoh: Int?
+        guard batteryKnowledge == .diagnosed,
+              let value = Self.integer(from: soh), (0...100).contains(value) else {
+            throw AcquisitionOfferFormIssue.invalidSoh
+        }
+        guard value >= request.minimumSoh else {
+            throw AcquisitionOfferFormIssue.sohBelowMinimum(request.minimumSoh)
+        }
+        parsedSoh = value
+
+        let uploads = try request.requiredEvidenceKinds.map { kind in
+            guard let data = evidence[kind], !data.isEmpty else {
+                throw AcquisitionOfferFormIssue.evidenceRequired(kind)
+            }
+            return AcquisitionEvidenceUpload(kind: kind, data: data)
+        }
+
+        return AcquisitionOfferSubmission(
+            offerID: offerID,
+            requestID: request.id,
+            model: request.model,
+            version: request.versions.first,
+            vin: normalizedVin,
+            year: parsedYear,
+            mileage: parsedMileage,
+            declaredSoh: parsedSoh,
+            color: normalizedColor,
+            priceMxn: parsedPrice,
+            transferIncluded: transferIncluded,
+            deliveryTermsAccepted: deliveryTermsAccepted,
+            validationResults: validationResults,
+            evidence: uploads,
+            idempotencyKey: idempotencyKey ?? "ios-acquisition-offer-\(offerID.uuidString.lowercased())"
+        )
+    }
+
+    private static func integer(from text: String) -> Int? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: " ", with: "")
+        return Int(normalized)
+    }
+}
+
+nonisolated enum AcquisitionOfferFormIssue: Error, Equatable, Sendable {
+    case vinRequired
+    case invalidVin
+    case invalidYear
+    case yearOutsideRequest(Int, Int)
+    case invalidMileage
+    case mileageExceedsMaximum(Int)
+    case invalidPrice
+    case priceExceedsMaximum(Int)
+    case colorRequired
+    case invalidSoh
+    case sohBelowMinimum(Int)
+    case stationDeliveryRequired(String)
+    case deliveryTermsAcceptanceRequired
+    case odometerMismatch
+    case vinMismatch
+    case odometerNotDetected
+    case vinNotDetected
+    case requirementsRequired
+    case evidenceRequired(AcquisitionEvidenceKind)
+
+    var message: String {
+        switch self {
+        case .vinRequired: "Captura el VIN para continuar."
+        case .invalidVin: "Revisa el VIN. Debe contener 17 caracteres válidos."
+        case .invalidYear: "Captura un año válido."
+        case .yearOutsideRequest(let minimum, let maximum): "El año debe estar entre \(minimum) y \(maximum)."
+        case .invalidMileage: "Captura un kilometraje válido."
+        case .mileageExceedsMaximum(let maximum): "Excede el máximo solicitado de \(maximum.formatted()) km."
+        case .invalidPrice: "Captura un precio válido."
+        case .priceExceedsMaximum(let maximum): "Excede el máximo solicitado de \(AcquisitionOfferSummary.currencyText(maximum))."
+        case .colorRequired: "Captura el color de la unidad."
+        case .invalidSoh: "Captura un diagnóstico de batería entre 0 y 100 %."
+        case .sohBelowMinimum(let minimum): "El diagnóstico debe indicar SOH mínimo de \(minimum) %."
+        case .stationDeliveryRequired(let station): "Confirma el envío a estación \(station)."
+        case .deliveryTermsAcceptanceRequired: "Acepta la fecha límite y las condiciones de entrega para continuar."
+        case .odometerMismatch: "El kilometraje capturado en la fotografía no coincide con el valor registrado."
+        case .vinMismatch: "El VIN capturado no coincide con la factura proporcionada."
+        case .odometerNotDetected: "No pudimos leer el kilometraje. Repite la foto con el tablero encendido y los números visibles."
+        case .vinNotDetected: "No pudimos leer el VIN. Repite la foto con los 17 caracteres completos y enfocados."
+        case .requirementsRequired: "Confirma que la unidad cumple todos los requisitos."
+        case .evidenceRequired(let kind): "Falta \(kind.title.lowercased())."
+        }
+    }
+}
+
+nonisolated enum AcquisitionEvidenceValidationStatus: String, Codable, Equatable, Sendable {
+    case match
+    case mismatch
+    case manualReview = "manual_review"
+    case pending
+}
+
+nonisolated struct AcquisitionEvidenceValidationResults: Codable, Equatable, Sendable {
+    var odometer: AcquisitionEvidenceValidationStatus
+    var vin: AcquisitionEvidenceValidationStatus
+
+    static let pending = Self(odometer: .pending, vin: .pending)
+
+    var canSubmit: Bool { odometer == .match && vin == .match }
+}
+
+nonisolated enum AcquisitionEvidencePath {
+    static func make(
+        environmentID: UUID,
+        supplierID: UUID,
+        offerID: UUID,
+        kind: AcquisitionEvidenceKind
+    ) -> String {
+        [
+            environmentID.uuidString.lowercased(),
+            supplierID.uuidString.lowercased(),
+            offerID.uuidString.lowercased(),
+            "\(kind.rawValue).jpg",
+        ].joined(separator: "/")
+    }
+}

@@ -2,6 +2,87 @@ import Foundation
 import CryptoKit
 import Supabase
 
+// MARK: - Auth diagnostics
+
+@MainActor
+enum SupabaseAuthDiagnostic {
+    enum Kind: String, Equatable {
+        case invalidCredentials = "credenciales_invalidas"
+        case emailNotConfirmed = "usuario_no_confirmado"
+        case network = "red"
+        case configuration = "configuracion_supabase"
+        case server = "servidor_auth"
+        case authenticatedWithoutMembership = "autenticado_sin_membresia"
+        case authRejected = "auth_rechazado"
+        case unexpected = "inesperado"
+    }
+
+    struct Report: Equatable {
+        let kind: Kind
+        let errorType: String
+        let authCode: String?
+        let httpStatus: Int?
+
+        var safeLogLine: String {
+            "[Sesión][Diagnóstico] categoría=\(kind.rawValue) tipo=\(errorType) " +
+                "código_auth=\(authCode ?? \"ninguno\") http=\(httpStatus.map(String.init) ?? \"ninguno\")"
+        }
+
+        var userMessage: String {
+            switch kind {
+            case .invalidCredentials, .authRejected, .unexpected:
+                "No pudimos iniciar sesión. Revisa tus datos e intenta de nuevo."
+            case .emailNotConfirmed:
+                "Confirma tu correo antes de iniciar sesión."
+            case .network:
+                "No pudimos conectar con el servicio. Revisa tu conexión e intenta de nuevo."
+            case .configuration:
+                "Esta compilación no tiene una configuración TEST válida."
+            case .server:
+                "El servicio de acceso no respondió correctamente. Intenta de nuevo."
+            case .authenticatedWithoutMembership:
+                "Esta cuenta no está habilitada para la operación actual."
+            }
+        }
+    }
+
+    static func classify(_ error: any Error) -> Report {
+        if let authError = error as? AuthError {
+            let code = authError.errorCode.rawValue
+            let status: Int?
+            if case .api(_, _, _, let response) = authError {
+                status = response.statusCode
+            } else {
+                status = nil
+            }
+            return Report(kind: kind(authCode: code, httpStatus: status), errorType: String(describing: type(of: error)), authCode: code, httpStatus: status)
+        }
+        if (error as NSError).domain == NSURLErrorDomain {
+            return Report(kind: .network, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
+        }
+        if let probeError = error as? SupabaseAuthProbe.ProbeError {
+            let kind: Kind
+            if case .noMembership = probeError { kind = .authenticatedWithoutMembership } else { kind = .authRejected }
+            return Report(kind: kind, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
+        }
+        if let repositoryError = error as? SupabaseAcquisitionRepository.RepositoryError {
+            let kind: Kind
+            if case .noMembership = repositoryError { kind = .authenticatedWithoutMembership } else { kind = .authRejected }
+            return Report(kind: kind, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
+        }
+        return Report(kind: .unexpected, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
+    }
+
+    static func kind(authCode: String, httpStatus: Int?) -> Kind {
+        switch authCode.lowercased() {
+        case "invalid_credentials", "user_not_found": return .invalidCredentials
+        case "email_not_confirmed", "provider_email_needs_verification": return .emailNotConfirmed
+        case "unexpected_failure": return .server
+        default: return httpStatus.map { (500...599).contains($0) } == true ? .server : .authRejected
+        }
+    }
+}
+
 // MARK: - Credentials
 
 /// Reads the Supabase credentials out of the public configuration injected at build time.
@@ -674,9 +755,11 @@ enum SupabaseFinancialService {
 enum SupabaseBridge {
     private static var cached: SupabaseClient?
     private static var cachedFor: SupabaseConfig.Credentials?
+    private static var integrationTestClient: SupabaseClient?
 
     /// The live client, or nil while the project is not configured.
     static var client: SupabaseClient? {
+        if let integrationTestClient { return integrationTestClient }
         guard case .success(let credentials) = SupabaseConfig.resolve() else {
             cached = nil
             cachedFor = nil
@@ -693,6 +776,10 @@ enum SupabaseBridge {
         cached = created
         cachedFor = credentials
         return created
+    }
+
+    static func useIntegrationTestClient(_ client: SupabaseClient?) {
+        integrationTestClient = client
     }
 
     static var isConfigured: Bool {
@@ -887,6 +974,7 @@ enum SupabaseAuthProbe {
 
     nonisolated struct ProfileRow: Decodable, Sendable {
         let id: UUID
+        let environment_id: UUID
         let auth_user_id: UUID?
         let employee_number: String
         let display_name: String
@@ -1046,6 +1134,7 @@ enum SupabaseAuthProbe {
             .select(
                 """
                 id,
+                environment_id,
                 auth_user_id,
                 employee_number,
                 display_name,
@@ -1185,6 +1274,70 @@ enum SupabaseAuthProbe {
             membership: membership,
             station: station
         )
+    }
+
+    /// Loads the one active profile owned by the authenticated Supabase user.
+    static func loadProfile(authUserId: UUID) async throws -> ProfileRow {
+        guard let client = SupabaseBridge.client else { throw ProbeError.notConfigured }
+        let profiles: [ProfileRow] = try await client
+            .from("profiles")
+            .select("id, environment_id, auth_user_id, employee_number, display_name, status")
+            .eq("auth_user_id", value: authUserId.uuidString)
+            .execute()
+            .value
+        guard profiles.count == 1 else {
+            if profiles.isEmpty { throw ProbeError.noProfile }
+            throw ProbeError.multipleProfiles(profiles.count)
+        }
+        let profile = profiles[0]
+        guard profile.auth_user_id == authUserId else {
+            throw ProbeError.wrongAuthUser(expected: authUserId, received: profile.auth_user_id)
+        }
+        guard profile.status == "active" else { throw ProbeError.inactiveProfile(profile.status) }
+        return profile
+    }
+
+    /// Resolves only the authenticated profile's staff membership. An empty result is
+    /// intentional: acquisition-only identities use the separate repository contract.
+    static func resolveStaff(
+        authUserId: UUID,
+        profile: ProfileRow
+    ) async throws -> Result? {
+        guard let client = SupabaseBridge.client else { throw ProbeError.notConfigured }
+        let memberships: [MembershipRow] = try await client
+            .from("staff_memberships")
+            .select("id, profile_id, station_id, role, shift_group, shift_slot, starts_at, ends_at")
+            .eq("profile_id", value: profile.id.uuidString)
+            .is("ends_at", value: nil)
+            .execute()
+            .value
+        guard !memberships.isEmpty else { return nil }
+        guard memberships.count == 1 else { throw ProbeError.multipleMemberships(memberships.count) }
+        let membership = memberships[0]
+        guard membership.profile_id == profile.id else { throw ProbeError.noMembership }
+        guard ["driver", "supervisor", "maintenance", "recruitment"].contains(membership.role) else {
+            throw ProbeError.wrongRole(membership.role)
+        }
+        if membership.role == "driver" {
+            guard let group = membership.shift_group, ShiftGroup(rawValue: group) != nil else {
+                throw ProbeError.missingShiftGroup
+            }
+            guard let slot = membership.shift_slot, ShiftSlot(rawValue: slot) != nil else {
+                throw ProbeError.missingShiftSlot
+            }
+        }
+        let stations: [StationRow] = try await client
+            .from("stations")
+            .select("id, environment_id, code, name, status")
+            .eq("id", value: membership.station_id.uuidString)
+            .execute()
+            .value
+        guard stations.count == 1 else { throw ProbeError.noStation }
+        let station = stations[0]
+        guard station.status == "active", station.environment_id == profile.environment_id else {
+            throw ProbeError.inactiveStation(station.status)
+        }
+        return Result(authUserId: authUserId, profile: profile, membership: membership, station: station)
     }
 }
 

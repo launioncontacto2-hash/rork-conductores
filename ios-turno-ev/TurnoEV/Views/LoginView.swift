@@ -1,20 +1,11 @@
 import LocalAuthentication
 import SwiftUI
 
+/// Legacy input-shape seam retained for existing tests. Authorization itself is resolved
+/// by Supabase Auth and the active membership tables.
 nonisolated enum BackendAuthenticationRouting {
-    static let testEmails: Set<String> = [
-        "test.001@joramza.test",
-        "test.002@joramza.test",
-        "test.driver@joramza.test",
-        "test.supervisor@joramza.test",
-        "test.maintenance@joramza.test",
-        "test.recruitment@joramza.test"
-    ]
-
     static func shouldUseBackend(identifier: String) -> Bool {
-        testEmails.contains(
-            identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
+        identifier.trimmingCharacters(in: .whitespacesAndNewlines).contains("@")
     }
 }
 
@@ -92,25 +83,16 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            StationBackground()
+            AcquisitionLoginBackground()
 
             VStack(spacing: 0) {
                 header
-                Spacer(minLength: 12)
-
-                switch mode {
-                case .biometric:
-                    biometricSection
-
-                case .credentials:
-                    credentialsSection
-                }
-
-                Spacer(minLength: 12)
-                footer
+                Spacer(minLength: 40)
+                credentialsSection
             }
             .padding(.horizontal, 24)
-            .padding(.vertical, 28)
+            .padding(.top, 38)
+            .padding(.bottom, 20)
 
             if let handoffAccount {
                 RoleHandoffOverlay(account: handoffAccount)
@@ -130,38 +112,29 @@ struct LoginView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "bolt.fill")
-                .font(.title2)
-                .foregroundStyle(Palette.volt)
-                .frame(width: 48, height: 48)
-                .background(
-                    Palette.volt.opacity(0.15),
-                    in: .rect(cornerRadius: 16)
-                )
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(DORIBrand.name)
-                    .font(.system(.title3, weight: .black))
-
-                CapsLabel(text: DORIBrand.accessTagline)
-            }
-
-            Spacer()
+        VStack(spacing: 4) {
+            Text("DORI")
+                .font(.acquisitionFixed(42, weight: .bold))
+                .tracking(-0.42)
+                .foregroundStyle(AcquisitionTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("La movilidad del futuro")
+                .font(.acquisitionFixed(13, weight: .medium))
+                .tracking(0.39)
+                .foregroundStyle(AcquisitionTheme.textSecondary)
         }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(spacing: 8) {
-            Text(DORIBrand.productName)
-                .font(.system(.footnote, weight: .semibold))
-
-            Text("La sesión no inicia ni modifica un turno por sí sola.")
-            .font(.caption2)
-            .foregroundStyle(Palette.textMuted)
-        }
+        Text("Entorno de pruebas · DORI Adquisición")
+            .font(.acquisition(.caption2, weight: .medium))
+            .foregroundStyle(AcquisitionTheme.textTertiary)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - Face ID (device-linked credential)
@@ -476,53 +449,31 @@ struct LoginView: View {
     // MARK: - Credentials
 
     private var credentialsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Identifícate")
-                    .font(.system(.title2, weight: .black))
-
-                Text(
-                    "Detectamos tu rol y estación con tus credenciales, " +
-                    "y abrimos solo tu interfaz. Iniciar sesión no inicia tu turno."
-                )
-                .font(.footnote)
-                .foregroundStyle(Palette.textMuted)
-            }
-
+        VStack(alignment: .leading, spacing: 10) {
             TextField(
-                credentialMode == .email
-                    ? "correo institucional"
-                    : "EV-1042",
+                "Correo",
                 text: $identifier
             )
-            .textContentType(
-                credentialMode == .email
-                    ? .emailAddress
-                    : .username
-            )
-            .keyboardType(
-                credentialMode == .email
-                    ? .emailAddress
-                    : .default
-            )
-            .textInputAutocapitalization(
-                credentialMode == .email
-                    ? .never
-                    : .characters
-            )
+            .font(.acquisitionFixed(12.5, weight: .regular))
+            .textContentType(.emailAddress)
+            .keyboardType(.emailAddress)
+            .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .padding(.vertical, 16)
+            .padding(.vertical, 13)
             .padding(.horizontal, 16)
-            .panelFlat()
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).stroke(AcquisitionTheme.subtleBorder) }
 
             SecureField(
                 "Contraseña",
                 text: $password
             )
+            .font(.acquisitionFixed(12.5, weight: .regular))
             .textContentType(.password)
-            .padding(.vertical, 16)
+            .padding(.vertical, 13)
             .padding(.horizontal, 16)
-            .panelFlat()
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+            .overlay { RoundedRectangle(cornerRadius: 14).stroke(AcquisitionTheme.subtleBorder) }
 
             if let errorMessage {
                 HStack(
@@ -536,8 +487,8 @@ struct LoginView: View {
 
                     Text(errorMessage)
                 }
-                .font(.footnote)
-                .foregroundStyle(Palette.danger)
+                .font(.acquisition(.footnote))
+                .foregroundStyle(AcquisitionTheme.danger)
             }
 
             if let supabaseProbeMessage {
@@ -556,39 +507,31 @@ struct LoginView: View {
                 .foregroundStyle(Palette.volt)
             }
 
-            BigButton(
-                title: isSupabaseProbeRunning
-                    ? "Verificando…"
-                    : "Iniciar sesión",
-                symbol: isSupabaseProbeRunning
-                    ? "hourglass"
-                    : "checkmark.shield.fill",
-                isEnabled: !isSupabaseProbeRunning
-            ) {
+            Button {
                 submitCredentials()
+            } label: {
+                Text(isSupabaseProbeRunning ? "Verificando…" : "Iniciar sesión")
+                    .font(.acquisitionFixed(13, weight: .bold))
+                    .tracking(0.39)
+                    .foregroundStyle(AcquisitionTheme.canvas)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(AcquisitionTheme.accent, in: RoundedRectangle(cornerRadius: 22))
             }
+            .buttonStyle(.plain)
+            .disabled(isSupabaseProbeRunning)
 
-            HStack {
-                Button {
-                    isRecoveryPresented = true
-                } label: {
-                    Label(
-                        "Recuperar contraseña",
-                        systemImage: "key.fill"
-                    )
-                    .font(
-                        .system(
-                            .subheadline,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(Palette.volt)
-                }
-
-                Spacer()
-
-            }
+            footer.padding(.top, 4)
         }
+        .padding(.horizontal, 24)
+        .padding(.top, 22)
+        .padding(.bottom, 20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(AcquisitionTheme.border, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.30), radius: 24, y: 12)
     }
 
     // MARK: - Credentials submit
@@ -604,16 +547,6 @@ struct LoginView: View {
         guard credentialMode == .email,
               cleanedIdentifier.contains("@") else {
             errorMessage = "Ingresa tu correo institucional."
-            supabaseProbeMessage = nil
-            return
-        }
-
-        // Keep main's exact operational allowlist without restoring the local demo
-        // fallback: an unapproved identity remains outside the authenticated app.
-        guard BackendAuthenticationRouting.shouldUseBackend(
-            identifier: cleanedIdentifier
-        ) else {
-            errorMessage = "Esta cuenta no está habilitada para la operación actual."
             supabaseProbeMessage = nil
             return
         }
@@ -639,8 +572,8 @@ struct LoginView: View {
                 }
 
                 do {
-                    let result =
-                        try await SupabaseAuthProbe.run(
+                    let resolution =
+                        try await SupabaseSessionResolver.run(
                             email: cleanedIdentifier,
                             password: password
                         )
@@ -649,65 +582,64 @@ struct LoginView: View {
                     // Supabase has authenticated it.
                     password = ""
 
-                    // La sonda ya exige que ambos valores existan y sean
-                    // válidos antes de devolver el resultado, así que aquí
-                    // sólo se muestran; el "—" nunca debería aparecer.
-                    let shiftGroup = result.shiftGroup ?? "—"
-                    let shiftSlot = result.shiftSlot ?? "—"
+                    let principal: SessionPrincipal
+                    switch resolution {
+                    case .staff(let result):
+                        guard let role = StaffRole(backendValue: result.membership.role) else {
+                            supabaseProbeMessage = nil
+                            errorMessage = "No pudimos abrir esta cuenta."
+                            return
+                        }
 
-                    supabaseProbeMessage = """
-                    AUTH OK
-                    \(result.profile.display_name)
-                    \(result.profile.employee_number)
-                    \(result.membership.role)
-                    \(result.station.code)
-                    \(shiftGroup)
-                    \(shiftSlot)
-                    """
+                        principal = SessionPrincipal(
+                            authUserId: result.authUserId.uuidString,
+                            profileId: result.profile.id.uuidString,
+                            name: result.profile.display_name,
+                            employeeNumber: result.profile.employee_number,
+                            email: cleanedIdentifier,
+                            role: role,
+                            environmentId: result.station.environment_id.uuidString,
+                            stationId: result.station.id.uuidString,
+                            stationCode: result.station.code,
+                            stationName: result.station.name,
+                            shiftGroup: result.shiftGroup.flatMap(ShiftGroup.init(rawValue:)),
+                            shiftSlot: result.shiftSlot.flatMap(ShiftSlot.init(rawValue:))
+                        )
 
-                    print(
-                        "[15B.5] AUTH OK · " +
-                        "\(result.profile.employee_number) · " +
-                        "\(result.membership.role) · " +
-                        "\(result.station.code) · " +
-                        "\(shiftGroup) · " +
-                        "\(shiftSlot)"
-                    )
+                        print(
+                            "[Sesión] Personal verificado · " +
+                            "\(result.profile.employee_number) · \(result.membership.role)"
+                        )
 
-                    // ============================================
-                    // 15B.7
-                    // El resultado deja de ser sólo diagnóstico:
-                    // abre la sesión real del conductor.
-                    // ============================================
+                    case .acquisition(let result):
+                        principal = SessionPrincipal(
+                            authUserId: result.authUserID.uuidString,
+                            profileId: result.profile.id.uuidString,
+                            name: result.profile.display_name,
+                            employeeNumber: result.profile.employee_number,
+                            email: cleanedIdentifier,
+                            role: result.membership.role.sessionRole,
+                            environmentId: result.membership.environmentID.uuidString,
+                            stationId: nil,
+                            stationCode: nil,
+                            stationName: nil,
+                            shiftGroup: nil,
+                            shiftSlot: nil
+                        )
 
-                    guard let role = StaffRole(
-                        backendValue: result.membership.role
-                    ) else {
-                        supabaseProbeMessage = nil
-                        errorMessage =
-                            "La membresía devolvió un rol que la app " +
-                            "no reconoce: \(result.membership.role)."
-                        return
+                        print(
+                            "[Adquisiciones] Membresía verificada · " +
+                            "\(result.profile.employee_number) · \(result.membership.role.rawValue)"
+                        )
                     }
 
-                    // Sin contraseña: el correo entra sólo como dato
-                    // identificador del principal.
-                    let principal = SessionPrincipal(
-                        authUserId: result.authUserId.uuidString,
-                        profileId: result.profile.id.uuidString,
-                        name: result.profile.display_name,
-                        employeeNumber: result.profile.employee_number,
-                        email: cleanedIdentifier,
-                        role: role,
-                        environmentId: result.station.environment_id.uuidString,
-                        stationId: result.station.id.uuidString,
-                        stationCode: result.station.code,
-                        stationName: result.station.name,
-                        shiftGroup: result.shiftGroup
-                            .flatMap(ShiftGroup.init(rawValue:)),
-                        shiftSlot: result.shiftSlot
-                            .flatMap(ShiftSlot.init(rawValue:))
-                    )
+                    supabaseProbeMessage = """
+                    Acceso verificado
+                    \(principal.name)
+                    \(principal.role.label)
+                    """
+
+                    let role = principal.role
 
                     do {
                         // Supabase Auth accepts simultaneous sessions by design. Drivers
@@ -746,7 +678,7 @@ struct LoginView: View {
                             store.signOut()
                         }
                         supabaseProbeMessage = nil
-                        errorMessage = error.localizedDescription
+                        errorMessage = "No pudimos abrir tu sesión. Intenta de nuevo."
 
                         print(
                             "[15B.7] sesión no abierta · " +
@@ -765,13 +697,9 @@ struct LoginView: View {
                 } catch {
                     password = ""
                     supabaseProbeMessage = nil
-                    errorMessage =
-                        error.localizedDescription
-
-                    print(
-                        "[15B.5] Auth/RLS probe failed · " +
-                        error.localizedDescription
-                    )
+                    let diagnostic = SupabaseAuthDiagnostic.classify(error)
+                    errorMessage = diagnostic.userMessage
+                    print(diagnostic.safeLogLine)
                 }
             }
 
@@ -1115,6 +1043,38 @@ private struct RoleHandoffOverlay: View {
         .onAppear {
             appeared = true
         }
+    }
+}
+
+/// Premium TEST access backdrop using the exact user-supplied login clip. The
+/// bundled asset contains video only; playback is additionally muted defensively.
+private struct AcquisitionLoginBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                AcquisitionTheme.canvas
+
+                LoopingVideoView(
+                    resourceName: "dori_login",
+                    isPlaying: !reduceMotion
+                )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+
+                LinearGradient(
+                    colors: [
+                        AcquisitionTheme.canvas.opacity(0.06),
+                        AcquisitionTheme.canvas.opacity(0.24),
+                        AcquisitionTheme.canvas.opacity(0.88),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+        }
+        .ignoresSafeArea()
     }
 }
 

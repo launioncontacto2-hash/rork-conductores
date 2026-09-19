@@ -232,6 +232,8 @@ final class NationalStore {
         case .maintenance: 4
         case .driver: 5
         case .lab: 6
+        case .doriAdmin: 7
+        case .provider: 8
         }
     }
 

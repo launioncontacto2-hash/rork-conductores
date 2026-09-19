@@ -1,0 +1,305 @@
+import Foundation
+import Observation
+
+nonisolated enum AcquisitionOfferDetailLoadState: Equatable, Sendable {
+    case idle
+    case loading
+    case content
+    case failed
+}
+
+@MainActor
+@Observable
+final class AcquisitionOfferDetailViewModel {
+    let offerID: UUID
+    let membership: AcquisitionMembership
+    private let repository: any AcquisitionRepository
+    private let realtime = AcquisitionRealtimeObserver()
+    private let onChanged: () -> Void
+
+    var state: AcquisitionOfferDetailLoadState = .idle
+    var detail: AcquisitionOfferDetail?
+    var isWorking = false
+    var feedbackMessage: String?
+    var confirmationMessage: String?
+    private(set) var isLoadingMedia = false
+    private(set) var loadedMediaCount = 0
+    private(set) var totalMediaCount = 0
+    private var reloadRequested = false
+    private var isObserving = false
+    private var isLoading = false
+    private var mediaLoadTask: Task<Void, Never>?
+
+    init(
+        offerID: UUID,
+        membership: AcquisitionMembership,
+        repository: any AcquisitionRepository,
+        onChanged: @escaping () -> Void = {}
+    ) {
+        self.offerID = offerID
+        self.membership = membership
+        self.repository = repository
+        self.onChanged = onChanged
+    }
+
+    func load() async {
+        await reloadFromSourceOfTruth()
+        if state == .content, !isObserving {
+            isObserving = true
+            realtime.startForOffer(
+                environmentID: membership.environmentID,
+                offerID: offerID
+            ) { [weak self] in
+                Task { await self?.reloadFromSourceOfTruth() }
+            }
+        }
+    }
+
+    func stopObserving() {
+        isObserving = false
+        realtime.stop()
+        mediaLoadTask?.cancel()
+    }
+
+    func sendCounteroffer(amountText: String) async {
+        guard detail?.canCounteroffer(as: membership.role) == true else {
+            feedbackMessage = "Se alcanzó el límite de negociación. Puedes aceptar el último precio o no continuar."
+            return
+        }
+        guard let amount = Self.amount(from: amountText), amount > 0 else {
+            feedbackMessage = "Captura un importe válido."
+            return
+        }
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: .counteroffer,
+                amountMxn: amount,
+                message: membership.role == .doriAdmin
+                    ? "Oferta de DORI"
+                    : "Contraoferta del proveedor"
+            ),
+            confirmation: membership.role == .doriAdmin
+                ? "Oferta enviada al proveedor."
+                : "Contraoferta enviada a DORI."
+        )
+    }
+
+    func accept() async {
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: .accept,
+                message: "Oferta aceptada"
+            ),
+            confirmation: "Precio acordado."
+        )
+    }
+
+    func award() async {
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: .award,
+                amountMxn: detail?.commercialPriceMxn,
+                message: "Compra confirmada"
+            ),
+            confirmation: "Compra confirmada."
+        )
+    }
+
+    func reject() async {
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: .reject,
+                message: "DORI decidió no continuar"
+            ),
+            confirmation: "La propuesta se cerró sin compra."
+        )
+    }
+
+    func stopWithoutPurchase() async {
+        let isDORI = membership.role == .doriAdmin
+        await perform(
+            AcquisitionOfferCommand(
+                offerID: offerID,
+                action: isDORI ? .reject : .withdraw,
+                message: isDORI
+                    ? "DORI decidió no continuar"
+                    : "El proveedor decidió no continuar"
+            ),
+            confirmation: "La propuesta se cerró sin compra."
+        )
+    }
+
+    func markReady() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .ready,
+                note: "Unidad y documentos listos para entrega."
+            ),
+            confirmation: "DORI ya puede preparar la recepción."
+        )
+    }
+
+    func receive(_ form: AcquisitionReceptionFormData) async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        do {
+            let checklist = try form.checklist()
+            await performDelivery(
+                AcquisitionDeliveryCommand(
+                    orderID: orderID,
+                    action: .receive,
+                    checklist: checklist,
+                    note: form.note.trimmingCharacters(in: .whitespacesAndNewlines)
+                ),
+                confirmation: nil
+            )
+        } catch let issue as AcquisitionDeliveryIssue {
+            feedbackMessage = issue.message
+        } catch {
+            feedbackMessage = "Revisa el checklist para continuar."
+        }
+    }
+
+    func resolveCondition() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        let reason = detail?.delivery?.hold?.reason ?? "Condición pendiente"
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .resolveCondition,
+                note: "Condición resuelta: \(reason)"
+            ),
+            confirmation: "DORI ya puede confirmar la resolución."
+        )
+    }
+
+    func closeCondition() async {
+        guard let orderID = detail?.delivery?.orderID else { return }
+        await performDelivery(
+            AcquisitionDeliveryCommand(
+                orderID: orderID,
+                action: .closeCondition,
+                note: "Condición verificada por DORI."
+            ),
+            confirmation: "Condición resuelta. Adquisición cerrada."
+        )
+    }
+
+    private func perform(
+        _ command: AcquisitionOfferCommand,
+        confirmation: String
+    ) async {
+        guard !isWorking else { return }
+        isWorking = true
+        feedbackMessage = nil
+        confirmationMessage = nil
+        do {
+            _ = try await repository.respondToOffer(command)
+            await reloadFromSourceOfTruth()
+            confirmationMessage = confirmation
+            onChanged()
+        } catch {
+            if command.action == .counteroffer,
+               error.localizedDescription.contains("acquisition_counteroffer_limit_reached") {
+                feedbackMessage = "Se alcanzó el límite de negociación. Puedes aceptar el último precio o no continuar."
+            } else {
+                feedbackMessage = "No pudimos completar la acción. La propuesta no cambió."
+            }
+        }
+        isWorking = false
+    }
+
+    private func performDelivery(
+        _ command: AcquisitionDeliveryCommand,
+        confirmation: String?
+    ) async {
+        guard !isWorking else { return }
+        isWorking = true
+        feedbackMessage = nil
+        confirmationMessage = nil
+        do {
+            let result = try await repository.completeDelivery(command)
+            await reloadFromSourceOfTruth()
+            confirmationMessage = confirmation
+                ?? result.receptionResult?.visibleLabel
+                ?? "Operación actualizada."
+            onChanged()
+        } catch {
+            feedbackMessage = "No pudimos completar la acción. La operación no cambió."
+        }
+        isWorking = false
+    }
+
+    private func reloadFromSourceOfTruth() async {
+        if isLoading {
+            reloadRequested = true
+            return
+        }
+        repeat {
+            reloadRequested = false
+            isLoading = true
+            if detail == nil { state = .loading }
+            do {
+                let metadataStartedAt = ContinuousClock.now
+                detail = try await repository.loadOfferDetail(
+                    offerID: offerID,
+                    membership: membership
+                )
+                state = .content
+                print("[Adquisiciones][Rendimiento] unidad_datos=\(metadataStartedAt.duration(to: ContinuousClock.now))")
+                await AcquisitionPushCoordinator.shared.markRead(.offer(offerID))
+                loadMediaProgressively()
+            } catch {
+                if detail == nil { state = .failed }
+                feedbackMessage = "No pudimos actualizar esta propuesta."
+            }
+            isLoading = false
+        } while reloadRequested
+    }
+
+    private func loadMediaProgressively() {
+        guard let snapshot = detail, snapshot.evidence.contains(where: { $0.imageData == nil }) else { return }
+        totalMediaCount = snapshot.evidence.count
+        loadedMediaCount = snapshot.evidence.filter { $0.imageData != nil }.count
+        isLoadingMedia = true
+        mediaLoadTask?.cancel()
+        mediaLoadTask = Task { [weak self] in
+            guard let self else { return }
+            let mediaStartedAt = ContinuousClock.now
+            let dataByID = await repository.loadOfferEvidenceData(snapshot.evidence)
+            guard !Task.isCancelled, let current = detail, current.offer.id == snapshot.offer.id else { return }
+            let evidence = current.evidence.map { item in
+                var updated = item
+                if let data = dataByID[item.id] { updated.imageData = data }
+                return updated
+            }
+            detail = AcquisitionOfferDetail(
+                offer: current.offer,
+                assessment: current.assessment,
+                negotiations: current.negotiations,
+                evidence: evidence,
+                requirements: current.requirements,
+                delivery: current.delivery,
+                supplierName: current.supplierName
+            )
+            loadedMediaCount = evidence.filter { $0.imageData != nil }.count
+            isLoadingMedia = false
+            print("[Adquisiciones][Rendimiento] unidad_galeria=\(mediaStartedAt.duration(to: ContinuousClock.now)) archivos=\(dataByID.count)")
+        }
+    }
+
+    nonisolated static func amount(from text: String) -> Int? {
+        Int(
+            text
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "$", with: "")
+                .replacingOccurrences(of: ",", with: "")
+                .replacingOccurrences(of: " ", with: "")
+        )
+    }
+}

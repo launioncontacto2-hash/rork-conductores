@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Root router. The session role is the only thing that decides which interface is
-/// built. DORI currently exposes only the operational driver, supervisor and maintenance
-/// surfaces; later organizational modules remain compiled but frozen and unreachable.
+/// built. DORI exposes the operational driver, supervisor and maintenance surfaces plus
+/// the isolated acquisition workspace; later organizational modules remain frozen.
 /// No screen of another role is ever instantiated inside a session.
 struct ContentView: View {
     @Environment(FleetStore.self) private var store
@@ -21,6 +21,9 @@ struct ContentView: View {
                     BackendSupervisorAssignmentView(principal: principal)
                 } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
                     BackendMaintenanceView(principal: principal)
+                } else if AcquisitionNavigation.destination(for: principal.role) != nil,
+                          store.hasAccess(to: principal.role) {
+                    AcquisitionRootView(principal: principal)
                 } else {
                     AccessDeniedView()
                 }

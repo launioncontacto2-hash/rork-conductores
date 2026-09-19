@@ -18,16 +18,14 @@ struct DORIBrandTests {
 }
 
 struct BackendAuthenticationRoutingTests {
-    @Test func routesRecruitmentEmailEvenWhenTheSelectorStateIsIrrelevant() {
+    @Test func acceptsAnInstitutionalEmailForBackendResolution() {
         #expect(BackendAuthenticationRouting.shouldUseBackend(
             identifier: "  TEST.RECRUITMENT@JORAMZA.TEST  "
         ))
     }
 
-    @Test func keepsUnknownAndDemoIdentitiesOutOfTheBackend() {
-        #expect(!BackendAuthenticationRouting.shouldUseBackend(
-            identifier: "reclutamiento@turnoev.mx"
-        ))
+    @Test func rejectsNonEmailIdentifiersBeforeBackendResolution() {
+        #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "reclutamiento"))
         #expect(!BackendAuthenticationRouting.shouldUseBackend(identifier: "REC-001"))
     }
 }

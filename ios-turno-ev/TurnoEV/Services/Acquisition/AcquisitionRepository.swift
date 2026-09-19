@@ -1,0 +1,2267 @@
+import Foundation
+import Supabase
+
+@MainActor
+protocol AcquisitionRepository {
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership
+    func loadRequests() async throws -> [AcquisitionRequest]
+    func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL?
+    func loadOffers() async throws -> [AcquisitionOfferSummary]
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity]
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary]
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact]
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data]
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (_ completed: Int, _ total: Int, _ stage: AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult
+    func completeDelivery(_ command: AcquisitionDeliveryCommand) async throws -> AcquisitionDeliveryCommandResult
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary]
+    func ensureChatThread(supplierID: UUID?, offerID: UUID?) async throws -> AcquisitionChatThreadSummary
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage]
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage
+    func markChatRead(threadID: UUID, sequence: Int64) async throws
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws
+    func revokePushDevice(token: String) async throws
+    func notificationBadgeCount() async throws -> Int
+    func unreadNotificationOfferIDs() async throws -> Set<UUID>
+    func markNotificationContextRead(type: String, id: UUID) async throws
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult
+}
+
+extension AcquisitionRepository {
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        throw CancellationError()
+    }
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary {
+        progress(0, max(submission.evidence.count, 1), .evidenceUpload)
+        let result = try await submitOffer(submission, membership: membership)
+        progress(1, 1, .persistenceCheck)
+        return result
+    }
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? { nil }
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] { [:] }
+}
+
+extension AcquisitionRepository {
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity] { [:] }
+    func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest {
+        throw CancellationError()
+    }
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary] { [] }
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] { [] }
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary] { [] }
+    func ensureChatThread(supplierID: UUID?, offerID: UUID?) async throws -> AcquisitionChatThreadSummary {
+        throw CancellationError()
+    }
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage] { [] }
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage {
+        throw CancellationError()
+    }
+    func markChatRead(threadID: UUID, sequence: Int64) async throws {}
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws {}
+    func revokePushDevice(token: String) async throws {}
+    func notificationBadgeCount() async throws -> Int { 0 }
+    func unreadNotificationOfferIDs() async throws -> Set<UUID> { [] }
+    func markNotificationContextRead(type: String, id: UUID) async throws {}
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult {
+        throw CancellationError()
+    }
+}
+
+nonisolated struct AcquisitionTestResetResult: Sendable, Equatable {
+    let environmentID: UUID
+    let before: [String: Int]
+    let after: [String: Int]
+    let deletedStorageObjects: Int
+}
+
+nonisolated struct AcquisitionRequestPublicationError: LocalizedError, Sendable {
+    enum Stage: Sendable { case clock, documentUpload, rpc }
+
+    let stage: Stage
+    let technicalDescription: String
+
+    var errorDescription: String? {
+        switch stage {
+        case .clock:
+            "No pudimos validar la hora del entorno TEST. Revisa tu conexión e intenta nuevamente."
+        case .documentUpload:
+            "No pudimos cargar el documento de condiciones. Usa un archivo PDF o TXT de máximo 10 MB."
+        case .rpc:
+            "No pudimos publicar la solicitud. Intenta nuevamente."
+        }
+    }
+}
+
+nonisolated enum AcquisitionQueries {
+    static let membershipColumns = "id, environment_id, profile_id, supplier_id, role, status, starts_at, ends_at"
+    static let requestColumns = "id, code, title, target_quantity, model, versions, minimum_year, maximum_year, maximum_mileage, maximum_unit_price_mxn, delivery_city, destination_station_name, deadline_at, target_delivery_date, fiscal_period, minimum_soh, soh_diagnosis_max_age_days, delivery_terms_document_path, status"
+    static let requestRequirementColumns = "request_id, code, category, title, value, required, display_order, response_type, requires_dori_verification"
+    static let offerColumns = "id, request_id, supplier_id, status, model, version, year, mileage, price_mxn, transfer_included, vin, declared_soh, color, agreed_price_mxn, committed_delivery_date, request_fiscal_period, submitted_at"
+    static let assessmentColumns = "maximum_recommended_mxn, recommendation, evidence_status, summary"
+    static let negotiationColumns = "id, actor_role, action, amount_mxn, message, created_at, event_sequence"
+    static let evidenceColumns = "id, kind, object_path, verified"
+    static let orderColumns = "id, supplier_id, final_price_mxn, payment_status, status"
+    static let deliveryColumns = "status"
+    static let receptionColumns = "vin_correct, mileage_correct, chargers_complete, keys_complete, new_damage, result, issue_summary, hold_amount_mxn"
+    static let holdColumns = "amount_mxn, reason, status, supplier_resolution_note"
+    static let supplierColumns = "id, name, city"
+    static let contactColumns = "id, supplier_id, organization_name, person_name, job_title, phone, email, business_hours, is_primary"
+    static let chatMessageColumns = "id, event_sequence, thread_id, sender_profile_id, sender_role, message_kind, body, attachment_path, attachment_mime_type, attachment_filename, attachment_size_bytes, created_at"
+}
+
+@MainActor
+final class SupabaseAcquisitionRepository: AcquisitionRepository {
+    private let evidenceDataCache: NSCache<NSString, NSData>
+    private var signedDocumentURLs: [String: (url: URL, expiresAt: Date)] = [:]
+    private var offersLoadTask: Task<[AcquisitionOfferSummary], Error>?
+
+    /// Cache only decoded transport data and let `NSCache` evict it under memory
+    /// pressure. Database access remains isolated to the main actor.
+    nonisolated init() {
+        let cache = NSCache<NSString, NSData>()
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        cache.countLimit = 48
+        evidenceDataCache = cache
+    }
+
+    nonisolated struct MembershipRow: Decodable, Sendable {
+        let id: UUID
+        let environment_id: UUID
+        let profile_id: UUID
+        let supplier_id: UUID?
+        let role: String
+        let status: String
+        let starts_at: Date
+        let ends_at: Date?
+    }
+
+    nonisolated struct RequestRow: Decodable, Sendable {
+        let id: UUID
+        let code: String
+        let title: String
+        let target_quantity: Int
+        let model: String
+        let versions: [String]
+        let minimum_year: Int
+        let maximum_year: Int
+        let maximum_mileage: Int
+        let maximum_unit_price_mxn: Decimal
+        let delivery_city: String
+        let destination_station_name: String
+        let deadline_at: Date?
+        /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
+        let target_delivery_date: String?
+        let fiscal_period: String
+        let minimum_soh: Decimal
+        let soh_diagnosis_max_age_days: Int
+        let delivery_terms_document_path: String?
+        let status: String
+    }
+
+    nonisolated struct RequestRequirementRow: Decodable, Sendable {
+        let request_id: UUID
+        let code: String
+        let category: AcquisitionRequestRequirementCategory
+        let title: String
+        let value: String
+        let required: Bool
+        let display_order: Int
+        let response_type: AcquisitionRequirementResponseType
+        let requires_dori_verification: Bool
+    }
+
+    nonisolated struct PublishRequestRequirement: Encodable, Sendable {
+        let code: String
+        let category: String
+        let title: String
+        let value: String
+        let required: Bool
+        let display_order: Int
+        let response_type: String
+        let requires_dori_verification: Bool
+    }
+
+    nonisolated struct PublishRequestParameters: Encodable, Sendable {
+        let p_model: String
+        let p_versions: [String]
+        let p_target_quantity: Int
+        let p_minimum_year: Int
+        let p_maximum_year: Int
+        let p_maximum_mileage: Int
+        let p_maximum_unit_price_mxn: Int
+        let p_delivery_city: String
+        let p_destination_station_name: String
+        let p_fiscal_period: String
+        let p_minimum_soh: Int
+        let p_soh_diagnosis_max_age_days: Int
+        let p_delivery_terms_document_path: String
+        let p_deadline_at: Date?
+        /// PostgreSQL `date` travels as YYYY-MM-DD. Sending an ISO timestamp
+        /// makes the RPC contract depend on an implicit server cast.
+        let p_target_delivery_date: String?
+        let p_requirements: [PublishRequestRequirement]
+        let p_idempotency_key: String
+
+        enum CodingKeys: String, CodingKey {
+            case p_model, p_versions, p_target_quantity, p_minimum_year
+            case p_maximum_year, p_maximum_mileage, p_maximum_unit_price_mxn, p_delivery_city
+            case p_destination_station_name, p_fiscal_period, p_minimum_soh
+            case p_soh_diagnosis_max_age_days, p_delivery_terms_document_path
+            case p_deadline_at, p_target_delivery_date, p_requirements, p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_model, forKey: .p_model)
+            try container.encode(p_versions, forKey: .p_versions)
+            try container.encode(p_target_quantity, forKey: .p_target_quantity)
+            try container.encode(p_minimum_year, forKey: .p_minimum_year)
+            try container.encode(p_maximum_year, forKey: .p_maximum_year)
+            try container.encode(p_maximum_mileage, forKey: .p_maximum_mileage)
+            try container.encode(p_maximum_unit_price_mxn, forKey: .p_maximum_unit_price_mxn)
+            try container.encode(p_delivery_city, forKey: .p_delivery_city)
+            try container.encode(p_destination_station_name, forKey: .p_destination_station_name)
+            try container.encode(p_fiscal_period, forKey: .p_fiscal_period)
+            try container.encode(p_minimum_soh, forKey: .p_minimum_soh)
+            try container.encode(p_soh_diagnosis_max_age_days, forKey: .p_soh_diagnosis_max_age_days)
+            try container.encode(p_delivery_terms_document_path, forKey: .p_delivery_terms_document_path)
+            if let p_deadline_at { try container.encode(p_deadline_at, forKey: .p_deadline_at) }
+            else { try container.encodeNil(forKey: .p_deadline_at) }
+            if let p_target_delivery_date { try container.encode(p_target_delivery_date, forKey: .p_target_delivery_date) }
+            else { try container.encodeNil(forKey: .p_target_delivery_date) }
+            try container.encode(p_requirements, forKey: .p_requirements)
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
+    }
+
+    nonisolated struct OfferRow: Decodable, Sendable {
+        let id: UUID
+        let request_id: UUID
+        let supplier_id: UUID
+        let status: String
+        let model: String
+        let version: String?
+        let year: Int
+        let mileage: Int
+        let price_mxn: Decimal
+        let transfer_included: Bool
+        let vin: String
+        let declared_soh: Decimal?
+        let color: String?
+        let agreed_price_mxn: Decimal?
+        /// PostgreSQL `date` is returned as `YYYY-MM-DD`, not an ISO-8601 timestamp.
+        let committed_delivery_date: String?
+        let request_fiscal_period: String
+        let submitted_at: Date?
+    }
+
+    nonisolated struct AssessmentRow: Decodable, Sendable {
+        let maximum_recommended_mxn: Decimal?
+        let recommendation: AcquisitionRecommendation
+        let evidence_status: String
+        let summary: String
+    }
+
+    nonisolated struct NegotiationRow: Decodable, Sendable {
+        let id: UUID
+        let actor_role: AcquisitionRole
+        let action: String
+        let amount_mxn: Decimal?
+        let message: String?
+        let created_at: Date
+        let event_sequence: Int
+    }
+
+    nonisolated struct NegotiationActivityRow: Decodable, Sendable {
+        let offer_id: UUID
+        let actor_role: AcquisitionRole
+        let action: String
+        let amount_mxn: Decimal?
+        let created_at: Date
+        let event_sequence: Int
+    }
+
+    nonisolated struct EvidenceRow: Decodable, Sendable {
+        let id: UUID
+        let kind: AcquisitionEvidenceKind
+        let object_path: String
+        let verified: Bool
+    }
+
+    nonisolated struct ChatEvidenceRow: Decodable, Sendable {
+        let offer_id: UUID
+        let object_path: String
+    }
+
+    nonisolated struct EvidenceReference: Encodable, Sendable {
+        let kind: String
+        let path: String
+    }
+
+    nonisolated struct SubmitOfferParameters: Encodable, Sendable {
+        let p_offer_id: UUID
+        let p_request_id: UUID
+        let p_vin: String
+        let p_model: String
+        let p_version: String?
+        let p_year: Int
+        let p_mileage: Int
+        let p_declared_soh: Int?
+        let p_color: String
+        let p_price_mxn: Int
+        let p_transfer_included: Bool
+        let p_delivery_terms_accepted: Bool
+        let p_validation_results: AcquisitionEvidenceValidationResults
+        let p_evidence: [EvidenceReference]
+        let p_idempotency_key: String
+
+        private enum CodingKeys: String, CodingKey {
+            case p_offer_id
+            case p_request_id
+            case p_vin
+            case p_model
+            case p_version
+            case p_year
+            case p_mileage
+            case p_declared_soh
+            case p_color
+            case p_price_mxn
+            case p_transfer_included
+            case p_delivery_terms_accepted
+            case p_validation_results
+            case p_evidence
+            case p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_offer_id, forKey: .p_offer_id)
+            try container.encode(p_request_id, forKey: .p_request_id)
+            try container.encode(p_vin, forKey: .p_vin)
+            try container.encode(p_model, forKey: .p_model)
+            try container.encodeIfPresent(p_version, forKey: .p_version)
+            if p_version == nil { try container.encodeNil(forKey: .p_version) }
+            try container.encode(p_year, forKey: .p_year)
+            try container.encode(p_mileage, forKey: .p_mileage)
+            try container.encodeIfPresent(p_declared_soh, forKey: .p_declared_soh)
+            if p_declared_soh == nil { try container.encodeNil(forKey: .p_declared_soh) }
+            try container.encode(p_color, forKey: .p_color)
+            try container.encode(p_price_mxn, forKey: .p_price_mxn)
+            try container.encode(p_transfer_included, forKey: .p_transfer_included)
+            try container.encode(p_delivery_terms_accepted, forKey: .p_delivery_terms_accepted)
+            try container.encode(p_validation_results, forKey: .p_validation_results)
+            try container.encode(p_evidence, forKey: .p_evidence)
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
+    }
+
+    nonisolated struct RespondOfferParameters: Encodable, Sendable {
+        let p_offer_id: UUID
+        let p_action: String
+        let p_amount_mxn: Int?
+        let p_message: String?
+        let p_idempotency_key: String
+
+        private enum CodingKeys: String, CodingKey {
+            case p_offer_id
+            case p_action
+            case p_amount_mxn
+            case p_message
+            case p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_offer_id, forKey: .p_offer_id)
+            try container.encode(p_action, forKey: .p_action)
+            try container.encodeIfPresent(p_amount_mxn, forKey: .p_amount_mxn)
+            if p_amount_mxn == nil { try container.encodeNil(forKey: .p_amount_mxn) }
+            try container.encodeIfPresent(p_message, forKey: .p_message)
+            if p_message == nil { try container.encodeNil(forKey: .p_message) }
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
+    }
+
+    nonisolated struct ResetTestParameters: Encodable, Sendable {
+        let p_confirmation: String
+    }
+    nonisolated struct ResetStorageObject: Decodable, Sendable {
+        let bucket: String
+        let path: String
+    }
+    nonisolated struct ResetTestPlan: Decodable, Sendable {
+        let environment_id: UUID
+        let counts: [String: Int]
+        let storage_objects: [ResetStorageObject]
+    }
+    nonisolated struct ResetTestResult: Decodable, Sendable {
+        let environment_id: UUID
+        let before: [String: Int]
+        let after: [String: Int]
+    }
+
+    nonisolated static func validateTestResetObject(
+        _ object: ResetStorageObject,
+        environmentID: UUID
+    ) throws {
+        let allowedBuckets: Set<String> = [
+            "acquisition-evidence", "acquisition-chat-attachments", "acquisition-request-documents",
+        ]
+        guard allowedBuckets.contains(object.bucket),
+              object.path.hasPrefix("\(environmentID.uuidString.lowercased())/") else {
+            throw RepositoryError.invalidTestResetPlan
+        }
+    }
+
+    nonisolated struct RespondOfferRow: Decodable, Sendable {
+        let offer_id: UUID
+        let status: String
+        let agreed_price_mxn: Decimal?
+        let order_id: UUID?
+    }
+
+    nonisolated struct OrderRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID
+        let final_price_mxn: Decimal
+        let payment_status: String
+        let status: String
+    }
+
+    nonisolated struct DeliveryRow: Decodable, Sendable {
+        let status: String
+    }
+
+    nonisolated struct ReceptionRow: Decodable, Sendable {
+        let vin_correct: Bool
+        let mileage_correct: Bool
+        let chargers_complete: Bool
+        let keys_complete: Bool
+        let new_damage: Bool
+        let result: AcquisitionReceptionResult
+        let issue_summary: String?
+        let hold_amount_mxn: Decimal
+    }
+
+    nonisolated struct HoldRow: Decodable, Sendable {
+        let amount_mxn: Decimal
+        let reason: String
+        let status: AcquisitionHoldStatus
+        let supplier_resolution_note: String?
+    }
+
+    nonisolated struct SupplierRow: Decodable, Sendable {
+        let id: UUID
+        let name: String
+        let city: String
+    }
+
+    nonisolated struct ContactRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID?
+        let organization_name: String
+        let person_name: String
+        let job_title: String
+        let phone: String
+        let email: String
+        let business_hours: String
+        let is_primary: Bool
+    }
+
+    nonisolated struct CompleteDeliveryParameters: Encodable, Sendable {
+        let p_order_id: UUID
+        let p_action: String
+        let p_checklist: AcquisitionReceptionChecklist?
+        let p_result: String?
+        let p_note: String?
+        let p_hold_amount_mxn: Int?
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct CompleteDeliveryRow: Decodable, Sendable {
+        let order_id: UUID
+        let status: String
+        let recommended_result: AcquisitionReceptionResult?
+        let hold_amount_mxn: Decimal?
+    }
+
+    nonisolated struct CompleteArrivalParameters: Encodable, Sendable {
+        let p_order_id: UUID
+        let p_checks: [String: Bool]
+        let p_evidence_paths: [String: String]
+        let p_idempotency_key: String
+    }
+
+    nonisolated struct ChatThreadRow: Decodable, Sendable {
+        let thread_id: UUID
+        let supplier_id: UUID
+        let offer_id: UUID?
+        let scope: AcquisitionChatScope
+        let title: String
+        let supplier_name: String
+        let last_message: String?
+        let last_message_kind: AcquisitionChatMessageKind?
+        let last_message_at: Date?
+        let updated_at: Date
+        let unread_count: Int
+    }
+
+    nonisolated struct EnsuredChatThreadRow: Decodable, Sendable {
+        let id: UUID
+        let supplier_id: UUID
+        let offer_id: UUID?
+        let scope: AcquisitionChatScope
+        let title: String
+    }
+
+    nonisolated struct ChatMessageRow: Decodable, Sendable {
+        let id: UUID
+        let event_sequence: Int64
+        let thread_id: UUID
+        let sender_profile_id: UUID?
+        let sender_role: String
+        let message_kind: AcquisitionChatMessageKind
+        let body: String?
+        let attachment_path: String?
+        let attachment_mime_type: String?
+        let attachment_filename: String?
+        let attachment_size_bytes: Int?
+        let created_at: Date
+    }
+
+    nonisolated struct RegisterPushDeviceParameters: Encodable, Sendable {
+        let p_device_token: String
+        let p_platform: String
+        let p_app_environment: String
+        let p_bundle_id: String
+    }
+
+    nonisolated struct RevokePushDeviceParameters: Encodable, Sendable {
+        let p_device_token: String
+    }
+
+    nonisolated struct NotificationContextParameters: Encodable, Sendable {
+        let p_context_type: String
+        let p_context_id: UUID
+    }
+
+    nonisolated struct EnsureChatThreadParameters: Encodable, Sendable {
+        let p_supplier_id: UUID?
+        let p_offer_id: UUID?
+
+        enum CodingKeys: String, CodingKey {
+            case p_supplier_id
+            case p_offer_id
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            if let p_supplier_id {
+                try container.encode(p_supplier_id, forKey: .p_supplier_id)
+            } else {
+                // The administrator intentionally has no supplier membership.
+                // PostgREST still needs this required RPC argument as JSON null.
+                try container.encodeNil(forKey: .p_supplier_id)
+            }
+            if let p_offer_id {
+                try container.encode(p_offer_id, forKey: .p_offer_id)
+            } else {
+                try container.encodeNil(forKey: .p_offer_id)
+            }
+        }
+    }
+
+    nonisolated struct SendChatMessageParameters: Encodable, Sendable {
+        let p_thread_id: UUID
+        let p_body: String?
+        let p_attachment_path: String?
+        let p_attachment_mime_type: String?
+        let p_attachment_filename: String?
+        let p_attachment_size_bytes: Int?
+        let p_idempotency_key: String
+
+        enum CodingKeys: String, CodingKey {
+            case p_thread_id
+            case p_body
+            case p_attachment_path
+            case p_attachment_mime_type
+            case p_attachment_filename
+            case p_attachment_size_bytes
+            case p_idempotency_key
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(p_thread_id, forKey: .p_thread_id)
+            try container.encode(p_body, forKey: .p_body)
+            try container.encode(p_attachment_path, forKey: .p_attachment_path)
+            try container.encode(p_attachment_mime_type, forKey: .p_attachment_mime_type)
+            try container.encode(p_attachment_filename, forKey: .p_attachment_filename)
+            try container.encode(p_attachment_size_bytes, forKey: .p_attachment_size_bytes)
+            try container.encode(p_idempotency_key, forKey: .p_idempotency_key)
+        }
+    }
+
+    nonisolated struct MarkChatReadParameters: Encodable, Sendable {
+        let p_thread_id: UUID
+        let p_last_read_sequence: Int64
+    }
+
+    nonisolated struct ChatReadReceiptRow: Decodable, Sendable {
+        let thread_id: UUID
+        let last_read_sequence: Int64
+    }
+
+    enum RepositoryError: LocalizedError {
+        case notConfigured
+        case noMembership
+        case multipleMemberships(Int)
+        case invalidRole(String)
+        case invalidScope(AcquisitionRole)
+        case offerNotFound
+        case evidenceRequired
+        case evidenceTooLarge
+        case invalidTestResetPlan
+
+        var errorDescription: String? {
+            switch self {
+            case .notConfigured:
+                "Supabase no está configurado."
+            case .noMembership:
+                "El perfil no tiene una membresía de adquisición activa."
+            case .multipleMemberships(let count):
+                "El perfil tiene \(count) membresías de adquisición activas; debía tener una."
+            case .invalidRole(let role):
+                "La membresía de adquisición devolvió un rol no reconocido: \(role)."
+            case .invalidScope(let role):
+                "La membresía de \(role.rawValue) tiene un alcance de proveedor inválido."
+            case .offerNotFound:
+                "La propuesta ya no está disponible."
+            case .evidenceRequired:
+                "La propuesta requiere todas las evidencias indicadas."
+            case .evidenceTooLarge:
+                "Una fotografía supera el límite permitido de 10 MB."
+            case .invalidTestResetPlan:
+                "El servidor devolvió una ruta no autorizada para la limpieza TEST."
+            }
+        }
+    }
+
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [MembershipRow] = try await client
+            .from("acquisition_memberships")
+            .select(AcquisitionQueries.membershipColumns)
+            .eq("profile_id", value: profileID.uuidString)
+            .eq("environment_id", value: environmentID.uuidString)
+            .execute()
+            .value
+
+        return try Self.membership(
+            from: rows,
+            profileID: profileID,
+            environmentID: environmentID,
+            now: Date()
+        )
+    }
+
+    nonisolated static func membership(
+        from rows: [MembershipRow],
+        profileID: UUID,
+        environmentID: UUID,
+        now: Date
+    ) throws -> AcquisitionMembership {
+        let eligible = rows.filter { row in
+            row.profile_id == profileID
+                && row.environment_id == environmentID
+                && row.status == "active"
+                && row.starts_at <= now
+                && (row.ends_at.map { $0 > now } ?? true)
+        }
+
+        guard !eligible.isEmpty else { throw RepositoryError.noMembership }
+        guard eligible.count == 1 else {
+            throw RepositoryError.multipleMemberships(eligible.count)
+        }
+
+        let row = eligible[0]
+        guard let role = AcquisitionRole(rawValue: row.role) else {
+            throw RepositoryError.invalidRole(row.role)
+        }
+        guard (role == .doriAdmin && row.supplier_id == nil)
+                || (role == .provider && row.supplier_id != nil) else {
+            throw RepositoryError.invalidScope(role)
+        }
+
+        return AcquisitionMembership(
+            id: row.id,
+            environmentID: row.environment_id,
+            profileID: row.profile_id,
+            supplierID: row.supplier_id,
+            role: role
+        )
+    }
+
+    func loadRequests() async throws -> [AcquisitionRequest] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [RequestRow] = try await client
+            .from("acquisition_requests")
+            .select(AcquisitionQueries.requestColumns)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+
+        let requirementRows: [RequestRequirementRow] = try await client
+            .from("acquisition_request_requirements")
+            .select(AcquisitionQueries.requestRequirementColumns)
+            .order("display_order", ascending: true)
+            .execute()
+            .value
+        let requirementsByRequest = Dictionary(grouping: requirementRows, by: \.request_id)
+
+        let visibleStatuses: Set<String> = [
+            "published", "evaluating", "partially_awarded", "awarded",
+        ]
+        return rows
+            .filter { visibleStatuses.contains($0.status) }
+            .map { row in
+                Self.request(
+                    from: row,
+                    requirements: (requirementsByRequest[row.id] ?? []).map {
+                        AcquisitionRequestRequirement(
+                            id: $0.code,
+                            category: $0.category,
+                            title: $0.title,
+                            value: $0.value,
+                            required: $0.required,
+                            displayOrder: $0.display_order,
+                            responseType: $0.response_type,
+                            requiresDORIVerification: $0.requires_dori_verification
+                        )
+                    }
+                )
+            }
+    }
+
+    func publishRequest(_ draft: AcquisitionRequestDraft) async throws -> AcquisitionRequest {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let session = try await client.auth.session
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
+        let memberships: [MembershipRow] = try await client
+            .from("acquisition_memberships")
+            .select(AcquisitionQueries.membershipColumns)
+            .eq("profile_id", value: profile.id.uuidString)
+            .eq("environment_id", value: profile.environment_id.uuidString)
+            .eq("role", value: "dori_admin")
+            .eq("status", value: "active")
+            .execute()
+            .value
+        guard let membership = memberships.first else { throw RepositoryError.noMembership }
+
+        // TEST has a shared logical clock. Refresh it immediately before validating the
+        // period so the phone cannot accept a date that Postgres already considers expired.
+        // This preflight intentionally runs before Storage to avoid orphaned documents.
+        let authoritativeNow: Date
+        if EnvironmentControl.usesSharedTestClock {
+            await SharedClockSync.shared.refresh()
+            guard SharedClockSync.shared.status == .synced else {
+                throw AcquisitionRequestPublicationError(
+                    stage: .clock,
+                    technicalDescription: SharedClockSync.shared.lastError ?? "shared_test_clock_unavailable"
+                )
+            }
+            authoritativeNow = AppClock.now()
+        } else {
+            authoritativeNow = Date()
+        }
+        let publication = try draft.makePublication(authoritativeNow: authoritativeNow)
+        let safeFilename = publication.deliveryTermsFilename
+            .replacingOccurrences(of: "[^A-Za-z0-9._-]", with: "_", options: .regularExpression)
+        let documentPath = [
+            membership.environment_id.uuidString.lowercased(),
+            membership.profile_id.uuidString.lowercased(),
+            UUID().uuidString.lowercased(),
+            safeFilename,
+        ].joined(separator: "/")
+        do {
+            _ = try await client.auth.session
+            try await client.storage.from("acquisition-request-documents").upload(
+                documentPath,
+                data: publication.deliveryTermsDocument,
+                options: FileOptions(contentType: publication.deliveryTermsMimeType, upsert: false)
+            )
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "storage.upload acquisition-request-documents",
+                context: [
+                    "bucket": "acquisition-request-documents",
+                    "path": AcquisitionRemoteDiagnostic.redact(path: documentPath),
+                    "mime": publication.deliveryTermsMimeType,
+                    "bytes": String(publication.deliveryTermsDocument.count),
+                    "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environment_id),
+                    "profile_id": AcquisitionRemoteDiagnostic.redact(membership.profile_id),
+                    "upsert": "false",
+                ]
+            )
+            print("[Adquisiciones][TEST][Solicitud][Storage] \(diagnostic)")
+            throw AcquisitionRequestPublicationError(stage: .documentUpload, technicalDescription: diagnostic)
+        }
+
+        do {
+            let row: RequestRow = try await client
+                .rpc(
+                "publish_acquisition_request_v2",
+                params: PublishRequestParameters(
+                    p_model: publication.model,
+                    p_versions: publication.versions,
+                    p_target_quantity: publication.targetQuantity,
+                    p_minimum_year: publication.minimumYear,
+                    p_maximum_year: publication.maximumYear,
+                    p_maximum_mileage: publication.maximumMileage,
+                    p_maximum_unit_price_mxn: publication.maximumUnitPriceMxn,
+                    p_delivery_city: publication.deliveryCity,
+                    p_destination_station_name: publication.destinationStationName,
+                    p_fiscal_period: Self.postgresDateString(from: publication.fiscalPeriod)!,
+                    p_minimum_soh: publication.minimumSoh,
+                    p_soh_diagnosis_max_age_days: publication.sohDiagnosisMaximumAgeDays,
+                    p_delivery_terms_document_path: documentPath,
+                    p_deadline_at: publication.deadlineAt,
+                    p_target_delivery_date: Self.postgresDateString(
+                        from: publication.targetDeliveryDate
+                    ),
+                    p_requirements: publication.requirements.enumerated().map { index, item in
+                        PublishRequestRequirement(
+                            code: item.id,
+                            category: item.category.rawValue,
+                            title: item.title,
+                            value: item.value,
+                            required: item.required,
+                            display_order: item.displayOrder == 0 ? index : item.displayOrder,
+                            response_type: item.responseType.rawValue,
+                            requires_dori_verification: item.requiresDORIVerification
+                        )
+                    },
+                    p_idempotency_key: publication.idempotencyKey
+                )
+                )
+                .execute()
+                .value
+            return Self.request(from: row, requirements: publication.requirements)
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc publish_acquisition_request_v2",
+                context: [
+                    "document_path": AcquisitionRemoteDiagnostic.redact(path: documentPath),
+                    "fiscal_period": Self.postgresDateString(from: publication.fiscalPeriod) ?? "null",
+                    "target_delivery_date": Self.postgresDateString(from: publication.targetDeliveryDate) ?? "null",
+                    "deadline_present": publication.deadlineAt == nil ? "false" : "true",
+                    "requirements": String(publication.requirements.count),
+                    "maximum_price_present": publication.maximumUnitPriceMxn > 0 ? "true" : "false",
+                    "station_present": publication.destinationStationName.isEmpty ? "false" : "true",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(publication.idempotencyKey),
+                ]
+            )
+            print("[Adquisiciones][TEST][Solicitud][RPC] \(diagnostic)")
+            throw AcquisitionRequestPublicationError(stage: .rpc, technicalDescription: diagnostic)
+        }
+    }
+
+    func requestDocumentURL(for request: AcquisitionRequest) async throws -> URL? {
+        guard let path = request.deliveryTermsDocumentPath,
+              let client = SupabaseBridge.client else { return nil }
+        if let cached = signedDocumentURLs[path], cached.expiresAt > Date() {
+            return cached.url
+        }
+        let url = try await client.storage
+            .from("acquisition-request-documents")
+            .createSignedURL(path: path, expiresIn: 300)
+        signedDocumentURLs[path] = (url, Date().addingTimeInterval(240))
+        return url
+    }
+
+    func loadOffers() async throws -> [AcquisitionOfferSummary] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        if let existing = offersLoadTask {
+            return try await existing.value
+        }
+
+        // Dashboard sections request the same projection concurrently. Coalesce
+        // only the in-flight read; completed reads are never retained, so a later
+        // authoritative reload still reaches the backend.
+        let task = Task { @MainActor in
+            let rows: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .order("submitted_at", ascending: false)
+                .execute()
+                .value
+            return rows.map { Self.offer(from: $0) }
+        }
+        offersLoadTask = task
+        do {
+            let result = try await task.value
+            offersLoadTask = nil
+            return result
+        } catch {
+            offersLoadTask = nil
+            throw error
+        }
+    }
+
+    func loadOfferActivities() async throws -> [UUID: AcquisitionOfferActivity] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let offers = try await loadOffers()
+        let originalPrices = Dictionary(uniqueKeysWithValues: offers.map { ($0.id, $0.priceMxn) })
+        let rows: [NegotiationActivityRow] = try await client
+            .from("acquisition_negotiations")
+            .select("offer_id, actor_role, action, amount_mxn, created_at, event_sequence")
+            .order("event_sequence", ascending: true)
+            .execute()
+            .value
+
+        var result: [UUID: AcquisitionOfferActivity] = [:]
+        for (offerID, movements) in Dictionary(grouping: rows, by: \.offer_id) {
+            guard let latest = movements.last else { continue }
+            let previous = movements.dropLast().reversed().compactMap(\.amount_mxn).first
+                .map(Self.integer(from:)) ?? originalPrices[offerID]
+            result[offerID] = AcquisitionOfferActivity(
+                offerID: offerID,
+                actorRole: latest.actor_role,
+                action: latest.action,
+                amountMxn: latest.amount_mxn.map(Self.integer(from:)),
+                previousAmountMxn: previous,
+                createdAt: latest.created_at,
+                sequence: latest.event_sequence
+            )
+        }
+        return result
+    }
+
+    func loadSuppliers() async throws -> [AcquisitionSupplierSummary] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [SupplierRow] = try await client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .order("name", ascending: true)
+            .execute()
+            .value
+
+        return rows.map {
+            AcquisitionSupplierSummary(id: $0.id, name: $0.name, city: $0.city)
+        }
+    }
+
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let rows: [ContactRow] = try await client
+            .from("acquisition_contacts")
+            .select(AcquisitionQueries.contactColumns)
+            .order("is_primary", ascending: false)
+            .order("organization_name", ascending: true)
+            .execute()
+            .value
+
+        return rows.map {
+            AcquisitionInstitutionalContact(
+                id: $0.id,
+                supplierID: $0.supplier_id,
+                organizationName: $0.organization_name,
+                personName: $0.person_name,
+                jobTitle: $0.job_title,
+                phone: $0.phone,
+                email: $0.email,
+                businessHours: $0.business_hours,
+                isPrimary: $0.is_primary
+            )
+        }
+    }
+
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let offerRows: [OfferRow] = try await client
+            .from("acquisition_offers")
+            .select(AcquisitionQueries.offerColumns)
+            .eq("id", value: offerID.uuidString)
+            .execute()
+            .value
+        guard let offerRow = offerRows.first else { throw RepositoryError.offerNotFound }
+
+        async let negotiationRowsTask: [NegotiationRow] = client
+            .from("acquisition_negotiations")
+            .select(AcquisitionQueries.negotiationColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .order("event_sequence", ascending: true)
+            .execute()
+            .value
+
+        async let evidenceRowsTask: [EvidenceRow] = client
+            .from("acquisition_evidence")
+            .select(AcquisitionQueries.evidenceColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .order("created_at", ascending: true)
+            .execute()
+            .value
+
+        async let requirementRowsTask: [RequestRequirementRow] = client
+            .from("acquisition_request_requirements")
+            .select(AcquisitionQueries.requestRequirementColumns)
+            .eq("request_id", value: offerRow.request_id.uuidString)
+            .order("display_order", ascending: true)
+            .execute()
+            .value
+
+        async let assessmentRowsTask: [AssessmentRow] = {
+            guard membership.role == .doriAdmin else { return [] }
+            return try await client
+                .from("acquisition_offer_assessments")
+                .select(AcquisitionQueries.assessmentColumns)
+                .eq("offer_id", value: offerID.uuidString)
+                .execute()
+                .value
+        }()
+
+        async let deliveryTask = loadDeliveryJourney(
+            offerID: offerID,
+            membership: membership,
+            client: client
+        )
+        async let supplierRowsTask: [SupplierRow] = client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .eq("id", value: offerRow.supplier_id.uuidString)
+            .limit(1)
+            .execute()
+            .value
+
+        let (negotiationRows, evidenceRows, requirementRows, assessmentRows, delivery, supplierRows) =
+            try await (
+                negotiationRowsTask,
+                evidenceRowsTask,
+                requirementRowsTask,
+                assessmentRowsTask,
+                deliveryTask,
+                supplierRowsTask
+            )
+        let evidence = evidenceRows.map {
+            AcquisitionEvidenceItem(
+                id: $0.id,
+                kind: $0.kind,
+                objectPath: $0.object_path,
+                verified: $0.verified,
+                imageData: evidenceDataCache.object(forKey: $0.object_path as NSString).map { $0 as Data }
+            )
+        }
+        let assessment = assessmentRows.first.map { Self.assessment(from: $0) }
+
+        return AcquisitionOfferDetail(
+            offer: Self.offer(from: offerRow),
+            assessment: assessment,
+            negotiations: negotiationRows.map { Self.negotiation(from: $0) },
+            evidence: evidence,
+            requirements: requirementRows.map {
+                AcquisitionRequestRequirement(
+                    id: $0.code,
+                    category: $0.category,
+                    title: $0.title,
+                    value: $0.value,
+                    required: $0.required,
+                    displayOrder: $0.display_order,
+                    responseType: $0.response_type,
+                    requiresDORIVerification: $0.requires_dori_verification
+                )
+            },
+            delivery: delivery,
+            supplierName: supplierRows.first?.name
+        )
+    }
+
+    func loadOfferEvidenceData(_ evidence: [AcquisitionEvidenceItem]) async -> [UUID: Data] {
+        guard let client = SupabaseBridge.client else { return [:] }
+        let bucket = client.storage.from("acquisition-evidence")
+        var result = Dictionary(
+            uniqueKeysWithValues: evidence.compactMap { item -> (UUID, Data)? in
+                if let data = item.imageData { return (item.id, data) }
+                guard let cached = evidenceDataCache.object(forKey: item.objectPath as NSString) else {
+                    return nil
+                }
+                return (item.id, cached as Data)
+            }
+        )
+        let downloaded = await withTaskGroup(of: (UUID, String, Data?).self, returning: [(UUID, String, Data)].self) { group in
+            for item in evidence where result[item.id] == nil {
+                group.addTask {
+                    (item.id, item.objectPath, try? await bucket.download(path: item.objectPath))
+                }
+            }
+            var values: [(UUID, String, Data)] = []
+            for await (id, path, data) in group {
+                if let data { values.append((id, path, data)) }
+            }
+            return values
+        }
+        for (id, path, data) in downloaded {
+            result[id] = data
+            evidenceDataCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
+        }
+        return result
+    }
+
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary {
+        try await submitOfferInternal(submission, membership: membership, progress: nil)
+    }
+
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: @escaping @MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void
+    ) async throws -> AcquisitionOfferSummary {
+        try await submitOfferInternal(submission, membership: membership, progress: progress)
+    }
+
+    private func submitOfferInternal(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership,
+        progress: (@MainActor (Int, Int, AcquisitionOfferSubmissionStage) -> Void)?
+    ) async throws -> AcquisitionOfferSummary {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        guard membership.role == .provider, let supplierID = membership.supplierID else {
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: "invalid_provider_scope"
+            )
+        }
+        guard submission.evidence.count >= 3 else {
+            throw RepositoryError.evidenceRequired
+        }
+
+        // A response can be lost after the transactional RPC commits. Checking
+        // the client-generated identifier first makes an explicit retry return
+        // the existing offer instead of uploading again or creating a duplicate.
+        do {
+            let existing: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .eq("id", value: submission.offerID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            if let row = existing.first { return Self.offer(from: row) }
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
+        }
+
+        let bucket = client.storage.from("acquisition-evidence")
+        let uploadItems: [(index: Int, item: AcquisitionEvidenceUpload, path: String)] = try submission.evidence
+            .enumerated()
+            .map { index, item in
+                guard !item.data.isEmpty else { throw RepositoryError.evidenceRequired }
+                guard item.data.count <= 10 * 1_024 * 1_024 else {
+                    throw RepositoryError.evidenceTooLarge
+                }
+                return (
+                    index,
+                    item,
+                    AcquisitionEvidencePath.make(
+                        environmentID: membership.environmentID,
+                        supplierID: supplierID,
+                        offerID: submission.offerID,
+                        kind: item.kind
+                    )
+                )
+            }
+        progress?(0, uploadItems.count, .evidenceUpload)
+
+        // Refresh once, then let the independent immutable object uploads run in
+        // parallel. Their paths remain deterministic and the transactional RPC is
+        // still invoked only after every object succeeds.
+        do {
+            _ = try await client.auth.session
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .authorization,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
+        }
+
+        var indexedReferences: [(Int, EvidenceReference)] = []
+        do {
+            // Four concurrent uploads keep memory/network pressure predictable on
+            // physical devices while removing the serial round-trip bottleneck.
+            for offset in stride(from: 0, to: uploadItems.count, by: 4) {
+                let batch = Array(uploadItems[offset..<min(offset + 4, uploadItems.count)])
+                let uploadedBatch = try await withThrowingTaskGroup(
+                    of: (Int, EvidenceReference).self,
+                    returning: [(Int, EvidenceReference)].self
+                ) { group in
+                    for upload in batch {
+                        group.addTask {
+                            do {
+                                try await bucket.upload(
+                                    upload.path,
+                                    data: upload.item.data,
+                                    options: FileOptions(contentType: "image/jpeg", upsert: false)
+                                )
+                                return (
+                                    upload.index,
+                                    EvidenceReference(kind: upload.item.kind.rawValue, path: upload.path)
+                                )
+                            } catch {
+                                let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                                    error,
+                                    operation: "storage.upload acquisition-evidence",
+                                    context: [
+                                        "bucket": "acquisition-evidence",
+                                        "path": AcquisitionRemoteDiagnostic.redact(path: upload.path),
+                                        "mime": "image/jpeg",
+                                        "bytes": String(upload.item.data.count),
+                                        "environment_id": AcquisitionRemoteDiagnostic.redact(membership.environmentID),
+                                        "supplier_id": AcquisitionRemoteDiagnostic.redact(supplierID),
+                                        "offer_id": AcquisitionRemoteDiagnostic.redact(submission.offerID),
+                                        "evidence": upload.item.kind.rawValue,
+                                        "upsert": "false",
+                                    ]
+                                )
+                                print("[Adquisiciones][TEST][Storage] \(diagnostic)")
+                                throw AcquisitionOfferSubmissionError(
+                                    stage: .evidenceUpload,
+                                    evidenceKind: upload.item.kind,
+                                    technicalDescription: diagnostic
+                                )
+                            }
+                        }
+                    }
+                    var uploaded: [(Int, EvidenceReference)] = []
+                    for try await value in group { uploaded.append(value) }
+                    return uploaded
+                }
+                indexedReferences.append(contentsOf: uploadedBatch)
+                progress?(indexedReferences.count, uploadItems.count, .evidenceUpload)
+            }
+        } catch {
+            throw error
+        }
+        let references = indexedReferences.sorted { $0.0 < $1.0 }.map { $0.1 }
+
+        do {
+            progress?(uploadItems.count, uploadItems.count, .rpc)
+            // The RPC returns the complete composite row. Do not decode that response
+            // here: PostgreSQL `date` fields are serialized as `YYYY-MM-DD`, while the
+            // Supabase decoder's `Date` support expects a timestamp. The authoritative
+            // projection below performs the typed read using explicit date-only parsing.
+            _ = try await client
+                .rpc(
+                    "submit_acquisition_offer_v2",
+                    params: SubmitOfferParameters(
+                        p_offer_id: submission.offerID,
+                        p_request_id: submission.requestID,
+                        p_vin: submission.vin,
+                        p_model: submission.model,
+                        p_version: submission.version,
+                        p_year: submission.year,
+                        p_mileage: submission.mileage,
+                        p_declared_soh: submission.declaredSoh,
+                        p_color: submission.color,
+                        p_price_mxn: submission.priceMxn,
+                        p_transfer_included: submission.transferIncluded,
+                        p_delivery_terms_accepted: submission.deliveryTermsAccepted,
+                        p_validation_results: submission.validationResults,
+                        p_evidence: references,
+                        p_idempotency_key: submission.idempotencyKey
+                    )
+                )
+                .execute()
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .rpc,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
+        }
+
+        do {
+            progress?(1, 1, .persistenceCheck)
+            let persisted: [OfferRow] = try await client
+                .from("acquisition_offers")
+                .select(AcquisitionQueries.offerColumns)
+                .eq("id", value: submission.offerID.uuidString)
+                .limit(1)
+                .execute()
+                .value
+            guard let row = persisted.first else {
+                throw RepositoryError.offerNotFound
+            }
+            return Self.offer(from: row)
+        } catch {
+            throw AcquisitionOfferSubmissionError(
+                stage: .persistenceCheck,
+                evidenceKind: nil,
+                technicalDescription: error.localizedDescription
+            )
+        }
+    }
+
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let row: RespondOfferRow
+        do {
+            row = try await client
+                .rpc(
+                    "respond_acquisition_offer",
+                    params: RespondOfferParameters(
+                        p_offer_id: command.offerID,
+                        p_action: command.action.rawValue,
+                        p_amount_mxn: command.amountMxn,
+                        p_message: command.message,
+                        p_idempotency_key: command.idempotencyKey
+                    )
+                )
+                .execute()
+                .value
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc respond_acquisition_offer",
+                context: [
+                    "offer_id": AcquisitionRemoteDiagnostic.redact(command.offerID),
+                    "action": command.action.rawValue,
+                    "amount_present": command.amountMxn == nil ? "false" : "true",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(command.idempotencyKey),
+                ]
+            )
+            print("[Adquisiciones][TEST][Negociación] \(diagnostic)")
+            throw error
+        }
+
+        return AcquisitionOfferCommandResult(
+            offerID: row.offer_id,
+            status: row.status,
+            agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
+            orderID: row.order_id
+        )
+    }
+
+    func resetTestEnvironment(confirmation: String) async throws -> AcquisitionTestResetResult {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+
+        let plan: ResetTestPlan = try await client
+            .rpc(
+                "plan_test_acquisition_environment_reset",
+                params: ResetTestParameters(p_confirmation: confirmation)
+            )
+            .execute()
+            .value
+
+        for object in plan.storage_objects {
+            try Self.validateTestResetObject(object, environmentID: plan.environment_id)
+        }
+
+        let allowedBuckets: Set<String> = [
+            "acquisition-evidence", "acquisition-chat-attachments", "acquisition-request-documents",
+        ]
+        for bucketName in allowedBuckets {
+            let paths = plan.storage_objects
+                .filter { $0.bucket == bucketName }
+                .map(\.path)
+            for batchStart in stride(from: 0, to: paths.count, by: 100) {
+                let batchEnd = min(batchStart + 100, paths.count)
+                try await client.storage.from(bucketName).remove(paths: Array(paths[batchStart..<batchEnd]))
+            }
+        }
+
+        let result: ResetTestResult = try await client
+            .rpc(
+                "reset_test_acquisition_environment",
+                params: ResetTestParameters(p_confirmation: confirmation)
+            )
+            .execute()
+            .value
+
+        return AcquisitionTestResetResult(
+            environmentID: result.environment_id,
+            before: result.before,
+            after: result.after,
+            deletedStorageObjects: plan.storage_objects.count
+        )
+    }
+
+    func completeDelivery(
+        _ command: AcquisitionDeliveryCommand
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+
+        let row: CompleteDeliveryRow = try await client
+            .rpc(
+                "complete_acquisition_delivery",
+                params: CompleteDeliveryParameters(
+                    p_order_id: command.orderID,
+                    p_action: command.action.rawValue,
+                    p_checklist: command.checklist,
+                    p_result: nil,
+                    p_note: command.note,
+                    p_hold_amount_mxn: nil,
+                    p_idempotency_key: command.idempotencyKey
+                )
+            )
+            .execute()
+            .value
+
+        return AcquisitionDeliveryCommandResult(
+            orderID: row.order_id,
+            status: row.status,
+            receptionResult: row.recommended_result,
+            holdAmountMxn: row.hold_amount_mxn.map { Self.integer(from: $0) } ?? 0
+        )
+    }
+
+    func completeArrival(
+        orderID: UUID,
+        offerID: UUID,
+        supplierID: UUID,
+        evidence: [String: Data],
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        guard let client = SupabaseBridge.client, membership.role == .doriAdmin else {
+            throw RepositoryError.noMembership
+        }
+        let required = [
+            "vin", "origin_invoice", "reinvoice", "soh", "keys", "charger_110v",
+            "charger_220v", "plates", "registration", "manufacturer_warranty", "used_warranty",
+        ]
+        guard Set(evidence.keys) == Set(required) else { throw RepositoryError.evidenceRequired }
+        let prefix = "\(membership.environmentID.uuidString.lowercased())/\(supplierID.uuidString.lowercased())/\(offerID.uuidString.lowercased())/arrivals"
+        var paths: [String: String] = [:]
+        let bucket = client.storage.from("acquisition-evidence")
+        for key in required {
+            guard let data = evidence[key], !data.isEmpty else { throw RepositoryError.evidenceRequired }
+            let path = "\(prefix)/\(key)-\(UUID().uuidString.lowercased()).jpg"
+            try await bucket.upload(path, data: data, options: FileOptions(contentType: "image/jpeg", upsert: false))
+            paths[key] = path
+        }
+        let row: CompleteDeliveryRow = try await client
+            .rpc(
+                "complete_acquisition_arrival",
+                params: CompleteArrivalParameters(
+                    p_order_id: orderID,
+                    p_checks: Dictionary(uniqueKeysWithValues: required.map { ($0, true) }),
+                    p_evidence_paths: paths,
+                    p_idempotency_key: "ios-acquisition-arrival-\(orderID.uuidString.lowercased())"
+                )
+            )
+            .execute()
+            .value
+        return AcquisitionDeliveryCommandResult(
+            orderID: row.order_id,
+            status: row.status,
+            receptionResult: row.recommended_result,
+            holdAmountMxn: row.hold_amount_mxn.map { Self.integer(from: $0) } ?? 0
+        )
+    }
+
+    func loadChatThreads() async throws -> [AcquisitionChatThreadSummary] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let rows: [ChatThreadRow] = try await client
+            .rpc("list_acquisition_chat_threads")
+            .execute()
+            .value
+        let offers = try await loadOffers()
+        let offersByID = Dictionary(uniqueKeysWithValues: offers.map { ($0.id, $0) })
+
+        // Vehicle imagery is useful but secondary: a missing thumbnail must
+        // never hide the institutional conversation list.
+        var evidenceRows: [ChatEvidenceRow] = (try? await client
+            .from("acquisition_evidence")
+            .select("offer_id, object_path")
+            .eq("kind", value: AcquisitionEvidenceKind.exteriorDriverSide.rawValue)
+            .execute()
+            .value) ?? []
+        let missingPrimary = Set(rows.compactMap(\.offer_id)).subtracting(evidenceRows.map(\.offer_id))
+        if !missingPrimary.isEmpty {
+            let legacy: [ChatEvidenceRow] = (try? await client
+                .from("acquisition_evidence")
+                .select("offer_id, object_path")
+                .eq("kind", value: AcquisitionEvidenceKind.front.rawValue)
+                .execute()
+                .value) ?? []
+            evidenceRows.append(contentsOf: legacy.filter { missingPrimary.contains($0.offer_id) })
+        }
+        let pathByOffer = Dictionary(
+            evidenceRows.map { ($0.offer_id, $0.object_path) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let bucket = client.storage.from("acquisition-evidence")
+        var cachedThumbnails: [UUID: Data] = [:]
+        var missingThumbnails: [(offerID: UUID, path: String)] = []
+        for offerID in Set(rows.compactMap(\.offer_id)) {
+            guard let path = pathByOffer[offerID] else { continue }
+            if let cached = evidenceDataCache.object(forKey: path as NSString) {
+                cachedThumbnails[offerID] = cached as Data
+            } else {
+                missingThumbnails.append((offerID, path))
+            }
+        }
+        let thumbnailByOffer = await withTaskGroup(
+            of: (UUID, String, Data?).self,
+            returning: [(UUID, String, Data)].self
+        ) { group in
+            for item in missingThumbnails {
+                group.addTask {
+                    (item.offerID, item.path, try? await bucket.download(path: item.path))
+                }
+            }
+            var result: [(UUID, String, Data)] = []
+            for await (offerID, path, data) in group {
+                if let data { result.append((offerID, path, data)) }
+            }
+            return result
+        }
+        for (offerID, path, data) in thumbnailByOffer {
+            cachedThumbnails[offerID] = data
+            evidenceDataCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
+        }
+
+        let summaries = rows.map { row in
+                let offer = row.offer_id.flatMap { offersByID[$0] }
+                let vehicle = offer.map {
+                    AcquisitionChatVehicleContext(
+                        model: $0.modelAndVersion,
+                        year: $0.year,
+                        abbreviatedVin: $0.abbreviatedVin,
+                        mileage: $0.mileage,
+                        currentPriceMxn: $0.agreedPriceMxn ?? $0.priceMxn,
+                        status: AcquisitionHumanStatus.title(for: $0.status, role: .provider),
+                        thumbnailData: cachedThumbnails[$0.id]
+                    )
+                }
+                return Self.chatThread(from: row, vehicle: vehicle)
+            }
+        return AcquisitionChatOrdering.newestFirst(summaries)
+    }
+
+    func ensureChatThread(
+        supplierID: UUID?,
+        offerID: UUID?
+    ) async throws -> AcquisitionChatThreadSummary {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let row: EnsuredChatThreadRow = try await client
+            .rpc(
+                "ensure_acquisition_chat_thread",
+                params: EnsureChatThreadParameters(
+                    p_supplier_id: supplierID,
+                    p_offer_id: offerID
+                )
+            )
+            .execute()
+            .value
+        let supplierRows: [SupplierRow] = try await client
+            .from("acquisition_suppliers")
+            .select(AcquisitionQueries.supplierColumns)
+            .eq("id", value: row.supplier_id.uuidString)
+            .execute()
+            .value
+        return AcquisitionChatThreadSummary(
+            id: row.id,
+            supplierID: row.supplier_id,
+            offerID: row.offer_id,
+            scope: row.scope,
+            title: row.title,
+            supplierName: supplierRows.first?.name ?? "Proveedor",
+            lastMessage: nil,
+            lastMessageKind: nil,
+            lastMessageAt: nil,
+            unreadCount: 0
+        )
+    }
+
+    func loadChatMessages(threadID: UUID) async throws -> [AcquisitionChatMessage] {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let rows: [ChatMessageRow] = try await client
+            .from("acquisition_chat_messages")
+            .select(AcquisitionQueries.chatMessageColumns)
+            .eq("thread_id", value: threadID.uuidString)
+            .order("event_sequence", ascending: true)
+            .execute()
+            .value
+        let bucket = client.storage.from("acquisition-chat-attachments")
+        var messages: [AcquisitionChatMessage] = []
+        for row in rows {
+            let attachmentData: Data?
+            if let path = row.attachment_path {
+                attachmentData = try? await bucket.download(path: path)
+            } else {
+                attachmentData = nil
+            }
+            messages.append(Self.chatMessage(from: row, attachmentData: attachmentData))
+        }
+        return messages
+    }
+
+    func sendChatMessage(
+        thread: AcquisitionChatThreadSummary,
+        body: String,
+        attachment: AcquisitionChatAttachment?
+    ) async throws -> AcquisitionChatMessage {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let attachmentPath: String?
+        if let attachment {
+            guard attachment.data.count <= 10 * 1_024 * 1_024 else {
+                throw RepositoryError.evidenceTooLarge
+            }
+            let path = AcquisitionChatAttachmentPath.make(
+                environmentID: try await currentEnvironmentID(),
+                supplierID: thread.supplierID,
+                threadID: thread.id,
+                fileExtension: attachment.fileExtension
+            )
+            try await client.storage.from("acquisition-chat-attachments").upload(
+                path,
+                data: attachment.data,
+                options: FileOptions(
+                    contentType: attachment.contentType,
+                    upsert: false
+                )
+            )
+            attachmentPath = path
+        } else {
+            attachmentPath = nil
+        }
+
+        let idempotencyKey = "ios-acquisition-chat-\(UUID().uuidString.lowercased())"
+        do {
+            let row: ChatMessageRow = try await client
+                .rpc(
+                    "send_acquisition_chat_message",
+                    params: SendChatMessageParameters(
+                        p_thread_id: thread.id,
+                        p_body: body.trimmingCharacters(in: .whitespacesAndNewlines),
+                        p_attachment_path: attachmentPath,
+                        p_attachment_mime_type: attachment?.contentType,
+                        p_attachment_filename: attachment?.filename,
+                        p_attachment_size_bytes: attachment?.size,
+                        p_idempotency_key: idempotencyKey
+                    )
+                )
+                .execute()
+                .value
+            return Self.chatMessage(from: row, attachmentData: attachment?.data)
+        } catch {
+            let diagnostic = AcquisitionRemoteDiagnostic.describe(
+                error,
+                operation: "rpc.send_acquisition_chat_message",
+                context: [
+                    "thread_id": AcquisitionRemoteDiagnostic.redact(thread.id),
+                    "supplier_id": AcquisitionRemoteDiagnostic.redact(thread.supplierID),
+                    "offer_id": thread.offerID.map(AcquisitionRemoteDiagnostic.redact) ?? "null",
+                    "scope": thread.scope.rawValue,
+                    "attachment": attachmentPath == nil ? "none" : "private",
+                    "idempotency_key": AcquisitionRemoteDiagnostic.redact(idempotencyKey),
+                ]
+            )
+            print("[Adquisiciones][TEST][Chat] \(diagnostic)")
+            throw AcquisitionChatSendError(technicalDescription: diagnostic)
+        }
+    }
+
+    func markChatRead(threadID: UUID, sequence: Int64) async throws {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let _: ChatReadReceiptRow = try await client
+            .rpc(
+                "mark_acquisition_chat_read",
+                params: MarkChatReadParameters(
+                    p_thread_id: threadID,
+                    p_last_read_sequence: sequence
+                )
+            )
+            .execute()
+            .value
+    }
+
+    func registerPushDevice(token: String, appEnvironment: String, bundleID: String) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let _: UUID = try await client.rpc(
+            "register_acquisition_push_device",
+            params: RegisterPushDeviceParameters(
+                p_device_token: token,
+                p_platform: "ios",
+                p_app_environment: appEnvironment,
+                p_bundle_id: bundleID
+            )
+        ).execute().value
+    }
+
+    func revokePushDevice(token: String) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        try await client.rpc(
+            "revoke_acquisition_push_device",
+            params: RevokePushDeviceParameters(p_device_token: token)
+        ).execute()
+    }
+
+    func notificationBadgeCount() async throws -> Int {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let count: Int = try await client.rpc("acquisition_notification_badge_count")
+            .execute().value
+        return count
+    }
+
+    func unreadNotificationOfferIDs() async throws -> Set<UUID> {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let ids: [UUID] = try await client.rpc("acquisition_unread_offer_ids")
+            .execute().value
+        return Set(ids)
+    }
+
+    func markNotificationContextRead(type: String, id: UUID) async throws {
+        guard let client = SupabaseBridge.client else { throw RepositoryError.notConfigured }
+        let _: Int = try await client.rpc(
+            "mark_acquisition_notification_context_read",
+            params: NotificationContextParameters(p_context_type: type, p_context_id: id)
+        ).execute().value
+    }
+
+    private func currentEnvironmentID() async throws -> UUID {
+        guard let client = SupabaseBridge.client else {
+            throw RepositoryError.notConfigured
+        }
+        let session = try await client.auth.session
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
+        return profile.environment_id
+    }
+
+    private func loadDeliveryJourney(
+        offerID: UUID,
+        membership: AcquisitionMembership,
+        client: SupabaseClient
+    ) async throws -> AcquisitionDeliveryJourney? {
+        let orderRows: [OrderRow] = try await client
+            .from("acquisition_orders")
+            .select(AcquisitionQueries.orderColumns)
+            .eq("offer_id", value: offerID.uuidString)
+            .execute()
+            .value
+        guard let order = orderRows.first else { return nil }
+
+        let deliveryRows: [DeliveryRow] = try await client
+            .from("acquisition_deliveries")
+            .select(AcquisitionQueries.deliveryColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+        guard let delivery = deliveryRows.first else { return nil }
+
+        let receptionRows: [ReceptionRow] = try await client
+            .from("acquisition_receptions")
+            .select(AcquisitionQueries.receptionColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+        let holdRows: [HoldRow] = try await client
+            .from("acquisition_holds")
+            .select(AcquisitionQueries.holdColumns)
+            .eq("order_id", value: order.id.uuidString)
+            .execute()
+            .value
+
+        let supplierName: String?
+        if membership.role == .doriAdmin {
+            let supplierRows: [SupplierRow] = try await client
+                .from("acquisition_suppliers")
+                .select(AcquisitionQueries.supplierColumns)
+                .eq("id", value: order.supplier_id.uuidString)
+                .execute()
+                .value
+            supplierName = supplierRows.first?.name
+        } else {
+            supplierName = nil
+        }
+
+        let reception = receptionRows.first.map {
+            AcquisitionReception(
+                checklist: AcquisitionReceptionChecklist(
+                    vinCorrect: $0.vin_correct,
+                    mileageCorrect: $0.mileage_correct,
+                    chargersComplete: $0.chargers_complete,
+                    keysComplete: $0.keys_complete,
+                    newDamage: $0.new_damage
+                ),
+                result: $0.result,
+                issueSummary: $0.issue_summary,
+                holdAmountMxn: Self.integer(from: $0.hold_amount_mxn)
+            )
+        }
+        let hold = holdRows.first.map {
+            AcquisitionHold(
+                amountMxn: Self.integer(from: $0.amount_mxn),
+                reason: $0.reason,
+                status: $0.status,
+                supplierResolutionNote: $0.supplier_resolution_note
+            )
+        }
+
+        return AcquisitionDeliveryJourney(
+            orderID: order.id,
+            supplierName: supplierName,
+            finalPriceMxn: Self.integer(from: order.final_price_mxn),
+            orderStatus: order.status,
+            deliveryStatus: delivery.status,
+            reception: reception,
+            hold: hold
+        )
+    }
+
+    nonisolated static func request(
+        from row: RequestRow,
+        requirements: [AcquisitionRequestRequirement] = []
+    ) -> AcquisitionRequest {
+        AcquisitionRequest(
+            id: row.id,
+            code: row.code,
+            title: row.title,
+            targetQuantity: row.target_quantity,
+            model: row.model,
+            versions: row.versions,
+            minimumYear: row.minimum_year,
+            maximumYear: row.maximum_year,
+            maximumMileage: row.maximum_mileage,
+            deliveryCity: row.delivery_city,
+            deadlineAt: row.deadline_at,
+            targetDeliveryDate: Self.postgresDate(from: row.target_delivery_date),
+            fiscalPeriod: Self.postgresDate(from: row.fiscal_period) ?? Date(),
+            maximumUnitPriceMxn: Self.integer(from: row.maximum_unit_price_mxn),
+            minimumSoh: Self.integer(from: row.minimum_soh),
+            sohDiagnosisMaximumAgeDays: row.soh_diagnosis_max_age_days,
+            destinationStationName: row.destination_station_name,
+            deliveryTermsDocumentPath: row.delivery_terms_document_path,
+            status: row.status,
+            detailedRequirements: requirements
+        )
+    }
+
+    nonisolated static func offer(from row: OfferRow) -> AcquisitionOfferSummary {
+        AcquisitionOfferSummary(
+            id: row.id,
+            requestID: row.request_id,
+            supplierID: row.supplier_id,
+            status: row.status,
+            model: row.model,
+            version: row.version,
+            year: row.year,
+            mileage: row.mileage,
+            priceMxn: Self.integer(from: row.price_mxn),
+            transferIncluded: row.transfer_included,
+            vin: row.vin,
+            declaredSoh: row.declared_soh.map { Self.integer(from: $0) },
+            color: row.color,
+            agreedPriceMxn: row.agreed_price_mxn.map { Self.integer(from: $0) },
+            committedDeliveryDate: Self.postgresDate(from: row.committed_delivery_date),
+            fiscalPeriod: Self.postgresDate(from: row.request_fiscal_period),
+            submittedAt: row.submitted_at
+        )
+    }
+
+    nonisolated static func assessment(from row: AssessmentRow) -> AcquisitionOfferAssessment {
+        AcquisitionOfferAssessment(
+            suggestedAmountMxn: row.maximum_recommended_mxn.map { Self.integer(from: $0) },
+            recommendation: row.recommendation,
+            evidenceStatus: row.evidence_status,
+            summary: row.summary
+        )
+    }
+
+    nonisolated static func negotiation(from row: NegotiationRow) -> AcquisitionNegotiation {
+        AcquisitionNegotiation(
+            id: row.id,
+            sequence: row.event_sequence,
+            actorRole: row.actor_role,
+            action: row.action,
+            amountMxn: row.amount_mxn.map { Self.integer(from: $0) },
+            message: row.message,
+            createdAt: row.created_at
+        )
+    }
+
+    nonisolated static func integer(from value: Decimal) -> Int {
+        NSDecimalNumber(decimal: value).intValue
+    }
+
+    /// Converts the wire representation of a PostgreSQL `date` without treating
+    /// it as a timestamp or depending on the device time zone.
+    nonisolated static func postgresDate(from value: String?) -> Date? {
+        guard let value else { return nil }
+        let parts = value.split(separator: "-")
+        guard parts.count == 3,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.date(from: DateComponents(year: year, month: month, day: day))
+    }
+
+    nonisolated static func postgresDateString(from date: Date?) -> String? {
+        guard let date else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return nil
+        }
+        return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    nonisolated static func chatThread(
+        from row: ChatThreadRow,
+        vehicle: AcquisitionChatVehicleContext? = nil
+    ) -> AcquisitionChatThreadSummary {
+        AcquisitionChatThreadSummary(
+            id: row.thread_id,
+            supplierID: row.supplier_id,
+            offerID: row.offer_id,
+            scope: row.scope,
+            title: row.title,
+            supplierName: row.supplier_name,
+            lastMessage: row.last_message,
+            lastMessageKind: row.last_message_kind,
+            lastMessageAt: row.last_message_at,
+            updatedAt: row.updated_at,
+            unreadCount: row.unread_count,
+            vehicle: vehicle
+        )
+    }
+
+    nonisolated static func chatMessage(
+        from row: ChatMessageRow,
+        attachmentData: Data?
+    ) -> AcquisitionChatMessage {
+        AcquisitionChatMessage(
+            id: row.id,
+            sequence: row.event_sequence,
+            threadID: row.thread_id,
+            senderProfileID: row.sender_profile_id,
+            senderRole: AcquisitionRole(rawValue: row.sender_role),
+            kind: row.message_kind,
+            body: row.body,
+            attachmentPath: row.attachment_path,
+            attachmentContentType: row.attachment_mime_type,
+            attachmentFilename: row.attachment_filename,
+            attachmentSize: row.attachment_size_bytes,
+            createdAt: row.created_at,
+            attachmentData: attachmentData
+        )
+    }
+}
+
+struct AcquisitionSessionIdentity {
+    let authUserID: UUID
+    let profile: SupabaseAuthProbe.ProfileRow
+    let membership: AcquisitionMembership
+}
+
+enum SupabaseSessionResolution {
+    case staff(SupabaseAuthProbe.Result)
+    case acquisition(AcquisitionSessionIdentity)
+}
+
+nonisolated enum SessionMembershipRoute: Equatable {
+    case staff
+    case acquisition(AcquisitionRole)
+}
+
+/// One sign-in door for both existing station staff and acquisition-only accounts.
+/// Existing staff resolution remains first, so adding this module cannot steal an
+/// operational account's established route.
+@MainActor
+enum SupabaseSessionResolver {
+    nonisolated static func preferredRoute(
+        hasStaffMembership: Bool,
+        acquisitionMembership: AcquisitionMembership?
+    ) throws -> SessionMembershipRoute {
+        if hasStaffMembership { return .staff }
+        guard let acquisitionMembership else {
+            throw SupabaseAcquisitionRepository.RepositoryError.noMembership
+        }
+        return .acquisition(acquisitionMembership.role)
+    }
+
+    static func run(email: String, password: String) async throws -> SupabaseSessionResolution {
+        guard let client = SupabaseBridge.client else {
+            throw SupabaseAuthProbe.ProbeError.notConfigured
+        }
+
+        let session = try await client.auth.signIn(
+            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            password: password
+        )
+
+        let profile = try await SupabaseAuthProbe.loadProfile(authUserId: session.user.id)
+
+        if let staff = try await SupabaseAuthProbe.resolveStaff(
+            authUserId: session.user.id,
+            profile: profile
+        ) {
+            _ = try Self.preferredRoute(
+                hasStaffMembership: true,
+                acquisitionMembership: nil
+            )
+            return .staff(staff)
+        }
+
+        let membership = try await SupabaseAcquisitionRepository().loadMembership(
+            profileID: profile.id,
+            environmentID: profile.environment_id
+        )
+        _ = try Self.preferredRoute(
+            hasStaffMembership: false,
+            acquisitionMembership: membership
+        )
+        return .acquisition(
+            AcquisitionSessionIdentity(
+                authUserID: session.user.id,
+                profile: profile,
+                membership: membership
+            )
+        )
+    }
+}
+
+@MainActor
+final class PreviewAcquisitionRepository: AcquisitionRepository {
+    let requests: [AcquisitionRequest]
+    let offers: [AcquisitionOfferSummary]
+    let membership: AcquisitionMembership
+
+    init(role: AcquisitionRole) {
+        let requestID = UUID(uuidString: "AD400000-0000-4000-8000-000000000001")!
+        let profileID = UUID(uuidString: "AD400000-0000-4000-8000-000000000002")!
+        membership = AcquisitionMembership(
+            id: UUID(uuidString: "AD400000-0000-4000-8000-000000000003")!,
+            environmentID: UUID(uuidString: "AD400000-0000-4000-8000-000000000004")!,
+            profileID: profileID,
+            supplierID: role == .provider
+                ? UUID(uuidString: "AD400000-0000-4000-8000-000000000005")!
+                : nil,
+            role: role
+        )
+        requests = [
+            AcquisitionRequest(
+                id: requestID,
+                code: "ADQ-TEST-001",
+                title: "15 autos requeridos",
+                targetQuantity: 15,
+                model: "Dolphin Mini",
+                versions: ["Plus"],
+                minimumYear: 2024,
+                maximumYear: 2026,
+                maximumMileage: 30_000,
+                deliveryCity: "Puebla",
+                deadlineAt: Date(timeIntervalSinceNow: 14 * 86_400),
+                targetDeliveryDate: Date(timeIntervalSinceNow: 30 * 86_400),
+                fiscalPeriod: Date(),
+                maximumUnitPriceMxn: 295_000,
+                destinationStationName: "DORI Puebla",
+                deliveryTermsDocumentPath: "preview/condiciones.pdf",
+                detailedRequirements: AcquisitionRequestDraft.defaultRequirements
+            ),
+        ]
+        offers = []
+    }
+
+    func loadMembership(
+        profileID: UUID,
+        environmentID: UUID
+    ) async throws -> AcquisitionMembership {
+        AcquisitionMembership(
+            id: membership.id,
+            environmentID: environmentID,
+            profileID: profileID,
+            supplierID: membership.supplierID,
+            role: membership.role
+        )
+    }
+    func loadRequests() async throws -> [AcquisitionRequest] { requests }
+    func loadOffers() async throws -> [AcquisitionOfferSummary] { offers }
+    func loadContacts() async throws -> [AcquisitionInstitutionalContact] {
+        [
+            AcquisitionInstitutionalContact(
+                id: UUID(),
+                supplierID: membership.role == .doriAdmin ? UUID() : nil,
+                organizationName: membership.role == .doriAdmin ? "BYD Iztacalco" : "DORI Puebla",
+                personName: membership.role == .doriAdmin ? "Laura Méndez" : "Jorge Ramos",
+                jobTitle: membership.role == .doriAdmin ? "Gerente de seminuevos" : "Supervisor de adquisiciones",
+                phone: "222 000 0000",
+                email: membership.role == .doriAdmin ? "byd.iztacalco@dori.mx" : "adquisiciones.pue@dori.mx",
+                businessHours: "09:00 a 18:00",
+                isPrimary: true
+            ),
+        ]
+    }
+    func loadOfferDetail(
+        offerID: UUID,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferDetail {
+        let offer = offers.first(where: { $0.id == offerID })
+            ?? AcquisitionOfferSummary(
+                id: offerID,
+                requestID: requests[0].id,
+                status: "submitted",
+                model: requests[0].model,
+                version: requests[0].versions.first,
+                year: 2025,
+                mileage: 8_400,
+                priceMxn: 274_000,
+                transferIncluded: true,
+                vin: "LGXCE6CB1S0000011",
+                declaredSoh: 96
+            )
+        return AcquisitionOfferDetail(
+            offer: offer,
+            assessment: membership.role == .doriAdmin
+                ? AcquisitionOfferAssessment(
+                    suggestedAmountMxn: 268_000,
+                    recommendation: .negotiate,
+                    evidenceStatus: "complete",
+                    summary: "La unidad cumple los parámetros principales."
+                )
+                : nil,
+            negotiations: [],
+            evidence: AcquisitionEvidenceKind.detailedStandard.map {
+                AcquisitionEvidenceItem(
+                    id: UUID(),
+                    kind: $0,
+                    objectPath: "preview/\($0.rawValue).jpg",
+                    verified: false,
+                    imageData: nil
+                )
+            }
+        )
+    }
+    func submitOffer(
+        _ submission: AcquisitionOfferSubmission,
+        membership: AcquisitionMembership
+    ) async throws -> AcquisitionOfferSummary {
+        AcquisitionOfferSummary(
+            id: submission.offerID,
+            requestID: submission.requestID,
+            status: "submitted",
+            model: submission.model,
+            version: submission.version,
+            year: submission.year,
+            mileage: submission.mileage,
+            priceMxn: submission.priceMxn,
+            transferIncluded: submission.transferIncluded,
+            submittedAt: Date()
+        )
+    }
+    func respondToOffer(_ command: AcquisitionOfferCommand) async throws -> AcquisitionOfferCommandResult {
+        AcquisitionOfferCommandResult(
+            offerID: command.offerID,
+            status: command.action == .award ? "awarded" : command.action == .accept ? "price_agreed" : command.action == .reject ? "rejected" : "negotiating",
+            agreedPriceMxn: command.amountMxn,
+            orderID: command.action == .award ? UUID() : nil
+        )
+    }
+    func completeDelivery(
+        _ command: AcquisitionDeliveryCommand
+    ) async throws -> AcquisitionDeliveryCommandResult {
+        AcquisitionDeliveryCommandResult(
+            orderID: command.orderID,
+            status: command.action == .ready ? "ready_for_delivery" : "closed",
+            receptionResult: command.action == .receive ? .accepted : nil,
+            holdAmountMxn: 0
+        )
+    }
+}
