@@ -12,6 +12,11 @@ on:
           - validate-only
           - archive-only
           - upload-testflight
+      build_number:
+        description: Release build number; keep it above the active App Store Connect build
+        required: false
+        default: '1059'
+        type: string
 
 permissions:
   contents: read
@@ -310,7 +315,7 @@ jobs:
 
       - name: Configure TurnoEV Release signing for CI archive
         env:
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -euo pipefail
           python3 <<'PY'
