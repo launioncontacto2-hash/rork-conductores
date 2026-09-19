@@ -308,6 +308,63 @@ jobs:
             -scheme "$SCHEME" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH"
 
+      - name: Configure TurnoEV Release signing for CI archive
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          project_file = Path("ios-turno-ev/TurnoEV.xcodeproj/project.pbxproj")
+          source = project_file.read_text(encoding="utf-8")
+          release_marker = "105FC59F2E9EAD3200EA8BCF /* Release */ = {"
+          release_start = source.index(release_marker)
+          settings_start = source.index("\t\t\tbuildSettings = {", release_start)
+          settings_end = source.index("\n\t\t\t};", settings_start)
+          settings = source[settings_start:settings_end]
+
+          required = (
+              "CODE_SIGN_STYLE = Automatic;",
+              "DEVELOPMENT_TEAM = H9S3662NMB;",
+              "PRODUCT_BUNDLE_IDENTIFIER = com.turnoev.mobility;",
+          )
+          for setting in required:
+              if setting not in settings:
+                  raise SystemExit(f"Unexpected TurnoEV Release configuration: missing {setting}")
+
+          settings = settings.replace(
+              "CODE_SIGN_STYLE = Automatic;",
+              'CODE_SIGN_IDENTITY = "Apple Distribution";\n'
+              "\t\t\t\tCODE_SIGN_STYLE = Manual;",
+              1,
+          )
+          settings = settings.replace(
+              "CURRENT_PROJECT_VERSION = 1;",
+              f"CURRENT_PROJECT_VERSION = {os.environ['BUILD_NUMBER']};",
+              1,
+          )
+          settings = settings.replace(
+              "PRODUCT_BUNDLE_IDENTIFIER = com.turnoev.mobility;",
+              "PRODUCT_BUNDLE_IDENTIFIER = com.turnoev.mobility;\n"
+              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{os.environ["PROVISIONING_PROFILE_NAME"]}";',
+              1,
+          )
+          project_file.write_text(
+              source[:settings_start] + settings + source[settings_end:],
+              encoding="utf-8",
+          )
+          PY
+
+          release_settings="$(xcodebuild -showBuildSettings \
+            -project "$PROJECT_PATH" \
+            -target "$SCHEME" \
+            -configuration Release)"
+          grep -q 'CODE_SIGN_STYLE = Manual' <<< "$release_settings"
+          grep -q 'CODE_SIGN_IDENTITY = Apple Distribution' <<< "$release_settings"
+          grep -Fq "PROVISIONING_PROFILE_SPECIFIER = $PROVISIONING_PROFILE_NAME" <<< "$release_settings"
+
       - name: Archive signed Release build
         run: |
           set -euo pipefail
@@ -319,10 +376,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$ARCHIVE_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY='Apple Distribution' \
-            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN_PATH"
 
       - name: Export IPA for App Store Connect
