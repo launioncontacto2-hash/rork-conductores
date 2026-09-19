@@ -40,6 +40,8 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
     case maintenance
     case recruiter
     case national
+    /// Global administration role. The backend contract exists before its UI.
+    case administration
     /// Test administrator / superadmin. Opens the laboratory console and nothing else.
     case lab
     /// DORI acquisition administrator. This is a session role, not a staff membership.
@@ -55,6 +57,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case "recruitment": self = .recruiter
         case "management": self = .manager
         case "direction": self = .national
+        case "administration": self = .administration
         case "dori_admin": self = .doriAdmin
         default: self.init(rawValue: backendValue)
         }
@@ -68,6 +71,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .maintenance: "Mantenimiento"
         case .recruiter: "Reclutamiento de estación"
         case .national: "Dirección nacional"
+        case .administration: "Administración DORI"
         case .lab: "Administrador de Pruebas"
         case .doriAdmin: "Administrador DORI"
         case .provider: "Usuario Proveedor"
@@ -79,7 +83,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
     var isStationBound: Bool {
         switch self {
         case .driver, .supervisor, .maintenance, .manager, .recruiter: true
-        case .national, .lab, .doriAdmin, .provider: false
+        case .national, .administration, .lab, .doriAdmin, .provider: false
         }
     }
 
@@ -97,6 +101,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .maintenance: "Taller"
         case .recruiter: "Reclutamiento"
         case .national: "Dirección"
+        case .administration: "Administración"
         case .lab: "Laboratorio"
         case .doriAdmin: "Adquisiciones"
         case .provider: "Proveedor"
@@ -111,6 +116,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .maintenance: "wrench.and.screwdriver.fill"
         case .recruiter: "person.crop.circle.badge.plus"
         case .national: "building.2.fill"
+        case .administration: "gearshape.2.fill"
         case .lab: "testtube.2"
         case .doriAdmin: "car.2.fill"
         case .provider: "building.2.crop.circle.fill"
@@ -123,6 +129,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .driver, .supervisor, .maintenance, .manager: "Una estación"
         case .recruiter: "Reclutamiento de su estación"
         case .national: "Red nacional"
+        case .administration: "Entorno completo"
         case .lab: "Entorno de pruebas"
         case .doriAdmin: "Adquisiciones DORI"
         case .provider: "Su organización proveedora"
@@ -137,6 +144,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .maintenance: "Taller y flotilla"
         case .recruiter: "Reclutamiento de estación"
         case .national: "Dirección nacional"
+        case .administration: "Administración DORI"
         case .lab: "Laboratorio de pruebas"
         case .doriAdmin: "Adquisiciones"
         case .provider: "DORI"
@@ -191,6 +199,8 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
                 "Simular integraciones, fallos y avance del tiempo",
                 "Revisar cualquier interfaz en vista previa y reiniciar el entorno",
             ]
+        case .administration:
+            ["Acceso administrativo pendiente de habilitación de superficie autorizada"]
         case .doriAdmin:
             [
                 "Consultar solicitudes y operaciones de adquisición",
@@ -212,7 +222,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
         case .lab: StaffRole.operationalRoles
         case .national: [.manager, .supervisor, .maintenance, .recruiter]
         case .recruiter: [.driver]
-        case .manager, .maintenance, .driver, .supervisor, .doriAdmin, .provider: []
+        case .manager, .maintenance, .driver, .supervisor, .administration, .doriAdmin, .provider: []
         }
     }
 
@@ -222,6 +232,7 @@ nonisolated enum StaffRole: String, Codable, CaseIterable, Sendable {
     var registrationNote: String {
         switch self {
         case .national: "Tú generas los registros de gerentes, supervisores, taller y reclutamiento de cada estación."
+        case .administration: "La interfaz administrativa aún no está habilitada."
         case .recruiter: "Tú firmas el alta del conductor: su expediente y su credencial nacen contigo."
         case .manager: "No registras personal: autorizas cuántas plazas puede contratar tu estación."
         case .supervisor: "No registras personal. Tu trabajo es la operación del turno, no la contratación."
@@ -758,6 +769,8 @@ nonisolated enum StaffDirectory {
                 ?? "Sin estación asignada"
         case .national:
             "\(stations.count) estaciones · \(regions.count) regiones"
+        case .administration:
+            "Administración del entorno"
         case .lab:
             "\(LabRuntime.mode.label) · \(stations.count) estaciones creadas"
         case .doriAdmin:

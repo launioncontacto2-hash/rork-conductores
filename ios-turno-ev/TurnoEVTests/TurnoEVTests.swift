@@ -35,6 +35,11 @@ struct BackendRoleMappingTests {
         #expect(StaffRole(backendValue: "recruitment") == .recruiter)
     }
 
+    @Test func mapsAdministrationWithoutOpeningAnotherWorkspace() {
+        #expect(StaffRole(backendValue: "administration") == .administration)
+        #expect(StaffRole.administration.isStationBound == false)
+    }
+
     @Test func preservesRolesWhoseNamesAlreadyMatch() {
         #expect(StaffRole(backendValue: "driver") == .driver)
         #expect(StaffRole(backendValue: "supervisor") == .supervisor)
@@ -43,6 +48,7 @@ struct BackendRoleMappingTests {
 
     @Test func rejectsUnknownDatabaseRole() {
         #expect(StaffRole(backendValue: "unknown") == nil)
+        #expect(StaffRole(backendValue: "copilot") == nil)
     }
 }
 

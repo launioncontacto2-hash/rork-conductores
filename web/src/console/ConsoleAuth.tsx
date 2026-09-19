@@ -10,7 +10,7 @@ export interface ConsoleIdentity {
   employee_number: string;
   membership_id: string;
   station_id: string;
-  role: "supervisor";
+  role: "supervisor" | "console";
   station_code: string;
   station_name: string;
   station_timezone: string;
