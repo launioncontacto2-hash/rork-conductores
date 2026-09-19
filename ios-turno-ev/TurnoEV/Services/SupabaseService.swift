@@ -917,6 +917,24 @@ enum SupabaseAuthProbe {
         let status: String
     }
 
+    nonisolated struct AcquisitionMembershipRow: Decodable, Sendable {
+        let id: UUID
+        let role: String
+        let status: String
+        let environment_id: UUID
+    }
+
+    nonisolated struct RoleGrant: Identifiable, Sendable {
+        let id: String
+        let key: String
+        let label: String
+        let detail: String
+
+        static func needsSelection(staffRole: String, acquisitionRoles: [String]) -> Bool {
+            !staffRole.isEmpty && !acquisitionRoles.isEmpty
+        }
+    }
+
     /// Complete identity proved against Auth + RLS.
     ///
     /// Nothing here is inferred from MockData. If this result exists, every
@@ -926,6 +944,7 @@ enum SupabaseAuthProbe {
         let profile: ProfileRow
         let membership: MembershipRow
         let station: StationRow
+        let additionalRoles: [RoleGrant]
 
         var employeeNumber: String {
             profile.employee_number
@@ -949,6 +968,16 @@ enum SupabaseAuthProbe {
 
         var shiftSlot: String? {
             membership.shift_slot
+        }
+
+        var roleGrants: [RoleGrant] {
+            let primary = RoleGrant(
+                id: "staff-\(membership.id.uuidString)",
+                key: membership.role,
+                label: membership.role == "driver" ? "Conductor" : membership.role,
+                detail: station.name
+            )
+            return [primary] + additionalRoles
         }
     }
 
@@ -1112,6 +1141,16 @@ enum SupabaseAuthProbe {
 
         let membership = memberships[0]
 
+        // A person may hold an independent acquisition membership. It is read
+        // through the authenticated session and never inferred from an email.
+        let acquisitionRows: [AcquisitionMembershipRow] = (try? await client
+            .from("acquisition_memberships")
+            .select("id, role, status, environment_id")
+            .eq("profile_id", value: profile.id.uuidString)
+            .eq("status", value: "active")
+            .execute()
+            .value) ?? []
+
         guard membership.profile_id == profile.id else {
             throw ProbeError.noMembership
         }
@@ -1183,7 +1222,17 @@ enum SupabaseAuthProbe {
             authUserId: authUserId,
             profile: profile,
             membership: membership,
-            station: station
+            station: station,
+            additionalRoles: acquisitionRows
+                .filter { $0.environment_id == station.environment_id }
+                .map {
+                    RoleGrant(
+                        id: "acquisition-\($0.id.uuidString)",
+                        key: "acquisition:\($0.role)",
+                        label: "Adquisiciones",
+                        detail: $0.role == "dori_admin" ? "Administrador DORI" : $0.role
+                    )
+                }
         )
     }
 }

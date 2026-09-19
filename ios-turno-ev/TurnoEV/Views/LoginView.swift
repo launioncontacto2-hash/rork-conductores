@@ -65,6 +65,8 @@ struct LoginView: View {
 
     /// Prevents duplicate Auth requests if the button is tapped repeatedly.
     @State private var isSupabaseProbeRunning: Bool = false
+    @State private var pendingRoleResult: SupabaseAuthProbe.Result?
+    @State private var isRolePickerPresented = false
 
     @State private var isRecoveryPresented: Bool = false
     @State private var isDirectoryPresented: Bool = false
@@ -118,6 +120,22 @@ struct LoginView: View {
         }
         .sheet(isPresented: $isRecoveryPresented) {
             recoverySheet
+        }
+        .sheet(isPresented: $isRolePickerPresented) {
+            if let result = pendingRoleResult {
+                RoleSelectionView(result: result) { grant in
+                    isRolePickerPresented = false
+                    pendingRoleResult = nil
+                    if grant.key == "driver" {
+                        Task { @MainActor in
+                            await openBackendDriver(result: result, email: identifier)
+                        }
+                    } else {
+                        errorMessage = "La interfaz de Adquisiciones aún no está disponible en esta versión."
+                        Task { try? await SupabaseBridge.client?.auth.signOut() }
+                    }
+                }
+            }
         }
     }
 
@@ -664,6 +682,15 @@ struct LoginView: View {
                         "\(shiftSlot)"
                     )
 
+                    if SupabaseAuthProbe.RoleGrant.needsSelection(
+                        staffRole: result.membership.role,
+                        acquisitionRoles: result.additionalRoles.map(\.key)
+                    ) {
+                        pendingRoleResult = result
+                        isRolePickerPresented = true
+                        return
+                    }
+
                     // ============================================
                     // 15B.7
                     // El resultado deja de ser sólo diagnóstico:
@@ -1105,6 +1132,82 @@ private struct RoleHandoffOverlay: View {
         .onAppear {
             appeared = true
         }
+    }
+}
+
+extension LoginView {
+    @MainActor
+    private func openBackendDriver(result: SupabaseAuthProbe.Result, email: String) async {
+        guard let role = StaffRole(backendValue: result.membership.role), role == .driver else {
+            errorMessage = "La membresía de conductor no está disponible."
+            return
+        }
+
+        let principal = SessionPrincipal(
+            authUserId: result.authUserId.uuidString,
+            profileId: result.profile.id.uuidString,
+            name: result.profile.display_name,
+            employeeNumber: result.profile.employee_number,
+            email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+            role: role,
+            environmentId: result.station.environment_id.uuidString,
+            stationId: result.station.id.uuidString,
+            stationCode: result.station.code,
+            stationName: result.station.name,
+            shiftGroup: result.shiftGroup.flatMap(ShiftGroup.init(rawValue:)),
+            shiftSlot: result.shiftSlot.flatMap(ShiftSlot.init(rawValue:))
+        )
+
+        do {
+            try await SupabaseDriverDeviceService.claim()
+            try store.signIn(principal: principal, method: .credentials)
+            if store.isBackendTestSession {
+                SharedClockSync.shared.update(isTest: true)
+                await SharedClockSync.shared.refresh()
+                store.syncSimulationClock()
+            }
+            try await store.refreshBackendOperationalState()
+        } catch {
+            if store.currentPrincipal?.profileId == principal.profileId { store.signOut() }
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RoleSelectionView: View {
+    let result: SupabaseAuthProbe.Result
+    let onSelect: (SupabaseAuthProbe.RoleGrant) -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("¿Cómo quieres entrar?")
+                    .font(.system(.title2, weight: .black))
+                Text(result.profile.display_name)
+                    .foregroundStyle(Palette.textMuted)
+                ForEach(result.roleGrants) { grant in
+                    Button { onSelect(grant) } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: grant.key == "driver" ? "steeringwheel" : "shippingbox.fill")
+                                .font(.title3)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(grant.label).font(.headline)
+                                Text(grant.detail).font(.subheadline).foregroundStyle(Palette.textMuted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .padding(16)
+                        .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle("Acceso")
+        }
+        .presentationDetents([.medium])
     }
 }
 

@@ -81,6 +81,12 @@ struct BackendRoleMappingTests {
     @Test func rejectsUnknownDatabaseRole() {
         #expect(StaffRole(backendValue: "unknown") == nil)
     }
+
+    @Test func requiresChoiceOnlyWhenIndependentAcquisitionMembershipExists() {
+        #expect(!SupabaseAuthProbe.RoleGrant.needsSelection(staffRole: "driver", acquisitionRoles: []))
+        #expect(SupabaseAuthProbe.RoleGrant.needsSelection(staffRole: "driver", acquisitionRoles: ["acquisition:dori_admin"]))
+        #expect(!SupabaseAuthProbe.RoleGrant.needsSelection(staffRole: "", acquisitionRoles: ["acquisition:dori_admin"]))
+    }
 }
 
 struct HiringDocumentIntegrityTests {
