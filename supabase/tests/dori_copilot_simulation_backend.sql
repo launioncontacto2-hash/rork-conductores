@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(31);
+SELECT plan(39);
 
 SELECT has_table('public','dori_copilot_simulation_cases','tabla de casos simulados');
 SELECT has_table('public','dori_copilot_simulation_expectations','tabla de expectativas separadas');
@@ -26,6 +26,11 @@ SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_s
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_source_check'),'casos source separado');
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_eval_classification_check'),'clasificación acotada');
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_payload_check'),'payload exige source simulated');
+SELECT has_function('public','driver_get_dori_simulation_evaluation',ARRAY['uuid','uuid','text'],'RPC de lectura idempotente');
+SELECT ok(NOT has_table_privilege('service_role','public.dori_copilot_simulation_cases','SELECT'),'service_role sin SELECT directo en casos');
+SELECT ok(NOT has_table_privilege('service_role','public.dori_copilot_simulation_expectations','SELECT'),'service_role sin SELECT directo en expectativas');
+SELECT ok(NOT has_table_privilege('service_role','public.dori_copilot_simulation_evaluations','SELECT'),'service_role sin SELECT directo en evaluaciones');
+SELECT ok(has_function_privilege('service_role','public.driver_get_dori_simulation_evaluation(uuid,uuid,text)','EXECUTE'),'service_role conserva EXECUTE RPC idempotente');
 SELECT ok((SELECT indexrelid IS NOT NULL FROM pg_index WHERE indexrelid='public.dori_sim_case_driver_pending_idx'::regclass),'índice de pendientes por conductor');
 SELECT ok((SELECT EXISTS (SELECT 1 FROM (
   SELECT i.indisunique, array_to_string(array_agg(a.attname ORDER BY k.n), ',') AS cols
@@ -39,5 +44,8 @@ SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,te
 SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%case_id=c.id%','evaluate reutiliza sólo la misma clave dentro del caso');
 SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%other.case_id<>c.id%','evaluate rechaza contaminación entre casos');
 SELECT ok(pg_get_functiondef('public.driver_next_dori_simulation_case(uuid)'::regprocedure) LIKE '%expires_at>app.env_now%','next excluye casos expirados');
+SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%p_auth_user_id%' AND pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) NOT LIKE '%app.auth_profile_id()%','create deriva actor desde p_auth_user_id');
+SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%actor:=s.profile_id%','evaluate usa profile del scope del conductor');
+SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%d.profile_id=(p_input_payload->''driver''->>''driverId'')::uuid%','create relaciona driver_profile con profile_id del input');
 SELECT * FROM finish();
 ROLLBACK;

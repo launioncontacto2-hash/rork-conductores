@@ -8,7 +8,7 @@ const makeCase = (expected, overrides = {}) => createSimulationCase({
   testCaseId: overrides.testCaseId ?? 'case-001',
   createdAt: '2026-09-07T10:00:01-06:00',
   expiresAt: overrides.expiresAt ?? '2026-09-07T10:01:00-06:00',
-  driverId: 'simulated-driver',
+  driverProfileId: 'simulated-driver-profile',
   stationId: 'station-001',
   input: overrides.input ?? scenario('A'),
   expected: { recommendation: expected, actorProfileId: 'console-actor', criterionVersion: 'lab-1.0.0' },

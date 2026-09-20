@@ -44,6 +44,9 @@ Deno.serve(async (request) => {
   }
   if (payload.operation === "evaluate") {
     if (typeof payload.caseId !== "string" || typeof payload.idempotencyKey !== "string") return reply(400, { error: "evaluation_fields_required" });
+    const { data: existing, error: existingError } = await admin.rpc("driver_get_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey });
+    if (existingError) return reply(403, { error: "case_not_available" });
+    if (existing) return reply(201, { evaluation: existing });
     const { data: pending, error: loadError } = await admin.rpc("driver_get_dori_simulation_case", { p_auth_user_id: authUserId, p_case_id: payload.caseId });
     if (loadError || !pending?.input_payload) return reply(404, { error: "case_not_available" });
     let result;

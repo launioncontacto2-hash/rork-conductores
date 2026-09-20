@@ -18,15 +18,14 @@ function assertText(value, name) {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`invalid_${name}`);
 }
 
-function createSimulationCase({ testCaseId, createdAt, expiresAt, driverId, stationId = null, input, expected }) {
+function createSimulationCase({ testCaseId, createdAt, expiresAt, driverProfileId, stationId = null, input, expected }) {
   assertText(testCaseId, 'testCaseId');
-  assertText(driverId, 'driverId');
+  assertText(driverProfileId, 'driverProfileId');
   instant(createdAt, 'createdAt');
   instant(expiresAt, 'expiresAt');
   if (Date.parse(expiresAt) <= Date.parse(createdAt)) throw new Error('invalid_expiry');
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('invalid_input');
   if (input.source !== 'simulated') throw new Error('simulation_input_must_use_simulated_source');
-  if (input.driver?.driverId !== driverId) throw new Error('driver_identity_mismatch');
   if (!['RECOMENDADO', 'NO RECOMENDADO'].includes(expected?.recommendation)) {
     throw new Error('invalid_expected_recommendation');
   }
@@ -37,7 +36,7 @@ function createSimulationCase({ testCaseId, createdAt, expiresAt, driverId, stat
     expiresAt,
     source: 'console_simulation',
     isSimulation: true,
-    driverId,
+    driverProfileId,
     stationId,
     input: clone(input),
     expected: Object.freeze({
