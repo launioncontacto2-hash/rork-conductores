@@ -1,7 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(35);
+SELECT plan(45);
 
 SELECT has_table('public', 'station_capacity_grants', 'existe capacidad versionada');
 SELECT has_view('public', 'station_capacity_current', 'existe la vista de capacidad vigente');
@@ -164,6 +164,10 @@ CROSS JOIN (
         (
             'c0101000-0000-4000-8000-000000000002'::uuid,
             'CONSOLE-DRIVER', 'Console Driver'
+        ),
+        (
+            'c0101000-0000-4000-8000-000000000004'::uuid,
+            'CONSOLE-OPERATOR', 'Console Operator'
         )
 ) AS fixture(profile_id, employee_number, display_name);
 
@@ -198,6 +202,11 @@ CROSS JOIN (
             'c0102000-0000-4000-8000-000000000002'::uuid,
             'c0101000-0000-4000-8000-000000000002'::uuid,
             'driver', 'weekday', 'morning'
+        ),
+        (
+            'c0102000-0000-4000-8000-000000000004'::uuid,
+            'c0101000-0000-4000-8000-000000000004'::uuid,
+            'console', NULL::text, NULL::text
         )
 ) AS fixture(membership_id, profile_id, role, shift_group, shift_slot);
 
@@ -417,6 +426,104 @@ SELECT results_eq(
     $sql$,
     $sql$ VALUES ('CONSOLE-DRIVER'::text, 'weekday'::text, 'morning'::text) $sql$,
     'la consola entrega solo conductores vigentes de la estacion autorizada'
+);
+
+SELECT is(
+    has_table_privilege('authenticated', 'public.console_identity', 'SELECT'),
+    true,
+    'authenticated conserva SELECT sobre console_identity'
+);
+
+SELECT is(
+    has_table_privilege('anon', 'public.console_identity', 'SELECT'),
+    false,
+    'anon no tiene SELECT sobre console_identity'
+);
+
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c0101000-0000-4000-8000-000000000004', true
+);
+
+SELECT results_eq(
+    $sql$ SELECT role, station_code FROM public.console_identity $sql$,
+    $sql$ VALUES ('console'::text, 'console-01-station'::text) $sql$,
+    'console_identity resuelve la identidad console vigente'
+);
+
+SELECT results_eq(
+    $sql$ SELECT employee_number FROM public.console_drivers $sql$,
+    $sql$ VALUES ('CONSOLE-DRIVER'::text) $sql$,
+    'console_drivers permite la lectura console de la misma estacion'
+);
+
+SELECT is(
+    app.station_profile_display_name(
+        'c0101000-0000-4000-8000-000000000002'::uuid,
+        'c0100000-0000-4000-8000-000000000001'::uuid
+    ),
+    'Console Driver',
+    'console puede resolver display_name de conductor de su estacion'
+);
+
+SELECT throws_ok(
+    $sql$
+        SELECT app.station_profile_display_name(
+            'c0101000-0000-4000-8000-000000000003'::uuid,
+            'c0100000-0000-4000-8000-000000000002'::uuid
+        )
+    $sql$,
+    '42501', 'station access denied',
+    'console no puede resolver display_name de otra estacion'
+);
+
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c0101000-0000-4000-8000-000000000002', true
+);
+
+SELECT throws_ok(
+    $sql$
+        SELECT app.station_profile_display_name(
+            'c0101000-0000-4000-8000-000000000002'::uuid,
+            'c0100000-0000-4000-8000-000000000001'::uuid
+        )
+    $sql$,
+    '42501', 'station access denied',
+    'driver no puede resolver display_name'
+);
+
+SELECT is(
+    has_function_privilege('anon', 'app.station_profile_display_name(uuid,uuid)', 'EXECUTE'),
+    false,
+    'anon no puede ejecutar station_profile_display_name'
+);
+
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c0101000-0000-4000-8000-000000000099', true
+);
+
+SELECT is(
+    (SELECT count(*)::bigint FROM public.console_drivers),
+    0::bigint,
+    'authenticated sin membership valida no ve console_drivers'
+);
+
+SELECT throws_ok(
+    $sql$
+        SELECT app.station_profile_display_name(
+            'c0101000-0000-4000-8000-000000000002'::uuid,
+            'c0100000-0000-4000-8000-000000000001'::uuid
+        )
+    $sql$,
+    '42501', 'station access denied',
+    'authenticated sin membership valida queda denegado'
+);
+
+SELECT set_config(
+    'request.jwt.claim.sub',
+    'c0101000-0000-4000-8000-000000000001', true
 );
 
 SELECT is(
