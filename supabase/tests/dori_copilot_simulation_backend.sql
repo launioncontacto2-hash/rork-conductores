@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(27);
+SELECT plan(33);
 
 SELECT has_table('public','dori_copilot_simulation_cases','tabla de casos simulados');
 SELECT has_table('public','dori_copilot_simulation_expectations','tabla de expectativas separadas');
@@ -27,5 +27,11 @@ SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_s
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_eval_classification_check'),'clasificación acotada');
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_payload_check'),'payload exige source simulated');
 SELECT ok((SELECT indexrelid IS NOT NULL FROM pg_index WHERE indexrelid='public.dori_sim_case_driver_pending_idx'::regclass),'índice de pendientes por conductor');
+SELECT ok((SELECT indexrelid IS NOT NULL FROM pg_index WHERE indexrelid='public.dori_sim_eval_case_key_unique'::regclass),'idempotencia de evaluación ligada al caso');
+SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%idempotency_key_conflict%','create rechaza clave con payload/comando diferente');
+SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%driverId%','create valida identidad del conductor en payload');
+SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%case_id=c.id%','evaluate reutiliza sólo la misma clave dentro del caso');
+SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%other.case_id<>c.id%','evaluate rechaza contaminación entre casos');
+SELECT ok(pg_get_functiondef('public.driver_next_dori_simulation_case(uuid)'::regprocedure) LIKE '%expires_at>app.env_now%','next excluye casos expirados');
 SELECT * FROM finish();
 ROLLBACK;

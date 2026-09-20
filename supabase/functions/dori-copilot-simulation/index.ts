@@ -32,7 +32,7 @@ Deno.serve(async (request) => {
       p_expected_recommendation: expected.recommendation, p_expected_reason_code: expected.reasonCode ?? null,
       p_criterion_version: expected.criterionVersion ?? "lab-1.0.0", p_expires_at: payload.expiresAt,
     });
-    if (error) return reply(error.code === "42501" ? 403 : 422, { error: error.message });
+    if (error) return reply(error.code === "42501" ? 403 : error.code === "23505" ? 409 : 422, { error: error.message });
     return reply(201, { case: data });
   }
   if (payload.operation === "next") {
