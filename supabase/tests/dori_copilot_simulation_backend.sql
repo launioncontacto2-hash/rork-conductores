@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(33);
+SELECT plan(31);
 
 SELECT has_table('public','dori_copilot_simulation_cases','tabla de casos simulados');
 SELECT has_table('public','dori_copilot_simulation_expectations','tabla de expectativas separadas');
@@ -33,7 +33,7 @@ SELECT ok((SELECT EXISTS (SELECT 1 FROM (
   JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
   WHERE i.indrelid='public.dori_copilot_simulation_evaluations'::regclass
   GROUP BY i.indexrelid, i.indisunique
-) q WHERE q.indisunique AND q.cols='idempotency_key'),'idempotencia global UNIQUE sobre idempotency_key');
+ ) q WHERE q.indisunique AND q.cols='idempotency_key')),'idempotencia global UNIQUE sobre idempotency_key');
 SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%idempotency_key_conflict%','create rechaza clave con payload/comando diferente');
 SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%driverId%','create valida identidad del conductor en payload');
 SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%case_id=c.id%','evaluate reutiliza sólo la misma clave dentro del caso');
