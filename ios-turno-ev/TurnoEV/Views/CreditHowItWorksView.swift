@@ -169,16 +169,19 @@ final class CreditNarrationPlayer {
 /// Muted, seamlessly looping background clip.
 struct LoopingVideoView: UIViewRepresentable {
     let resourceName: String
+    var isPlaying: Bool = true
 
     func makeUIView(context: Context) -> LoopingPlayerView {
         let view = LoopingPlayerView()
         if let url = Bundle.main.url(forResource: resourceName, withExtension: "mp4") {
-            view.start(url: url)
+            view.start(url: url, isPlaying: isPlaying)
         }
         return view
     }
 
-    func updateUIView(_ uiView: LoopingPlayerView, context: Context) {}
+    func updateUIView(_ uiView: LoopingPlayerView, context: Context) {
+        uiView.setPlaying(isPlaying)
+    }
 
     static func dismantleUIView(_ uiView: LoopingPlayerView, coordinator: ()) {
         uiView.stop()
@@ -204,14 +207,24 @@ final class LoopingPlayerView: UIView {
         layer.addSublayer(playerLayer)
     }
 
-    func start(url: URL) {
+    func start(url: URL, isPlaying: Bool = true) {
         let item = AVPlayerItem(url: url)
         let player = AVQueuePlayer(playerItem: item)
         player.isMuted = true
         looper = AVPlayerLooper(player: player, templateItem: item)
         playerLayer.player = player
         queuePlayer = player
-        player.play()
+        setPlaying(isPlaying)
+    }
+
+    func setPlaying(_ isPlaying: Bool) {
+        guard let player = queuePlayer else { return }
+        if isPlaying {
+            player.play()
+        } else {
+            player.pause()
+            player.seek(to: .zero)
+        }
     }
 
     func stop() {

@@ -9,55 +9,29 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        Group {
-            // A backend session resolves to no directory account on purpose, so it is
-            // routed by the role the server proved. Only roles with an authoritative
-            // backend workspace are opened; every other role is refused rather than
-            // silently routed into demonstration data.
-            if let principal = store.currentPrincipal {
-                if principal.role == .driver, store.hasAccess(to: .driver) {
-                    RootTabView()
-                } else if principal.role == .supervisor, store.hasAccess(to: .supervisor) {
-                    BackendSupervisorAssignmentView(principal: principal)
-                } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
-                    BackendMaintenanceView(principal: principal)
-                } else if principal.role == .recruitment, store.hasAccess(to: .recruitment) {
-                    BackendRecruitmentView(principal: principal)
-                } else if AcquisitionNavigation.destination(for: principal.role) != nil,
-                          store.hasAccess(to: principal.role) {
-                    AcquisitionRootView(principal: principal)
-                } else {
-                    AccessDeniedView()
+        routedContent
+            .labModeBanner()
+            .animation(.smooth(duration: 0.35), value: store.session?.accountId)
+            .task(id: store.session?.accountId) {
+                EnvironmentControl.observe(principal: store.currentPrincipal)
+
+                SharedClockSync.shared.update(isTest: store.isBackendTestSession)
+                if store.isBackendTestSession {
+                    await SharedClockSync.shared.refresh()
+                    store.syncSimulationClock()
                 }
-            } else {
-                // A local account left by an earlier demonstration build is never an
-                // authority in DORI. Without a principal proved by Supabase, the only
-                // reachable surface is the real sign-in door.
-                LoginView()
-            }
-        }
-        .labModeBanner()
-        .animation(.smooth(duration: 0.35), value: store.session?.accountId)
-        .task(id: store.session?.accountId) {
-            EnvironmentControl.observe(principal: store.currentPrincipal)
 
-            SharedClockSync.shared.update(isTest: store.isBackendTestSession)
-            if store.isBackendTestSession {
-                await SharedClockSync.shared.refresh()
-                store.syncSimulationClock()
-            }
-
-            if store.currentPrincipal?.role == .driver {
-                do {
-                    try await store.refreshBackendOperationalState()
-                } catch {
-                    if SupabaseDriverDeviceService.isSessionReplacement(error) {
-                        store.signOut()
+                if store.currentPrincipal?.role == .driver {
+                    do {
+                        try await store.refreshBackendOperationalState()
+                    } catch {
+                        if SupabaseDriverDeviceService.isSessionReplacement(error) {
+                            store.signOut()
+                        }
+                        print("[15D] No se pudo restaurar la operación: \(error.localizedDescription)")
                     }
-                    print("[15D] No se pudo restaurar la operación: \(error.localizedDescription)")
                 }
             }
-        }
         // A second phone can take control while this one remains in the foreground. The
         // same 20-second beat also adopts assignments, incidents, the open shift, finances
         // and history written by supervision or Consola DORI. Supabase remains the only
@@ -102,6 +76,32 @@ struct ContentView: View {
                     print("[15D] No se pudo actualizar la operación: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var routedContent: some View {
+        // A backend session resolves to no directory account on purpose, so it is
+        // routed by the role the server proved. Only roles with an authoritative
+        // backend workspace are opened; every other role is refused rather than
+        // silently routed into demonstration data.
+        if let principal = store.currentPrincipal {
+            if principal.role == .driver, store.hasAccess(to: .driver) {
+                RootTabView()
+            } else if principal.role == .supervisor, store.hasAccess(to: .supervisor) {
+                BackendSupervisorAssignmentView(principal: principal)
+            } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
+                BackendMaintenanceView(principal: principal)
+            } else if principal.role == .recruitment, store.hasAccess(to: .recruitment) {
+                BackendRecruitmentView(principal: principal)
+            } else if AcquisitionNavigation.destination(for: principal.role) != nil,
+                      store.hasAccess(to: principal.role) {
+                AcquisitionRootView(principal: principal)
+            } else {
+                AccessDeniedView()
+            }
+        } else {
+            LoginView()
         }
     }
 
