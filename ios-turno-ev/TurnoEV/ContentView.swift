@@ -21,6 +21,8 @@ struct ContentView: View {
                     BackendSupervisorAssignmentView(principal: principal)
                 } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
                     BackendMaintenanceView(principal: principal)
+                } else if principal.role == .recruitment, store.hasAccess(to: .recruitment) {
+                    BackendRecruitmentView(principal: principal)
                 } else if AcquisitionNavigation.destination(for: principal.role) != nil,
                           store.hasAccess(to: principal.role) {
                     AcquisitionRootView(principal: principal)
