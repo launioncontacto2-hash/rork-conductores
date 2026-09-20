@@ -201,6 +201,7 @@ nonisolated enum SettlementRules {
         now: Date
     ) -> WeeklySettlement {
         let weekEnd = ShiftRules.calendar.date(byAdding: .day, value: 6, to: weekStart) ?? weekStart
+        let nextWeekStart = ShiftRules.calendar.date(byAdding: .day, value: 7, to: weekStart) ?? weekStart
         let weekRecords = records.filter { ShiftRules.isInSameWeek($0.startedAt, as: weekStart) }
         let recordedMxn = weekRecords.reduce(0) { $0 + $1.earningsMxn }
         let trips = weekRecords.reduce(0) { $0 + $1.trips }
@@ -243,7 +244,7 @@ nonisolated enum SettlementRules {
         if let credit,
            credit.driverId == driverId,
            credit.origin == ledgerOrigin,
-           credit.startedAt <= weekEnd,
+           credit.startedAt < nextWeekStart,
            credit.weeklyMxn > 0 {
             lines.append(
                 SettlementLine(

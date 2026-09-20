@@ -65,12 +65,26 @@ enum SupabaseAuthDiagnostic {
         }
         if let probeError = error as? SupabaseAuthProbe.ProbeError {
             let kind: Kind
-            if case .noMembership = probeError { kind = .authenticatedWithoutMembership } else { kind = .authRejected }
+            switch probeError {
+            case .notConfigured:
+                kind = .configuration
+            case .noMembership:
+                kind = .authenticatedWithoutMembership
+            default:
+                kind = .authRejected
+            }
             return Report(kind: kind, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
         }
         if let repositoryError = error as? SupabaseAcquisitionRepository.RepositoryError {
             let kind: Kind
-            if case .noMembership = repositoryError { kind = .authenticatedWithoutMembership } else { kind = .authRejected }
+            switch repositoryError {
+            case .notConfigured:
+                kind = .configuration
+            case .noMembership:
+                kind = .authenticatedWithoutMembership
+            default:
+                kind = .authRejected
+            }
             return Report(kind: kind, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)
         }
         return Report(kind: .unexpected, errorType: String(describing: type(of: error)), authCode: nil, httpStatus: nil)

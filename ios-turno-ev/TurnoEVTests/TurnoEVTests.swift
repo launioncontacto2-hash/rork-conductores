@@ -171,6 +171,36 @@ struct SettlementCreditTests {
         #expect(current.creditMxn == -Self.weeklyMxn)
     }
 
+    @Test func sundayContractBelongsToCurrentWeekOnly() {
+        let sunday = try! #require(ShiftRules.calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 6,
+            hour: 12
+        )))
+        let weekStart = ShiftRules.weekStart(for: sunday)
+        let driverId = "drv-001"
+
+        let sundayResult = Self.settlement(
+            driverId: driverId,
+            credit: Self.contract(driverId: driverId, origin: .simulated, startedAt: sunday),
+            ledgerOrigin: .simulated,
+            weekStart: weekStart,
+            now: sunday
+        )
+        #expect(sundayResult.creditMxn == -Self.weeklyMxn)
+
+        let nextWeek = try! #require(ShiftRules.calendar.date(byAdding: .day, value: 7, to: weekStart))
+        let nextWeekResult = Self.settlement(
+            driverId: driverId,
+            credit: Self.contract(driverId: driverId, origin: .simulated, startedAt: nextWeek),
+            ledgerOrigin: .simulated,
+            weekStart: weekStart,
+            now: sunday
+        )
+        #expect(nextWeekResult.creditMxn == 0)
+    }
+
     /// D · a contract belonging to someone else never reaches this driver's pay.
     @Test func contractOfAnotherDriverIsNotDeducted() {
         let now = Date()
