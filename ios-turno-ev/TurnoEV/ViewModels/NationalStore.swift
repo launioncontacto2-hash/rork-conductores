@@ -226,6 +226,7 @@ final class NationalStore {
     private func roleOrder(_ role: StaffRole) -> Int {
         switch role {
         case .national: 0
+        case .administration: 1
         case .manager: 1
         case .supervisor: 2
         case .recruiter: 3
