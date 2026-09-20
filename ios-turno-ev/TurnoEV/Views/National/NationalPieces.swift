@@ -473,7 +473,7 @@ extension StaffRole {
     /// only the symbol changes, because the network has one identity.
     var directoryTone: Color {
         switch self {
-        case .national, .manager: NatTone.accent
+        case .national, .manager, .administration: NatTone.accent
         case .supervisor: NatTone.cool
         case .recruiter: NatTone.cool
         case .maintenance: Palette.textMuted
