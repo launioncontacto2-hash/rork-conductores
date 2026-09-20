@@ -62,6 +62,14 @@ struct ShiftView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     DemoClockButton()
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        DORICopilotView()
+                    } label: {
+                        Image(systemName: "sparkles")
+                    }
+                    .accessibilityLabel("DORI Copiloto")
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         areNoticesPresented = true
