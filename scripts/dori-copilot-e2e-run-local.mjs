@@ -1,0 +1,9 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
+const base=process.env.SUPABASE_URL||'http://127.0.0.1:54321'; const service=process.env.SUPABASE_SERVICE_ROLE_KEY; const anon=process.env.SUPABASE_ANON_KEY;
+if(!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(base)||!service||!anon) throw new Error('local Supabase environment required');
+const headers={apikey:service,Authorization:`Bearer ${service}`}; const users=(await (await fetch(`${base}/auth/v1/admin/users?per_page=100`,{headers})).json()).users||[];
+const specs=[['COPILOT_CONSOLE','copilot.console@local.test'],['COPILOT_DRIVER_A','copilot.driver.a@local.test'],['COPILOT_DRIVER_B','copilot.driver.b@local.test'],['COPILOT_SUPERVISOR','copilot.supervisor@local.test']]; const env={...process.env,SUPABASE_URL:base,SUPABASE_SERVICE_ROLE_KEY:service,SUPABASE_ANON_KEY:anon};
+for(const [prefix,email] of specs){const password=crypto.randomBytes(24).toString('base64url'); const found=users.find(u=>u.email===email); const response=await fetch(found?`${base}/auth/v1/admin/users/${found.id}`:`${base}/auth/v1/admin/users`,{method:found?'PUT':'POST',headers:{...headers,'content-type':'application/json'},body:JSON.stringify({email,password,email_confirm:true})}); if(!response.ok) throw new Error(`auth bootstrap failed for ${email}`); env[`${prefix}_EMAIL`]=email; env[`${prefix}_PASSWORD`]=password;}
+execFileSync('docker',['exec','-i',process.env.SUPABASE_DB_CONTAINER||'supabase_db_rork-conductores','psql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],{input:execFileSync('powershell',['-NoProfile','-Command','Get-Content scripts/provision-test-copilot-simulation.sql'],{encoding:'utf8'}),stdio:['pipe','ignore','inherit']});
+const run=spawnSync(process.execPath,['scripts/dori-copilot-e2e-local.mjs'],{env,stdio:'inherit'}); if(run.status!==0) process.exit(run.status??1);

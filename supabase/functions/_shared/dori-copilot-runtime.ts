@@ -9,6 +9,7 @@ import type {
 } from "./dori-copilot.d.ts";
 
 type DoriCopilotRuntime = {
+  evaluate(input: DecisionInput): Record<string, unknown>;
   createDecisionEvent(input: DecisionInput, metadata: EventMetadata): DecisionEvent;
   createOutcomeEvent(decision: DecisionEvent, observation: OutcomeObservation, metadata: EventMetadata): OutcomeEvent;
 };
