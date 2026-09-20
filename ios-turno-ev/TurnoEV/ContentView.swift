@@ -92,7 +92,7 @@ struct ContentView: View {
                 BackendSupervisorAssignmentView(principal: principal)
             } else if principal.role == .maintenance, store.hasAccess(to: .maintenance) {
                 BackendMaintenanceView(principal: principal)
-            } else if principal.role == .recruitment, store.hasAccess(to: .recruitment) {
+            } else if principal.role == .recruiter, store.hasAccess(to: .recruiter) {
                 BackendRecruitmentView(principal: principal)
             } else if AcquisitionNavigation.destination(for: principal.role) != nil,
                       store.hasAccess(to: principal.role) {
