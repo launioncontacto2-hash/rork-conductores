@@ -30,6 +30,7 @@ env:
   SCHEME: TurnoEV
   APPLE_TEAM_ID: H9S3662NMB
   BUNDLE_ID: com.turnoev.mobility
+  EXPECTED_TEST_SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
   XCODE_DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
 jobs:
@@ -187,6 +188,8 @@ jobs:
       ARCHIVE_PATH: ${{ github.workspace }}/artifacts/TurnoEV.xcarchive
       EXPORT_PATH: ${{ github.workspace }}/artifacts/export
       SOURCE_PACKAGES_PATH: ${{ github.workspace }}/SourcePackages
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
     defaults:
       run:
         shell: bash
@@ -212,12 +215,16 @@ jobs:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
           missing=()
           [[ -n "$CERTIFICATE_BASE64" ]] || missing+=(APPLE_DISTRIBUTION_CERTIFICATE_BASE64)
           [[ -n "$CERTIFICATE_PASSWORD" ]] || missing+=(APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD)
           [[ -n "$PROFILE_BASE64" ]] || missing+=(APPLE_PROVISIONING_PROFILE_BASE64)
+          [[ -n "$TEST_SUPABASE_URL" ]] || missing+=(TEST_SUPABASE_URL)
+          [[ -n "$TEST_SUPABASE_PUBLISHABLE_KEY" ]] || missing+=(TEST_SUPABASE_PUBLISHABLE_KEY)
           if [[ "${{ inputs.distribution_mode }}" == "upload-testflight" ]]; then
             [[ -n "$API_KEY_ID" ]] || missing+=(APP_STORE_CONNECT_API_KEY_ID)
             [[ -n "$API_ISSUER_ID" ]] || missing+=(APP_STORE_CONNECT_API_ISSUER_ID)
@@ -227,6 +234,14 @@ jobs:
             printf 'Missing required GitHub secret: %s\n' "${missing[@]}" >&2
             exit 1
           fi
+          [[ "$TEST_SUPABASE_URL" == "$EXPECTED_TEST_SUPABASE_URL" ]] || {
+            echo 'TEST_SUPABASE_URL does not identify the authorized TEST project.' >&2
+            exit 1
+          }
+          [[ "$TEST_SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || {
+            echo 'TEST_SUPABASE_PUBLISHABLE_KEY is not a client publishable key.' >&2
+            exit 1
+          }
 
       - name: Install Apple Distribution certificate and provisioning profile
         env:
@@ -387,6 +402,40 @@ jobs:
             -archivePath "$ARCHIVE_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             OTHER_CODE_SIGN_FLAGS="--keychain $SIGNING_KEYCHAIN_PATH"
+
+      - name: Embed protected TEST configuration and re-sign archive
+        run: |
+          set -euo pipefail
+          app_path="$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
+          app_plist="$app_path/Info.plist"
+          entitlements_path="$RUNNER_TEMP/TurnoEV-entitlements.plist"
+          test -f "$app_plist"
+
+          codesign -d --entitlements :- "$app_path" > "$entitlements_path"
+          /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_URL' "$app_plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c 'Delete :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_URL string $TEST_SUPABASE_URL" "$app_plist"
+          /usr/libexec/PlistBuddy -c "Add :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY string $TEST_SUPABASE_PUBLISHABLE_KEY" "$app_plist"
+          codesign \
+            --force \
+            --sign 'Apple Distribution' \
+            --keychain "$SIGNING_KEYCHAIN_PATH" \
+            --entitlements "$entitlements_path" \
+            --timestamp \
+            "$app_path"
+
+      - name: Verify embedded TEST configuration
+        run: |
+          set -euo pipefail
+          app_plist="$ARCHIVE_PATH/Products/Applications/TurnoEV.app/Info.plist"
+          test -f "$app_plist"
+          embedded_url="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_URL' "$app_plist")"
+          embedded_key="$(/usr/libexec/PlistBuddy -c 'Print :EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY' "$app_plist")"
+          embedded_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_plist")"
+          [[ "$embedded_url" == "$EXPECTED_TEST_SUPABASE_URL" ]]
+          [[ "$embedded_key" == sb_publishable_* ]]
+          [[ "$embedded_build" == "${{ inputs.build_number }}" ]]
+          codesign --verify --deep --strict "$ARCHIVE_PATH/Products/Applications/TurnoEV.app"
 
       - name: Export IPA for App Store Connect
         run: |
