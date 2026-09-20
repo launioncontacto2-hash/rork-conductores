@@ -24,8 +24,11 @@ enum SupabaseAuthDiagnostic {
         let httpStatus: Int?
 
         var safeLogLine: String {
+            let safeAuthCode = authCode ?? "ninguno"
+            let safeHTTPStatus = httpStatus.map(String.init) ?? "ninguno"
+
             "[Sesión][Diagnóstico] categoría=\(kind.rawValue) tipo=\(errorType) " +
-                "código_auth=\(authCode ?? \"ninguno\") http=\(httpStatus.map(String.init) ?? \"ninguno\")"
+                "código_auth=\(safeAuthCode) http=\(safeHTTPStatus)"
         }
 
         var userMessage: String {
