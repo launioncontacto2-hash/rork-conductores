@@ -27,7 +27,13 @@ SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_s
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_eval_classification_check'),'clasificación acotada');
 SELECT ok((SELECT convalidated FROM pg_constraint WHERE conname='dori_sim_case_payload_check'),'payload exige source simulated');
 SELECT ok((SELECT indexrelid IS NOT NULL FROM pg_index WHERE indexrelid='public.dori_sim_case_driver_pending_idx'::regclass),'índice de pendientes por conductor');
-SELECT ok((SELECT indexrelid IS NOT NULL FROM pg_index WHERE indexrelid='public.dori_sim_eval_case_key_unique'::regclass),'idempotencia de evaluación ligada al caso');
+SELECT ok((SELECT EXISTS (SELECT 1 FROM (
+  SELECT i.indisunique, array_to_string(array_agg(a.attname ORDER BY k.n), ',') AS cols
+  FROM pg_index i JOIN unnest(i.indkey) WITH ORDINALITY k(attnum,n) ON true
+  JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=k.attnum
+  WHERE i.indrelid='public.dori_copilot_simulation_evaluations'::regclass
+  GROUP BY i.indexrelid, i.indisunique
+) q WHERE q.indisunique AND q.cols='idempotency_key'),'idempotencia global UNIQUE sobre idempotency_key');
 SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%idempotency_key_conflict%','create rechaza clave con payload/comando diferente');
 SELECT ok(pg_get_functiondef('public.console_create_dori_simulation_case(uuid,text,text,uuid,jsonb,text,text,text,timestamptz)'::regprocedure) LIKE '%driverId%','create valida identidad del conductor en payload');
 SELECT ok(pg_get_functiondef('public.record_dori_simulation_evaluation(uuid,uuid,text,jsonb)'::regprocedure) LIKE '%case_id=c.id%','evaluate reutiliza sólo la misma clave dentro del caso');

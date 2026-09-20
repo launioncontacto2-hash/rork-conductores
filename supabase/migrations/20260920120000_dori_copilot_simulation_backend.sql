@@ -61,7 +61,7 @@ CREATE TABLE public.dori_copilot_simulation_evaluations (
     model_version text NOT NULL,
     rules_version text NOT NULL,
     parameter_version text NOT NULL,
-    idempotency_key text NOT NULL,
+    idempotency_key text NOT NULL UNIQUE,
     evaluated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT dori_sim_eval_scope_fkey FOREIGN KEY (driver_profile_id, station_id, environment_id)
       REFERENCES public.driver_profiles(id, station_id, environment_id) ON DELETE RESTRICT,
@@ -69,7 +69,6 @@ CREATE TABLE public.dori_copilot_simulation_evaluations (
     CONSTRAINT dori_sim_eval_classification_check CHECK (classification IN ('correct_recommend','correct_reject','false_positive','false_negative')),
     CONSTRAINT dori_sim_eval_result_check CHECK (jsonb_typeof(result_payload) = 'object')
 );
-CREATE UNIQUE INDEX dori_sim_eval_case_key_unique ON public.dori_copilot_simulation_evaluations(case_id, idempotency_key);
 
 ALTER TABLE public.dori_copilot_simulation_cases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dori_copilot_simulation_expectations ENABLE ROW LEVEL SECURITY;
