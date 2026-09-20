@@ -4,8 +4,16 @@ struct DORICopilotView: View {
     @Environment(FleetStore.self) private var fleet
     @State private var copilot = DORICopilotStore()
 
-    private var driverId: String {
-        fleet.currentPrincipal?.profileId ?? "00000000-0000-4000-8000-000000000001"
+    private var driverId: String? {
+        guard let principal = fleet.currentPrincipal, principal.role == .driver else {
+            return nil
+        }
+        return principal.profileId
+    }
+
+    private var isEvaluating: Bool {
+        if case .evaluating = copilot.state { return true }
+        return false
     }
 
     var body: some View {
@@ -163,6 +171,7 @@ struct DORICopilotView: View {
 
     private var evaluateButton: some View {
         Button {
+            guard let driverId else { return }
             Task { await copilot.evaluate(driverId: driverId) }
         } label: {
             HStack {
@@ -176,7 +185,7 @@ struct DORICopilotView: View {
         .buttonStyle(.borderedProminent)
         .tint(Palette.volt)
         .foregroundStyle(Palette.canvas)
-        .disabled({ if case .evaluating = copilot.state { true } else { false } }())
+        .disabled(driverId == nil || isEvaluating)
     }
 
     private func developmentCard(_ result: DORIDecisionResult) -> some View {
