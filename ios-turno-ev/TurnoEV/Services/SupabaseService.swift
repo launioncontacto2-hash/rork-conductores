@@ -27,7 +27,7 @@ enum SupabaseAuthDiagnostic {
             let safeAuthCode = authCode ?? "ninguno"
             let safeHTTPStatus = httpStatus.map(String.init) ?? "ninguno"
 
-            "[Sesión][Diagnóstico] categoría=\(kind.rawValue) tipo=\(errorType) " +
+            return "[Sesión][Diagnóstico] categoría=\(kind.rawValue) tipo=\(errorType) " +
                 "código_auth=\(safeAuthCode) http=\(safeHTTPStatus)"
         }
 
