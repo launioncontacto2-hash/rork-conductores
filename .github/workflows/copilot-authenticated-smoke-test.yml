@@ -8,6 +8,7 @@ on:
       - '.github/workflows/copilot-authenticated-smoke-test.yml'
       - 'docs/DORI_COPILOTO_CANONICO.md'
       - 'supabase/migrations/20260921170000_dori_copilot_events_reconcile.sql'
+      - 'supabase/functions/dori-copilot-simulation/index.ts'
 
 permissions:
   contents: read

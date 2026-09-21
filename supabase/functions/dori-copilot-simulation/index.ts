@@ -41,7 +41,7 @@ Deno.serve(async (request) => {
     const { data, error } = await admin.rpc(rpc, args);
     if (error) {
       if (error.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
-      if (error.code === "42501") return reply(403, { error: "case_not_available" });
+      if (error.code === "42501" || error.code === "P0002") return reply(403, { error: "case_not_available" });
       return reply(500, { error: "simulation_backend_error" });
     }
     return reply(200, { case: data });
@@ -51,14 +51,14 @@ Deno.serve(async (request) => {
     const { data: existing, error: existingError } = await admin.rpc("driver_get_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey });
     if (existingError) {
       if (existingError.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
-      if (existingError.code === "42501") return reply(403, { error: "case_not_available" });
+      if (existingError.code === "42501" || existingError.code === "P0002") return reply(403, { error: "case_not_available" });
       return reply(500, { error: "simulation_backend_error" });
     }
     if (existing) return reply(201, { evaluation: existing });
     const { data: pending, error: loadError } = await admin.rpc("driver_get_dori_simulation_case", { p_auth_user_id: authUserId, p_case_id: payload.caseId });
     if (loadError) {
       if (loadError.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
-      if (loadError.code === "42501") return reply(403, { error: "case_not_available" });
+      if (loadError.code === "42501" || loadError.code === "P0002") return reply(403, { error: "case_not_available" });
       return reply(500, { error: "simulation_backend_error" });
     }
     if (!pending?.input_payload) return reply(404, { error: "case_not_available" });
