@@ -101,7 +101,7 @@ jobs:
 
             const driverProfiles = await rest(clients.driver.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status');
             const driverProfile = driverProfiles.find((x) => x.status === 'active');
-            const profiles = await rest(clients.driver.client, 'profiles', 'id,environment_id,station_id,status');
+            const profiles = await rest(clients.driver.client, 'profiles', 'id,environment_id,status');
             const profile = profiles.find((x) => x.status === 'active');
             assert('driver identity scope', !!driverProfile && !!profile && driverProfile.profile_id === profile.id);
 
