@@ -1,7 +1,7 @@
 # DORI COPILOTO — CANÓNICO DE DOMINIO
 
 **Estado:** ACTIVO  
-**Versión:** 1.2  
+**Versión:** 1.3  
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Repositorio objetivo:** `launioncontacto2-hash/rork-conductores`  
@@ -980,4 +980,19 @@ Incorpora:
 - credenciales TEST únicamente desde almacenes seguros.
 
 
-**CONTROL:** `DORI COPILOTO — CANÓNICO DE DOMINIO v1.2 — ACTIVO`
+## 39. Soporte de servicio para BYD Dolphin Mini
+
+Para la flota actual BYD Dolphin Mini, el alcance operativo de Copiloto admite únicamente:
+
+- `UberX`;
+- `Uber Comfort`.
+
+El lector puede reconocer otras categorías para clasificarlas, pero cualquier categoría fuera de esta lista debe producir `SERVICIO NO SOPORTADO` y no puede emitir una recomendación fuerte `TOMAR` o `NO TOMAR`. Esta whitelist es una condición crítica de recomendación y no sustituye el motor económico ni sus parámetros versionados.
+
+## 40. Registro v1.3
+
+## v1.3 — 2026-09-21
+
+Incorpora la whitelist funcional `UberX` + `Uber Comfort` para BYD Dolphin Mini y el estado explícito `SERVICIO NO SOPORTADO` para categorías reconocidas pero no habilitadas.
+
+**CONTROL:** `DORI COPILOTO — CANÓNICO DE DOMINIO v1.3 — ACTIVO`
