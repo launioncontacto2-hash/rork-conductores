@@ -164,7 +164,13 @@ test("opens the candidate release information without secrets", async () => {
   await expect.element(screen.getByRole("heading", { name: "Información de versión" })).toBeInTheDocument();
   await expect.element(screen.getByText("CANDIDATE")).toBeInTheDocument();
   await expect.element(screen.getByText("ACTIVE")).toBeInTheDocument();
-  await expect.element(screen.getByText("Pendiente de despliegue")).toBeInTheDocument();
+  await expect.element(screen.getByText("Puebla Laboratorio 01", { exact: true })).toBeInTheDocument();
+  await expect.element(screen.getByText("PUE-TEST-01", { exact: true })).toBeInTheDocument();
+  await expect.element(screen.getByText("Ninguno — baseline inicial")).toBeInTheDocument();
+  await expect.element(screen.getByText("TEST · yyxzuiantrmoyozetswv")).toBeInTheDocument();
+  await expect.element(screen.getByText("REQUIRES REVIEW")).toBeInTheDocument();
+  await expect.element(screen.getByText("Pendiente de despliegue").first()).toBeInTheDocument();
+  await expect.element(screen.getByText(/Recuperación de alta de unidades TEST/)).toBeInTheDocument();
   await expect.element(screen.getByText(/secret|token|password/i)).not.toBeInTheDocument();
 });
 
