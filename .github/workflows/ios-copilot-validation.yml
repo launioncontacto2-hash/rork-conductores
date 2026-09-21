@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feature/dori-copiloto
+      - feat/copilot-cross-test-foundation
     paths:
       - .github/workflows/ios-copilot-validation.yml
       - ios-turno-ev/**
@@ -12,6 +12,7 @@ on:
       - scripts/validate-ios-app-icon.cjs
       - scripts/sync-copilot-ios-resource.cjs
       - supabase/functions/_shared/dori-copilot.js
+      - docs/DORI_COPILOTO_CANONICO.md
   pull_request:
     paths:
       - .github/workflows/ios-copilot-validation.yml

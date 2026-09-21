@@ -8,7 +8,7 @@ on:
       - ".github/workflows/backend-validation.yml"
   push:
     branches:
-      - 15C-backend-test
+      - feat/copilot-cross-test-foundation
     paths:
       - "supabase/**"
       - "scripts/validate-backend.ps1"
