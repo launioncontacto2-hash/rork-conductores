@@ -108,7 +108,9 @@ jobs:
             }
             assert('driver identity scope', !!driverProfile && !!profile && driverProfile.profile_id === profile.id);
 
-            const now = new Date();
+            const clocks = await rest(clients.console.client, 'test_clock', 'environment_id,anchor_simulated_at,is_paused,speed');
+            const testClock = clocks.find((x) => x.environment_id === driverProfile.environment_id);
+            const now = new Date(testClock?.anchor_simulated_at || Date.now());
             const shiftStart = new Date(now.getTime() - 3600000).toISOString();
             const shiftEnd = new Date(now.getTime() + 28800000).toISOString();
             const input = {
