@@ -104,6 +104,26 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 import OperationsConsole from "@/pages/OperationsConsole";
+import { RELEASE_FALLBACK, normalizeBranchSlug, resolveReleaseBuildMetadata } from "@/console/consoleRelease";
+
+test("resolves release metadata safely for local and Cloudflare builds", () => {
+  const local = resolveReleaseBuildMetadata({});
+  expect(local).toEqual({ sourceBranch: RELEASE_FALLBACK, sourceSha: RELEASE_FALLBACK, deploymentUrl: RELEASE_FALLBACK, canonicalSha: RELEASE_FALLBACK, branchAlias: RELEASE_FALLBACK, deployedAt: RELEASE_FALLBACK });
+
+  const cloudflare = resolveReleaseBuildMetadata({
+    sourceBranch: "integration/dori-test",
+    sourceSha: "1111111111111111111111111111111111111111",
+    deploymentUrl: "https://preview.example.test",
+    branchAlias: "https://integration-dori-test.dori-console-test.pages.dev",
+    deployedAt: "2026-09-21T03:45:12.345Z",
+  });
+  expect(cloudflare.canonicalSha).toBe(cloudflare.sourceSha);
+  expect(cloudflare.deployedAt).toBe("2026-09-21T03:45:12.345Z");
+
+  const candidate = resolveReleaseBuildMetadata({ sourceBranch: "codex/dori-consola-integral-1001", sourceSha: "2222222222222222222222222222222222222222" });
+  expect(candidate.canonicalSha).toBe(RELEASE_FALLBACK);
+  expect(normalizeBranchSlug("Feature/DORI Consola_1001")).toBe("feature-dori-consola-1001");
+});
 
 test("shows every final operational area from one Supabase snapshot", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
