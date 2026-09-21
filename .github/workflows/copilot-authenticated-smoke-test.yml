@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '^\*\*Versión:\*\* 1.0' docs/DORI_COPILOTO_CANONICO.md
+          grep -q '^\*\*Versión:\*\* 1.3' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
           missing=()
           [[ -n "$SUPABASE_SERVICE_ROLE_KEY" ]] || missing+=(SUPABASE_SERVICE_ROLE_KEY_TEST)
