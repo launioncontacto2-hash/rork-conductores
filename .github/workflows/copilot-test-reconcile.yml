@@ -1,0 +1,60 @@
+name: Copilot TEST reconcile
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/copilot-cross-test-foundation
+    paths:
+      - "supabase/migrations/20260921170000_dori_copilot_events_reconcile.sql"
+      - ".github/workflows/copilot-test-reconcile.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copilot-test-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile Copilot TEST backend
+    runs-on: ubuntu-latest
+    environment: test
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 2.116.0
+
+      - name: Require TEST-only deployment credentials
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        shell: bash
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || { echo "Missing SUPABASE_ACCESS_TOKEN" >&2; exit 1; }
+          test -n "$SUPABASE_DB_PASSWORD" || { echo "Missing SUPABASE_DB_PASSWORD_TEST" >&2; exit 1; }
+
+      - name: Apply migrations to TEST project only
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        run: |
+          supabase link --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --linked
+
+      - name: Deploy Copilot Edge Functions to TEST project only
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy dori-copilot-events --project-ref yyxzuiantrmoyozetswv
+          supabase functions deploy dori-copilot-simulation --project-ref yyxzuiantrmoyozetswv
+
+      - name: Confirm TEST target
+        run: |
+          test "$(supabase projects list --output json | jq -r '.[] | select(.id=="yyxzuiantrmoyozetswv") | .id')" = "yyxzuiantrmoyozetswv"
