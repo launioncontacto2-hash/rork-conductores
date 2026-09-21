@@ -18,7 +18,7 @@ jobs:
     env:
       SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_TEST }}
-      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_PUBLISHABLE_KEY: sb_publishable_kNOz-Pfffc7kY-615uPM1A_Kb1FkL85
       CONSOLE_USER_ID: 186358c4-cfc5-4ccf-9e68-7da154a4c836
       DRIVER_USER_ID: ffbd204a-2124-4d93-b674-16f09a018c16
       SUPERVISOR_USER_ID: ae41a630-1eb1-4296-bb47-ae34b65a27d1
