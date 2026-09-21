@@ -31,7 +31,20 @@ const tableData: Record<string, unknown> = {
   station_live: { active_shifts: 0, present_drivers: 0, available_units: 2, units_in_shop: 0, updated_at: "2026-09-07T12:00:00Z" },
   test_clock: null,
   station_capacity_current: { capacity: 20 },
-  vehicles: [],
+  vehicles: [{
+    id: "50000000-0000-4000-8000-000000000001",
+    internal_number: "DMP-001",
+    plate: null,
+    model: "Dolphin Mini Plus",
+    manufacturer: "BYD",
+    model_display: "Dolphin Mini P.",
+    unit_number: 1,
+    operational_code: "DMP-001",
+    color: "Blanco",
+    battery_pct: 100,
+    odometer_km: 0,
+    status: "available",
+  }],
   console_drivers: [],
   assignment_current: [],
   shifts: [],
@@ -111,6 +124,48 @@ test("shows every final operational area from one Supabase snapshot", async () =
   await expect.element(screen.getByRole("heading", { name: "Historial de turnos" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Auditoría operativa" })).toBeInTheDocument();
   await expect.element(screen.getByText("Unidad asignada")).toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: /Versión 1.0.0 · Build 1001/ })).toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: "Nueva unidad TEST" })).toBeDisabled();
+});
+
+test("creates a TEST vehicle through the existing RPC and refreshes the snapshot", async () => {
+  rpcCalls.length = 0;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <OperationsConsole />
+    </QueryClientProvider>,
+  );
+
+  await screen.getByRole("textbox", { name: "Motivo", exact: true }).fill("Alta para prueba integral");
+  await screen.getByRole("textbox", { name: "Color (opcional)" }).fill("Azul");
+  await screen.getByRole("button", { name: "Nueva unidad TEST" }).click();
+
+  await vi.waitFor(() => {
+    expect(rpcCalls).toContainEqual(expect.objectContaining({
+      name: "console_create_test_vehicle",
+      params: expect.objectContaining({ p_color: "Azul", p_note: "Alta para prueba integral" }),
+    }));
+  });
+  await expect.element(screen.getByText("Unidad creada y disponible para asignación.")).toBeInTheDocument();
+  await expect.element(screen.getByRole("heading", { name: "Asignar unidad" })).toBeInTheDocument();
+  await expect.element(screen.getByText("Unidad 001")).toBeInTheDocument();
+});
+
+test("opens the candidate release information without secrets", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <OperationsConsole />
+    </QueryClientProvider>,
+  );
+
+  await screen.getByRole("button", { name: /Versión 1.0.0 · Build 1001/ }).click();
+  await expect.element(screen.getByRole("heading", { name: "Información de versión" })).toBeInTheDocument();
+  await expect.element(screen.getByText("CANDIDATE")).toBeInTheDocument();
+  await expect.element(screen.getByText("ACTIVE")).toBeInTheDocument();
+  await expect.element(screen.getByText("Pendiente de despliegue")).toBeInTheDocument();
+  await expect.element(screen.getByText(/secret|token|password/i)).not.toBeInTheDocument();
 });
 
 test("requires an audit reason before receiving an incident", async () => {

@@ -29,6 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
+import { ConsoleReleaseDialog } from "@/console/ConsoleReleaseDialog";
 
 interface StationLive {
   active_shifts: number;
@@ -43,6 +44,11 @@ interface Vehicle {
   internal_number: string;
   plate: string | null;
   model: string;
+  manufacturer: string | null;
+  model_display: string | null;
+  unit_number: number | null;
+  operational_code: string | null;
+  color: string | null;
   battery_pct: number | null;
   odometer_km: number;
   status: "available" | "occupied" | "maintenance";
@@ -228,6 +234,8 @@ const OperationsConsole = () => {
   const [evidenceURLs, setEvidenceURLs] = useState<Array<ShiftEvidence & { signedURL: string }>>([]);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
+  const [vehicleColor, setVehicleColor] = useState("");
+  const [vehicleNote, setVehicleNote] = useState("");
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -253,7 +261,7 @@ const OperationsConsole = () => {
         supabase.from("station_live").select("active_shifts,present_drivers,available_units,units_in_shop,updated_at").eq("station_id", stationId).maybeSingle(),
         supabase.from("test_clock").select("environment_id,anchor_simulated_at,anchor_real_at,speed,is_paused,revision,updated_at").eq("environment_id", currentIdentity.environment_id).maybeSingle(),
         supabase.from("station_capacity_current").select("capacity").eq("station_id", stationId).maybeSingle(),
-        supabase.from("vehicles").select("id,internal_number,plate,model,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
+        supabase.from("vehicles").select("id,internal_number,plate,model,manufacturer,model_display,unit_number,operational_code,color,battery_pct,odometer_km,status").eq("station_id", stationId).order("internal_number"),
         supabase.from("console_drivers").select("id,profile_id,employee_number,status,shift_group,shift_slot").eq("station_id", stationId).order("employee_number"),
         supabase.from("assignment_current").select("driver_profile_id,vehicle_id,kind,titular_vehicle_id,assigned_at").eq("station_id", stationId),
         supabase.from("shifts").select("id,folio,driver_profile_id,vehicle_id,started_at,scheduled_end_at").eq("station_id", stationId).eq("status", "open").order("started_at"),
@@ -315,6 +323,22 @@ const OperationsConsole = () => {
     onSuccess: async () => {
       setAssignmentVehicleId("");
       setAssignmentReason("");
+      await snapshot.refetch();
+    },
+  });
+  const vehicleMutation = useMutation({
+    mutationFn: async () => {
+      if (!supabase) throw new Error("Supabase no está disponible.");
+      const { error } = await supabase.rpc("console_create_test_vehicle", {
+        p_color: vehicleColor.trim() || null,
+        p_note: vehicleNote.trim() || null,
+        p_idempotency_key: `console-create-vehicle-${crypto.randomUUID()}`,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: async () => {
+      setVehicleColor("");
+      setVehicleNote("");
       await snapshot.refetch();
     },
   });
@@ -421,6 +445,7 @@ const OperationsConsole = () => {
             <p className="mt-1 text-sm text-muted-foreground">
               {identity.station_name} · {identity.station_code} · {identity.display_name}
             </p>
+            <ConsoleReleaseDialog />
           </div>
           <div className="flex flex-wrap gap-2">
             {identity.environment_id.toLowerCase() === SHARED_TEST_ENVIRONMENT_ID && (
@@ -565,17 +590,26 @@ const OperationsConsole = () => {
         </section>
 
         <Card id="flota" className="panel scroll-mt-4">
-          <CardHeader><CardTitle className="text-lg">Flotilla</CardTitle><CardDescription>{data?.vehicles.length ?? 0} unidades visibles dentro de la membresía de estación.</CardDescription></CardHeader>
+          <CardHeader><CardTitle className="text-lg">Unidades</CardTitle><CardDescription>{data?.vehicles.length ?? 0} unidades visibles dentro de la membresía de estación. Las altas se limitan a TEST y quedan auditadas.</CardDescription></CardHeader>
           <CardContent>
+            <div className="mb-5 grid gap-3 rounded-xl border border-border bg-muted/20 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+              <label className="grid gap-2 text-sm font-semibold">Color (opcional)<input className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={vehicleColor} onChange={(event) => setVehicleColor(event.target.value)} placeholder="Color no registrado" /></label>
+              <label className="grid gap-2 text-sm font-semibold">Motivo<input className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={vehicleNote} onChange={(event) => setVehicleNote(event.target.value)} placeholder="Alta de unidad TEST" /></label>
+              <Button onClick={() => vehicleMutation.mutate()} disabled={vehicleMutation.isPending || vehicleNote.trim().length < 5}>{vehicleMutation.isPending ? "Creando…" : "Nueva unidad TEST"}</Button>
+              {vehicleMutation.isError && <p className="text-sm text-destructive md:col-span-3">No se pudo crear: {vehicleMutation.error.message}</p>}
+              {vehicleMutation.isSuccess && <p className="text-sm text-emerald-300 md:col-span-3">Unidad creada y disponible para asignación.</p>}
+            </div>
             <Table>
-              <TableHeader><TableRow><TableHead>Unidad</TableHead><TableHead>Modelo</TableHead><TableHead>Estado</TableHead><TableHead>Batería</TableHead><TableHead>Odómetro</TableHead><TableHead>Conductor</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Unidad</TableHead><TableHead>Código</TableHead><TableHead>Modelo</TableHead><TableHead>Color</TableHead><TableHead>Estado</TableHead><TableHead>Batería</TableHead><TableHead>Odómetro</TableHead><TableHead>Conductor</TableHead></TableRow></TableHeader>
               <TableBody>
                 {data?.vehicles.map((vehicle) => {
                   const assignment = data.assignments.find((item) => item.vehicle_id === vehicle.id);
                   return (
                     <TableRow key={vehicle.id}>
-                      <TableCell><p className="font-bold">{vehicle.internal_number}</p><p className="text-xs text-muted-foreground">{vehicle.plate ?? "Sin placa"}</p></TableCell>
-                      <TableCell>{vehicle.model}</TableCell>
+                      <TableCell><p className="font-bold">{vehicle.unit_number ? `Unidad ${String(vehicle.unit_number).padStart(3, "0")}` : vehicle.internal_number}</p><p className="text-xs text-muted-foreground">{vehicle.plate ?? "Sin placa"}</p></TableCell>
+                      <TableCell>{vehicle.operational_code ?? vehicle.internal_number}</TableCell>
+                      <TableCell>{vehicle.model_display ?? vehicle.model}</TableCell>
+                      <TableCell>{vehicle.color ?? "—"}</TableCell>
                       <TableCell><Badge variant="outline">{statusLabel[vehicle.status]}</Badge></TableCell>
                       <TableCell><span className="inline-flex items-center gap-1.5 tabular"><BatteryCharging className="size-4 text-primary" />{vehicle.battery_pct ?? "—"}%</span></TableCell>
                       <TableCell className="tabular">{vehicle.odometer_km.toLocaleString("es-MX")} km</TableCell>
