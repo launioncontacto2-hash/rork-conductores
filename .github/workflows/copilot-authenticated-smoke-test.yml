@@ -32,8 +32,13 @@ jobs:
           set -euo pipefail
           grep -q '^\*\*Versión:\*\* 1.0' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
-          [[ -n "$SUPABASE_SERVICE_ROLE_KEY" ]]
-          [[ "$SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]]
+          missing=()
+          [[ -n "$SUPABASE_SERVICE_ROLE_KEY" ]] || missing+=(SUPABASE_SERVICE_ROLE_KEY_TEST)
+          [[ "$SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || missing+=(TEST_SUPABASE_PUBLISHABLE_KEY)
+          if ((${#missing[@]})); then
+            echo "Required GitHub secrets unavailable: ${missing[*]}" >&2
+            exit 1
+          fi
 
       - name: Install isolated smoke dependency
         run: npm install --no-save --no-package-lock @supabase/supabase-js@2.115.0
