@@ -128,7 +128,7 @@ jobs:
             const caseId = created.data.case?.id || created.data.id;
             assert('case pending', created.data.case?.status === 'pending' || created.data.status === 'pending');
 
-            const received = await edge('driver', { operation: 'next' });
+            const received = await edge('driver', { operation: 'next', caseId });
             assert('driver receive', received.status === 200 && received.data.case?.id === caseId, JSON.stringify(received.data));
             const receivedCaseId = received.data.case?.id || caseId;
             const receivedText = JSON.stringify(received.data);
