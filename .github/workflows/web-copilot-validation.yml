@@ -1,0 +1,33 @@
+name: Web Copilot validation
+
+on:
+  push:
+    branches: [feat/copilot-cross-test-foundation]
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-copilot-validation.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-copilot-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run test:unit
+      - run: bun run test:browser:run
+      - run: bun run build
