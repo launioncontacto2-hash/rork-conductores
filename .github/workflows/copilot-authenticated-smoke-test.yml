@@ -99,8 +99,8 @@ jobs:
             await login('driver');
             await login('supervisor');
 
-            const driverProfiles = await rest(clients.driver.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status');
-            const driverProfile = driverProfiles.find((x) => x.status === 'active') || driverProfiles[0];
+            const driverProfiles = await rest(clients.console.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status,employee_number');
+            const driverProfile = driverProfiles.find((x) => x.employee_number === 'DORI-JORGE-RAMOS' && x.status === 'active') || driverProfiles.find((x) => x.employee_number === 'DORI-JORGE-RAMOS') || driverProfiles[0];
             const profiles = await rest(clients.driver.client, 'profiles', 'id,environment_id,status');
             const profile = profiles.find((x) => x.status === 'active') || profiles[0];
             if (!driverProfile || !profile || driverProfile.profile_id !== profile.id) {
