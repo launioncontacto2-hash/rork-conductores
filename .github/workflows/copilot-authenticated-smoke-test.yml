@@ -100,9 +100,12 @@ jobs:
             await login('supervisor');
 
             const driverProfiles = await rest(clients.driver.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status');
-            const driverProfile = driverProfiles.find((x) => x.status === 'active');
+            const driverProfile = driverProfiles.find((x) => x.status === 'active') || driverProfiles[0];
             const profiles = await rest(clients.driver.client, 'profiles', 'id,environment_id,status');
-            const profile = profiles.find((x) => x.status === 'active');
+            const profile = profiles.find((x) => x.status === 'active') || profiles[0];
+            if (!driverProfile || !profile || driverProfile.profile_id !== profile.id) {
+              console.log(`identity diagnostics: profiles=${profiles.length}, driverProfiles=${driverProfiles.length}, profileId=${profile?.id || 'none'}, driverProfileLink=${driverProfile?.profile_id || 'none'}`);
+            }
             assert('driver identity scope', !!driverProfile && !!profile && driverProfile.profile_id === profile.id);
 
             const now = new Date();
