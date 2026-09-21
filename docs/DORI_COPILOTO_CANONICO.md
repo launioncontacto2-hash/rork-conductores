@@ -1,7 +1,7 @@
 # DORI COPILOTO — CANÓNICO DE DOMINIO
 
 **Estado:** ACTIVO  
-**Versión:** 1.0  
+**Versión:** 1.2  
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Repositorio objetivo:** `launioncontacto2-hash/rork-conductores`  
@@ -789,4 +789,195 @@ Fija:
 
 ---
 
-**CONTROL:** `DORI COPILOTO — CANÓNICO DE DOMINIO v1.0 — ACTIVO`
+# 33. Principio de mínima intervención del usuario
+
+El usuario propietario de DORI debe intervenir lo menos posible en tareas técnicas de implementación, infraestructura, autenticación, despliegue, pruebas y gobierno operativo.
+
+La razón es práctica: el usuario define visión, prioridades, aceptación de producto y decisiones de negocio, pero no se debe asumir que conoce ni debe ejecutar procedimientos técnicos de bajo nivel.
+
+## 33.1 Obligación de DORI Analista y Work
+
+Antes de pedir una acción al usuario, DORI Analista y Work deben agotar primero las capacidades disponibles para resolverla de forma autónoma y segura, incluyendo cuando aplique:
+
+- herramientas y conectores disponibles;
+- GitHub Actions;
+- Cloud Browser / Work;
+- Supabase Dashboard o APIs administrativas autorizadas;
+- scripts automatizados controlados;
+- variables y secretos administrados por el entorno;
+- pruebas automatizadas;
+- lectura y modificación segura de repositorio;
+- mecanismos oficiales de la plataforma implicada.
+
+No se debe trasladar al usuario una tarea técnica solo porque sea más rápido pedirle que la haga manualmente.
+
+## 33.2 Acciones que no deben pedirse al usuario salvo necesidad real
+
+Evitar pedir al usuario que:
+
+- ejecute SQL;
+- manipule tablas internas;
+- edite `auth.users`;
+- cree hashes;
+- maneje `service_role`;
+- copie secretos entre herramientas;
+- configure variables de entorno manualmente;
+- ejecute scripts de PowerShell, Bash o Node;
+- resuelva conflictos Git;
+- modifique archivos de configuración;
+- interprete logs técnicos;
+- gestione JWT;
+- rote credenciales;
+- cambie RLS;
+- ejecute migraciones;
+- despliegue Edge Functions;
+- configure CI/CD;
+- tome decisiones técnicas de implementación que correspondan a DORI Analista o Work.
+
+## 33.3 Cuándo sí puede intervenir el usuario
+
+La intervención del usuario se reserva principalmente para:
+
+- decisiones de producto;
+- aprobación de cambios de alcance;
+- aceptación visual o funcional;
+- definición de reglas de negocio;
+- autorización de acciones irreversibles o de alto impacto;
+- acciones físicas sobre dispositivos;
+- MFA, biometría o confirmaciones que solo el titular puede completar;
+- acceso a cuentas cuando la plataforma exige interacción del propietario;
+- pruebas humanas finales;
+- acciones que ninguna herramienta autorizada pueda realizar.
+
+## 33.4 Forma de pedir una intervención inevitable
+
+Si la intervención del usuario es realmente necesaria:
+
+1. explicar en lenguaje simple qué debe hacer y por qué;
+2. reducirla al mínimo número de pasos;
+3. preferir una acción visual en interfaz antes que terminal o código;
+4. no pedir secretos en el chat;
+5. no pedir operaciones destructivas sin explicar el impacto;
+6. no asumir conocimientos técnicos;
+7. detenerse antes de una acción riesgosa si existe una alternativa más segura;
+8. retomar automáticamente la tarea en cuanto la intervención mínima termine.
+
+## 33.5 Regla de autonomía operativa
+
+Para tareas de Copiloto, el comportamiento esperado es:
+
+`Work/DORI Analista resuelven → usuario valida`
+
+y no:
+
+`usuario ejecuta → Work interpreta`
+
+La participación humana debe concentrarse en visión, decisiones y validación del resultado.
+
+## 33.6 Gate obligatorio en prompts
+
+Todo prompt relevante a Copiloto debe incluir una instrucción equivalente a:
+
+`MÍNIMA INTERVENCIÓN DEL USUARIO: resolver autónomamente todo lo técnicamente posible. No pedir al usuario ejecutar comandos, manejar secretos, editar infraestructura o realizar procedimientos técnicos salvo que sea estrictamente inevitable.`
+
+Si una tarea requiere intervención humana, Work debe reportar:
+
+- por qué no puede resolverla;
+- qué capacidad falta;
+- cuál es la acción mínima exacta del usuario;
+- por qué no existe una alternativa automatizada segura.
+
+---
+
+# 34. Registro de versiones actualizado
+
+## v1.1 — 2026-09-21
+
+Añade el principio de **mínima intervención del usuario**.
+
+Fija que:
+
+- DORI Analista y Work deben agotar primero las capacidades técnicas disponibles;
+- el usuario no debe ser convertido en operador técnico;
+- secretos, Auth, infraestructura, CI/CD, SQL y despliegues deben resolverse por mecanismos automatizados o administrativos cuando sea posible;
+- la intervención humana se reserva para decisiones, aprobaciones, acciones físicas, MFA y validación final;
+- los prompts de Copiloto deben incluir explícitamente esta regla.
+
+
+---
+
+# 35. Herencia del Gobierno de Ejecución Autónoma
+
+Toda misión relacionada con DORI Copiloto hereda obligatoriamente:
+
+`docs/DORI_GOBIERNO_EJECUCION_AUTONOMA.md`
+
+y:
+
+`docs/DORI_MISION_MAESTRA_STANDARD.md`
+
+La metodología de trabajo queda fijada así:
+
+`usuario autoriza misión → DORI Analista realiza pre-flight → Work ejecuta todas las fases internas → DORI Analista audita → usuario prueba producto final`
+
+Las fases del roadmap Copiloto siguen existiendo para control y trazabilidad, pero no constituyen puntos normales de retorno al usuario.
+
+Work debe recorrerlas automáticamente cuando formen parte de una misma Misión Maestra.
+
+---
+
+# 36. Regla de entrega end-to-end para Copiloto
+
+Cuando el usuario autorice continuar con Copiloto, DORI Analista debe preparar una única Misión Maestra cuyo Definition of Done cubra todo el alcance autorizado.
+
+Work no debe entregar bloques técnicos aislados cuando todavía pueda continuar autónomamente.
+
+Para la etapa funcional actual, la entrega objetivo debe aproximarse a:
+
+`Consola crea caso → receptor/teléfono muestra oferta → lector visual interpreta → TripOffer → motor Copiloto evalúa → conductor recibe TOMAR/NO TOMAR → resultado vuelve a Consola → EXPECTED vs ACTUAL queda registrado → operación live permanece intacta → pruebas automatizadas pasan → listo para prueba humana`
+
+La implementación, correcciones y validaciones intermedias pertenecen a Work.
+
+---
+
+# 37. Pre-flight específico antes de una misión Copiloto
+
+Antes de emitir la Misión Maestra de Copiloto, DORI Analista debe verificar en una sola preparación:
+
+- canónicos vigentes;
+- SHA canonical real;
+- rama de trabajo;
+- estado de Supabase TEST;
+- secrets TEST necesarios;
+- identidades TEST;
+- GitHub Actions;
+- permisos de repositorio;
+- disponibilidad de builds/dispositivos;
+- capturas/assets visuales necesarios;
+- dependencias del lector visual;
+- herramientas necesarias;
+- decisiones de producto todavía ambiguas;
+- criterio de prueba humana final.
+
+Las credenciales no se almacenan en este canónico ni en prompts.
+
+Si una prueba visual necesita usuarios TEST, sus credenciales deben consumirse desde un almacén seguro.
+
+---
+
+# 38. Registro v1.2
+
+## v1.2 — 2026-09-21
+
+Incorpora:
+
+- herencia del Gobierno de Ejecución Autónoma;
+- uso obligatorio del Estándar de Misión Maestra;
+- ejecución end-to-end de todas las fases internas;
+- usuario como aprobador y probador final;
+- pre-flight único antes de iniciar;
+- prohibición de devolver microtareas técnicamente resolubles;
+- credenciales TEST únicamente desde almacenes seguros.
+
+
+**CONTROL:** `DORI COPILOTO — CANÓNICO DE DOMINIO v1.2 — ACTIVO`
