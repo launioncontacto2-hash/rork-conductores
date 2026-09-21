@@ -1,7 +1,7 @@
 # DORI — ESTÁNDAR DE MISIÓN MAESTRA
 
 **Estado:** ACTIVO  
-**Versión:** 1.0  
+**Versión:** 1.1  
 **Fecha de adopción:** 2026-09-21  
 **Dependencia:** `docs/DORI_GOBIERNO_EJECUCION_AUTONOMA.md`  
 **Ruta canónica objetivo:** `docs/DORI_MISION_MAESTRA_STANDARD.md`
@@ -101,6 +101,10 @@ Texto obligatorio o equivalente:
 
 `NO DEVOLVER ERRORES TÉCNICOS ORDINARIOS AL USUARIO. Investigar, corregir, volver a ejecutar pruebas y continuar hasta PASS o bloqueo externo real.`
 
+También debe incluir la regla:
+
+`PROCESOS ASÍNCRONOS NO SON BLOQUEO. Esperar/pollear workflows, builds, deploys y procesamientos remotos hasta conocer su conclusión; corregir y reejecutar si fallan.`
+
 ---
 
 # 7. Seguridad
@@ -148,7 +152,21 @@ Ejemplo insuficiente:
 
 ---
 
-# 10. Condición de salida
+# 10. Progreso y condición de salida
+
+El progreso puede mostrarse como porcentaje o fase, pero es únicamente informativo.
+
+Un reporte como:
+
+`MISIÓN — 55%`
+
+NO es condición de salida, no pausa el trabajo y no requiere aprobación del usuario para continuar.
+
+Si la plataforma permite publicar progreso sin finalizar, Work puede informar avances.
+
+Si publicar progreso implica terminar el turno o devolver el control, Work debe omitir el reporte intermedio y continuar trabajando.
+
+Procesos `queued`, `pending`, `in_progress` o equivalentes deben ser monitoreados por Work hasta conclusión.
 
 Cierre válido:
 
@@ -158,7 +176,18 @@ Bloqueo válido:
 
 `MISIÓN BLOQUEADA POR DEPENDENCIA EXTERNA REAL`
 
-En caso de bloqueo, Work debe pedir una sola intervención mínima y conservar el punto exacto de reanudación.
+No son cierres válidos:
+
+- workflow en ejecución;
+- build en ejecución;
+- deploy pendiente;
+- TestFlight procesando;
+- dependencias no instaladas;
+- test fallando;
+- error técnico corregible;
+- reporte parcial de porcentaje.
+
+En caso de bloqueo externo real, Work debe pedir una sola intervención mínima y conservar el punto exacto de reanudación.
 
 ---
 
@@ -207,6 +236,10 @@ N. [...]
 
 AUTOCORRECCIÓN:
 No devolver fallos técnicos ordinarios. Corregir y continuar.
+Esperar/pollear procesos asíncronos hasta conclusión. Un proceso en ejecución no es bloqueo.
+
+PROGRESO:
+Informativo y no terminal. Si reportarlo termina el turno, omitir el reporte y continuar.
 
 PROHIBIDO:
 [...]
@@ -228,4 +261,16 @@ MISIÓN BLOQUEADA POR DEPENDENCIA EXTERNA REAL
 
 ---
 
-**CONTROL:** `DORI — ESTÁNDAR DE MISIÓN MAESTRA v1.0 — ACTIVO`
+# 13. Registro
+
+## v1.1 — 2026-09-21
+
+Añade la regla de continuidad sobre procesos asíncronos y establece que porcentajes/fases son telemetría no terminal.
+
+## v1.0 — 2026-09-21
+
+Adopción inicial del estándar de Misión Maestra.
+
+---
+
+**CONTROL:** `DORI — ESTÁNDAR DE MISIÓN MAESTRA v1.1 — ACTIVO`

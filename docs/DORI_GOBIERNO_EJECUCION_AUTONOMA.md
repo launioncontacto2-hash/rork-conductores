@@ -1,7 +1,7 @@
 # DORI — GOBIERNO DE EJECUCIÓN AUTÓNOMA
 
 **Estado:** ACTIVO  
-**Versión:** 1.0  
+**Versión:** 1.1  
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Ámbito:** transversal a DORI  
@@ -79,15 +79,32 @@ Incluye fallos de compilación, tests, Supabase TEST, RLS TEST, Edge Functions, 
 Work puede detener una misión antes de terminar únicamente por:
 
 - MFA o biometría del titular;
-- hardware físico;
-- permiso exclusivo del propietario;
-- decisión nueva de producto;
+- hardware físico que deba manipular una persona;
+- permiso exclusivo del propietario que ninguna herramienta autorizada pueda conceder;
+- decisión nueva de producto indispensable para continuar;
 - contradicción real entre canónicos;
-- acción irreversible de alto impacto;
-- acceso que solo el usuario pueda conceder;
-- limitación real de herramienta sin alternativa segura.
+- acción irreversible de alto impacto que requiera aprobación humana;
+- acceso externo que solo el usuario pueda conceder;
+- limitación real de herramienta sin alternativa automatizada segura.
 
-El bloqueo debe explicar:
+NO constituyen bloqueo externo real:
+
+- un workflow, build, deploy, procesamiento de TestFlight u otro proceso remoto que siga `queued` o `in_progress`;
+- tener que esperar, consultar o hacer polling de un proceso asíncrono;
+- que el entorno local de Work no tenga Xcode, Android Studio u otra herramienta cuando exista un runner o servicio remoto autorizado capaz de ejecutarla;
+- dependencias no instaladas cuando puedan instalarse reproduciblemente;
+- tests fallando;
+- errores de compilación;
+- errores de migración, SQL, RLS, Auth TEST o Edge Functions;
+- errores de CI/CD;
+- fallos de despliegue TEST con ruta de diagnóstico/corrección;
+- la necesidad de releer logs, esperar propagación o reintentar después de una corrección.
+
+Ante esos casos, Work debe continuar el ciclo:
+
+`esperar/pollear → inspeccionar → corregir si aplica → volver a ejecutar → continuar`
+
+El bloqueo externo real debe explicar:
 
 1. qué intentó Work;
 2. qué capacidad falta;
@@ -362,7 +379,58 @@ Ante contradicción real:
 
 ---
 
-# 17. Estado de salida obligatorio
+# 17. Continuidad de ejecución y procesos asíncronos
+
+Una misión end-to-end no termina al lanzar un proceso remoto.
+
+Si Work inicia:
+
+- GitHub Actions;
+- build macOS/iOS;
+- build Android;
+- deploy web;
+- migración remota;
+- Edge Function;
+- procesamiento TestFlight;
+- validación externa autorizada;
+
+debe conservar responsabilidad sobre ese proceso hasta conocer su resultado.
+
+Comportamiento obligatorio:
+
+`iniciar → monitorear/pollear → obtener conclusión → inspeccionar evidencia → corregir si falla → reejecutar → continuar`
+
+Un estado `queued`, `pending`, `in_progress` o equivalente significa **misión en ejecución**, no misión bloqueada.
+
+Work no debe transferir al usuario la responsabilidad de esperar un workflow ni pedirle que vuelva más tarde con el resultado cuando Work pueda consultarlo.
+
+---
+
+# 18. Progreso informativo, nunca terminal
+
+Los porcentajes, fases y reportes de avance son telemetría de la misión.
+
+Ejemplo:
+
+`PREPARACIÓN COPILOTO HACIA PRUEBA HUMANA — 42%`
+
+Ese reporte:
+
+- no constituye entrega;
+- no pausa la misión;
+- no requiere aprobación para continuar;
+- no convierte un gate interno en checkpoint humano;
+- no autoriza a Work a terminar su turno.
+
+Si la plataforma permite informar progreso sin finalizar la ejecución, Work puede hacerlo.
+
+Si emitir un reporte implica finalizar o devolver el control al usuario, Work debe priorizar **continuar trabajando** y omitir reportes intermedios.
+
+El porcentaje puede subir o bajar según evidencia real. Nunca debe utilizarse para justificar un cierre prematuro.
+
+---
+
+# 19. Estado de salida obligatorio
 
 Work termina con uno de estos estados:
 
@@ -372,11 +440,25 @@ o:
 
 `MISIÓN BLOQUEADA POR DEPENDENCIA EXTERNA REAL`
 
-No usar estados ambiguos como “casi listo” como entrega final.
+Cualquier otro estado es intermedio y no constituye devolución válida de una Misión Maestra.
+
+No usar como salida terminal:
+
+- “avance”;
+- “en validación”;
+- “workflow ejecutándose”;
+- “esperando build”;
+- “pendiente de deploy”;
+- “casi listo”;
+- “se requiere continuar después”.
 
 ---
 
-# 18. Registro
+# 20. Registro
+
+## v1.1 — 2026-09-21
+
+Añade continuidad obligatoria para procesos asíncronos y establece que los reportes de progreso son informativos, nunca estados terminales.
 
 ## v1.0 — 2026-09-21
 
@@ -384,4 +466,4 @@ Adopción inicial del modelo de ejecución autónoma end-to-end.
 
 ---
 
-**CONTROL:** `DORI — GOBIERNO DE EJECUCIÓN AUTÓNOMA v1.0 — ACTIVO`
+**CONTROL:** `DORI — GOBIERNO DE EJECUCIÓN AUTÓNOMA v1.1 — ACTIVO`
