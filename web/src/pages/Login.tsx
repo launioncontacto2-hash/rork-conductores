@@ -38,6 +38,9 @@ const Login = () => {
 
   return (
     <div className="dori-login-shell relative flex min-h-dvh flex-col items-center justify-center overflow-hidden px-5 py-8 text-foreground sm:px-8">
+      <video className="pointer-events-none absolute inset-0 h-full w-full object-cover" autoPlay loop muted playsInline aria-hidden="true">
+        <source src="/assets/dori_login.mp4" type="video/mp4" />
+      </video>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,hsl(77_100%_62%_/_0.13),transparent_52%),radial-gradient(ellipse_at_bottom_right,hsl(190_100%_65%_/_0.06),transparent_58%),linear-gradient(145deg,hsl(210_22%_4%),hsl(207_22%_8%))]" />
 
       <main className="dori-login-content relative z-10 w-full max-w-[26rem] animate-rise-in">
