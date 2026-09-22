@@ -4,7 +4,7 @@ $repo = 'launioncontacto2-hash/rork-conductores'
 $branch = 'feat/copilot-cross-test-foundation'
 $workflow = 'copilot-restore-human-test-passwords.yml'
 $triggerPath = '.github/copilot-restore.trigger'
-$secretNames = @('COPILOT_RESTORE_JORGE_PASSWORD', 'COPILOT_RESTORE_CONSOLE_PASSWORD', 'COPILOT_RESTORE_SUPERVISION_PASSWORD')
+$secretNames = @('COPILOT_RESTORE_TEMP_PASSWORD')
 $passwords = @{}
 
 function Read-TemporaryPassword([string]$email) {
@@ -32,8 +32,10 @@ function Push-RestoreTrigger {
   $marker = [Convert]::ToBase64String($bytes)
   $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("restore-request=$marker`n"))
   $body = @{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch } | ConvertTo-Json -Compress
-  $existing = gh api "repos/$repo/contents/$triggerPath?ref=$branch" 2>$null | ConvertFrom-Json
-  if ($LASTEXITCODE -eq 0 -and $existing.sha) { $body = (@{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch; sha = $existing.sha } | ConvertTo-Json -Compress) }
+  $existing = $null
+  $existingJson = gh api "repos/$repo/contents/$triggerPath?ref=$branch" 2>$null
+  if ($LASTEXITCODE -eq 0 -and $existingJson) { $existing = $existingJson | ConvertFrom-Json }
+  if ($existing -and $existing.sha) { $body = (@{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch; sha = $existing.sha } | ConvertTo-Json -Compress) }
   $result = $body | gh api "repos/$repo/contents/$triggerPath" --method PUT --input - | ConvertFrom-Json
   if ($LASTEXITCODE -ne 0 -or -not $result.commit.sha) { throw 'No se pudo activar el workflow mediante push controlado.' }
   return $result.commit.sha
@@ -42,9 +44,7 @@ function Push-RestoreTrigger {
 try {
   gh auth status --hostname github.com *> $null
   if ($LASTEXITCODE -ne 0) { throw 'La sesión local de GitHub CLI no está autenticada.' }
-  $passwords[$secretNames[0]] = Read-TemporaryPassword 'jorge.ramos@dori.mx'
-  $passwords[$secretNames[1]] = Read-TemporaryPassword 'consola@dori.mx'
-  $passwords[$secretNames[2]] = Read-TemporaryPassword 'supervision.pue@dori.mx'
+  $passwords[$secretNames[0]] = Read-TemporaryPassword 'las tres identidades TEST'
   foreach ($name in $secretNames) { Set-GitHubSecret $name $passwords[$name] }
   $triggerSha = Push-RestoreTrigger
   $runId = $null
