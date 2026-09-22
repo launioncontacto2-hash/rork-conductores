@@ -14,7 +14,8 @@ enum DORITripOfferVisionReader {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        let observations: [VNRecognizedTextObservation] = request.results ?? []
+        let observations: [VNRecognizedTextObservation] =
+            (request.results as? [VNRecognizedTextObservation]) ?? []
         let lines: [String] = observations.compactMap { observation in
             observation.topCandidates(1).first?.string
         }
