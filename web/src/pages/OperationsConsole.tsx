@@ -447,7 +447,16 @@ const OperationsConsole = () => {
       };
       const { data: response, error } = await supabase.functions.invoke("dori-copilot-simulation", { body: { operation: "create", idempotencyKey: `console-${Date.now()}`, testCaseId: `console-${Date.now()}`, driverProfileId: driver.id, input, expected: { recommendation: "RECOMENDADO" }, expiresAt: new Date(now.getTime() + 120000).toISOString() } });
       if (error) throw error;
-      setCopilotResult(response as Record<string, unknown>);
+      const createdResult = response as Record<string, unknown>;
+      const caseId = String((createdResult.case as Record<string, unknown> | undefined)?.id ?? createdResult.id ?? "");
+      if (caseId) {
+        const [caseRead, expectedRead, evaluationRead] = await Promise.all([
+          supabase.from("dori_copilot_simulation_cases").select("id,test_case_id,status,expires_at,driver_profile_id").eq("id", caseId).maybeSingle(),
+          supabase.from("dori_copilot_simulation_expectations").select("expected_recommendation,expected_reason_code").eq("case_id", caseId).maybeSingle(),
+          supabase.from("dori_copilot_simulation_evaluations").select("id,actual_recommendation,matches_expected,classification,result_payload").eq("case_id", caseId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+        ]);
+        setCopilotResult({ ...createdResult, case: caseRead.data ?? createdResult.case, expected: expectedRead.data ?? createdResult.expected, evaluation: evaluationRead.data });
+      } else setCopilotResult(createdResult);
     } catch (error) { setCopilotError(error instanceof Error ? error.message : "No se pudo crear el caso TEST."); }
     finally { setCopilotLoading(false); }
   };
@@ -527,7 +536,7 @@ const OperationsConsole = () => {
             </div>
             <div className="flex flex-wrap items-center gap-3"><Button onClick={() => void createCopilotCase()} disabled={copilotLoading || !copilotDriverId}>{copilotLoading ? "Evaluando…" : "Crear caso Copiloto TEST"}</Button><Badge variant="outline">Resultado local/TEST</Badge></div>
             {copilotError && <p className="text-sm text-destructive">{copilotError}</p>}
-            {copilotResult && <div className="grid gap-3 rounded-xl border border-border bg-muted/20 p-4 text-sm"><div className="flex flex-wrap gap-2"><Badge>Estado: {String((copilotResult.case as Record<string, unknown> | undefined)?.status ?? copilotResult.status ?? "pending")}</Badge><Badge variant="outline">Caso: {String((copilotResult.case as Record<string, unknown> | undefined)?.id ?? copilotResult.id ?? "—")}</Badge></div><p><strong>EXPECTED:</strong> {JSON.stringify(copilotResult.expected ?? { recommendation: "RECOMENDADO" })}</p><p><strong>ACTUAL:</strong> pendiente de evaluación del conductor</p><p><strong>Clasificación:</strong> pendiente · <strong>Auditabilidad:</strong> idempotencia y evaluation_id del backend TEST</p></div>}
+            {copilotResult && <div className="grid gap-3 rounded-xl border border-border bg-muted/20 p-4 text-sm"><div className="flex flex-wrap gap-2"><Badge>Estado: {String((copilotResult.case as Record<string, unknown> | undefined)?.status ?? copilotResult.status ?? "pending")}</Badge><Badge variant="outline">Caso: {String((copilotResult.case as Record<string, unknown> | undefined)?.id ?? copilotResult.id ?? "—")}</Badge></div><p><strong>EXPECTED:</strong> {JSON.stringify(copilotResult.expected ?? { recommendation: "RECOMENDADO" })}</p><p><strong>ACTUAL:</strong> {String((copilotResult.evaluation as Record<string, unknown> | undefined)?.actual_recommendation ?? "pendiente de evaluación del conductor")}</p><p><strong>Match:</strong> {String((copilotResult.evaluation as Record<string, unknown> | undefined)?.matches_expected ?? "pendiente")} · <strong>Classification:</strong> {String((copilotResult.evaluation as Record<string, unknown> | undefined)?.classification ?? "pendiente")}</p><p><strong>Evaluation ID:</strong> {String((copilotResult.evaluation as Record<string, unknown> | undefined)?.id ?? "pendiente")}</p></div>}
           </CardContent>
         </Card>
 
