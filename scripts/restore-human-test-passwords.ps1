@@ -1,19 +1,10 @@
 $ErrorActionPreference = 'Stop'
 
-$projectRef = 'yyxzuiantrmoyozetswv'
-$baseUrl = "https://$projectRef.supabase.co"
-$serviceRole = [Environment]::GetEnvironmentVariable('SUPABASE_SERVICE_ROLE_KEY_TEST', 'Process')
-if ([string]::IsNullOrWhiteSpace($serviceRole)) {
-  throw 'SUPABASE_SERVICE_ROLE_KEY_TEST debe estar disponible sólo en el entorno local del proceso.'
-}
-
-$emails = @(
-  'jorge.ramos@dori.mx',
-  'consola@dori.mx',
-  'supervision.pue@dori.mx'
-)
+$repo = 'launioncontacto2-hash/rork-conductores'
+$branch = 'feat/copilot-cross-test-foundation'
+$workflow = 'copilot-restore-human-test-passwords.yml'
+$secretNames = @('COPILOT_RESTORE_JORGE_PASSWORD', 'COPILOT_RESTORE_CONSOLE_PASSWORD', 'COPILOT_RESTORE_SUPERVISION_PASSWORD')
 $passwords = @{}
-$plainValues = New-Object System.Collections.Generic.List[string]
 
 function Read-TemporaryPassword([string]$email) {
   $secure = Read-Host "Nueva contraseña temporal para $email" -AsSecureString
@@ -28,32 +19,32 @@ function Read-TemporaryPassword([string]$email) {
   }
 }
 
+function Set-GitHubSecret([string]$name, [string]$value) {
+  $value | gh secret set $name --repo $repo
+  if ($LASTEXITCODE -ne 0) { throw "No se pudo registrar el secreto temporal $name." }
+}
+
 try {
-  $headers = @{ apikey = $serviceRole; Authorization = "Bearer $serviceRole" }
-  $users = @()
-  $page = 1
-  do {
-    $batch = Invoke-RestMethod -Method Get -Uri "$baseUrl/auth/v1/admin/users?page=$page&per_page=100" -Headers $headers
-    $users += @($batch.users)
-    $page++
-  } while ($batch.users.Count -eq 100)
-
-  foreach ($email in $emails) {
-    $user = @($users | Where-Object { $_.email -eq $email }) | Select-Object -First 1
-    if (-not $user) { throw "No se encontró la identidad TEST: $email" }
-    $passwords[$user.id] = Read-TemporaryPassword $email
-    $plainValues.Add($passwords[$user.id])
+  gh auth status --hostname github.com *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'La sesión local de GitHub CLI no está autenticada.' }
+  $passwords[$secretNames[0]] = Read-TemporaryPassword 'jorge.ramos@dori.mx'
+  $passwords[$secretNames[1]] = Read-TemporaryPassword 'consola@dori.mx'
+  $passwords[$secretNames[2]] = Read-TemporaryPassword 'supervision.pue@dori.mx'
+  foreach ($name in $secretNames) { Set-GitHubSecret $name $passwords[$name] }
+  gh workflow run $workflow --repo $repo --ref $branch
+  if ($LASTEXITCODE -ne 0) { throw 'No se pudo iniciar el workflow de restauración.' }
+  $runId = $null
+  for ($attempt = 0; $attempt -lt 30 -and -not $runId; $attempt++) {
+    Start-Sleep -Seconds 2
+    $runs = gh run list --repo $repo --workflow $workflow --branch $branch --limit 5 --json databaseId,status,headBranch | ConvertFrom-Json
+    $runId = ($runs | Where-Object { $_.headBranch -eq $branch -and ($_.status -eq 'queued' -or $_.status -eq 'in_progress') } | Select-Object -First 1).databaseId
   }
-
-  foreach ($email in $emails) {
-    $user = @($users | Where-Object { $_.email -eq $email }) | Select-Object -First 1
-    $body = @{ password = $passwords[$user.id]; email_confirm = $true } | ConvertTo-Json
-    Invoke-RestMethod -Method Patch -Uri "$baseUrl/auth/v1/admin/users/$($user.id)" -Headers ($headers + @{ 'Content-Type' = 'application/json' }) -Body $body | Out-Null
-  }
-  Write-Output 'PASS: credenciales TEST actualizadas mediante Admin Auth.'
+  if (-not $runId) { throw 'No se pudo localizar el run de restauración.' }
+  gh run watch $runId --repo $repo --exit-status
+  if ($LASTEXITCODE -ne 0) { throw "El workflow de restauración terminó con error (run $runId)." }
+  Write-Output 'PASS: credenciales TEST actualizadas mediante workflow administrativo.'
 } finally {
-  foreach ($key in @($passwords.Keys)) { $passwords[$key] = $null }
-  $plainValues.Clear()
-  $serviceRole = $null
-  [Environment]::SetEnvironmentVariable('SUPABASE_SERVICE_ROLE_KEY_TEST', $null, 'Process')
+  foreach ($name in $secretNames) { gh secret delete $name --repo $repo --confirm *> $null }
+  foreach ($name in @($passwords.Keys)) { $passwords[$name] = $null }
+  $passwords.Clear()
 }
