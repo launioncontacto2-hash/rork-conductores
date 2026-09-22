@@ -10,14 +10,13 @@ enum DORITripOfferVisionReader {
             completion(nil)
             return
         }
-        let request = VNRecognizeTextRequest { request, _ in
-            let observations = request.results as? [VNRecognizedTextObservation] ?? []
-            let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-            completion(parse(lines))
-        }
+        let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+        let observations = request.results as? [VNRecognizedTextObservation] ?? []
+        let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+        completion(parse(lines))
     }
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
