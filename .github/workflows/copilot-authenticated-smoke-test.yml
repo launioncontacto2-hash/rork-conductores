@@ -63,10 +63,10 @@ jobs:
           };
           assert('service role configured', !!serviceRole, 'missing TEST service role');
           async function provision() {
-            const { data: envs, error: envError } = await anonClient.from('environments').select('id,code').limit(20);
+            const { data: envs, error: envError } = await admin.from('environments').select('id,code').limit(20);
             assert('TEST environment', !envError && !!envs?.length, envError?.message || 'missing environments');
             const env = envs.find((x) => x.code === 'test') || envs[0];
-            const { data: stations, error: stationError } = await anonClient.from('stations').select('id,environment_id,code').eq('environment_id', env.id).limit(20);
+            const { data: stations, error: stationError } = await admin.from('stations').select('id,environment_id,code').eq('environment_id', env.id).limit(20);
             assert('TEST station', !stationError && !!stations?.length, stationError?.message || 'missing station');
             const station = stations[0];
             const ids = { console: crypto.randomUUID(), driver: crypto.randomUUID(), supervisor: crypto.randomUUID(), mc: crypto.randomUUID(), md: crypto.randomUUID(), ms: crypto.randomUUID(), dp: crypto.randomUUID() };
