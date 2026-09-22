@@ -172,6 +172,16 @@ jobs:
           echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
           echo "- Copilot resource: present and byte-identical to the canonical engine" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Surface Swift compiler diagnostics
+        if: failure() && hashFiles('ios-build.log') != ''
+        run: |
+          set -euo pipefail
+          {
+            echo "### Swift compiler diagnostics"
+            echo
+            grep -E -i '(^|[[:space:]])(error:|fatal error:|warning:)' ios-build.log | tail -n 80 || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run DORICopilotContractTests
         run: |
           set -euo pipefail
