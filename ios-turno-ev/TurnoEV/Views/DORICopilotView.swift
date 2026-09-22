@@ -118,7 +118,7 @@ struct DORICopilotView: View {
                     .disabled(copilot.simulationCaseId == nil || isEvaluating)
             }
             if let evaluationID = copilot.simulationEvaluationId {
-                Text("Evaluation ID: (evaluationID.uuidString)").font(.caption2.monospaced()).foregroundStyle(Palette.textMuted)
+                Text("Evaluation ID: \(evaluationID.uuidString)").font(.caption2.monospaced()).foregroundStyle(Palette.textMuted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
