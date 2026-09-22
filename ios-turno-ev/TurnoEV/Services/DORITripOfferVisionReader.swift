@@ -54,14 +54,16 @@ enum DORITripOfferVisionReader {
     }
 
     private static func value(after marker: String, in text: String) -> Double? {
-        guard let range = text.lowercased().range(of: marker) else { return nil }
-        return DORITripOfferParser.parseNumber(String(text[range.upperBound...]))
+        let normalized = text.lowercased()
+        guard let range = normalized.range(of: marker) else { return nil }
+        return DORITripOfferParser.parseNumber(String(normalized[range.upperBound...]))
     }
 
     private static func segment(after marker: String, before next: String, in text: String) -> String? {
-        guard let start = text.lowercased().range(of: marker) else { return nil }
-        let tail = text[start.upperBound...]
-        if let endRange = tail.lowercased().range(of: next) {
+        let normalized = text.lowercased()
+        guard let start = normalized.range(of: marker) else { return nil }
+        let tail = normalized[start.upperBound...]
+        if let endRange = tail.range(of: next) {
             return String(tail[..<endRange.lowerBound])
         }
         return String(tail)
