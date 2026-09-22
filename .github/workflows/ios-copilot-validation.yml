@@ -213,6 +213,7 @@ jobs:
             -derivedDataPath "$DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
             -only-testing:TurnoEVTests \
+            -parallel-testing-enabled NO \
             -resultBundlePath TestResults/TurnoEVTests.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             | tee ios-tests.log
