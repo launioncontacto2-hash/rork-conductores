@@ -17,9 +17,7 @@ enum DORITripOfferVisionReader {
         }
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        DispatchQueue.global(qos: .userInitiated).async {
-            try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        }
+        try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
     }
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
