@@ -22,7 +22,7 @@ enum DORITripOfferVisionReader {
     }
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
-        let joined = lines.joined(separator: " ")
+        let joined = normalizeSeparators(lines.joined(separator: " "))
             .replacingOccurrences(of: "•", with: "·")
             .replacingOccurrences(of: "|", with: "·")
             .replacingOccurrences(of: "—", with: "·")
@@ -61,6 +61,20 @@ enum DORITripOfferVisionReader {
     private static func value(after marker: String, in text: String) -> Double? {
         guard let range = text.range(of: marker, options: .caseInsensitive) else { return nil }
         return DORITripOfferParser.parseNumber(String(text[range.upperBound...]))
+    }
+
+    private static func normalizeSeparators(_ text: String) -> String {
+        var normalized = text
+            .replacingOccurrences(of: "•", with: "·")
+            .replacingOccurrences(of: "|", with: "·")
+            .replacingOccurrences(of: "—", with: "·")
+            .replacingOccurrences(of: "-", with: "·")
+        normalized = normalized.replacingOccurrences(
+            of: #"(?i)(min|km)\s+(?=\d)"#, with: "$1 · ", options: .regularExpression)
+        while normalized.contains("  ") {
+            normalized = normalized.replacingOccurrences(of: "  ", with: " ")
+        }
+        return normalized
     }
 
     private static func segment(after marker: String, before next: String, in text: String) -> String? {
