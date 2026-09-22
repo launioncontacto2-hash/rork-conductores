@@ -1,7 +1,7 @@
 # DORI COPILOTO — CANÓNICO DE DOMINIO
 
 **Estado:** ACTIVO  
-**Versión:** 1.3  
+**Versión:** 1.4
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Repositorio objetivo:** `launioncontacto2-hash/rork-conductores`  
@@ -996,3 +996,12 @@ El lector puede reconocer otras categorías para clasificarlas, pero cualquier c
 Incorpora la whitelist funcional `UberX` + `Uber Comfort` para BYD Dolphin Mini y el estado explícito `SERVICIO NO SOPORTADO` para categorías reconocidas pero no habilitadas.
 
 **CONTROL:** `DORI COPILOTO — CANÓNICO DE DOMINIO v1.3 — ACTIVO`
+
+
+## Decisiones v1.4 — circuito físico
+
+La Consola es la única superficie que crea y parametriza ofertas TEST. El conductor sólo recibe la oferta, observa la recomendación y responde TOMAR o NO TOMAR.
+
+La recepción iOS procesa cada case_id una sola vez; repetir el mismo caso durante el polling se ignora. El DecisionInput efectivo combina los campos visuales obtenidos por Vision/OCR con el contexto DORI autorizado. La UI normal no expone controles técnicos, identificadores, errores de backend ni edición manual de contexto.
+
+Los únicos servicios soportados por el vehículo de laboratorio son UberX y Uber Comfort. Los demás se marcan como servicio no soportado. El cierre requiere evidencia del circuito Consola → píxeles → OCR → motor → recomendación → decisión → Consola.

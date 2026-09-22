@@ -62,8 +62,9 @@ Deno.serve(async (request) => {
       return reply(500, { error: "simulation_backend_error" });
     }
     if (!pending?.input_payload) return reply(404, { error: "case_not_available" });
+    const effectiveInput = record(payload.input) ? payload.input : pending.input_payload;
     let result;
-    try { result = doriCopilot.evaluate(pending.input_payload); } catch { return reply(422, { error: "invalid_simulation_input" }); }
+    try { result = doriCopilot.evaluate(effectiveInput); } catch { return reply(422, { error: "invalid_simulation_input" }); }
     const { data, error } = await admin.rpc("record_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey, p_result_payload: result });
     if (error) return reply(error.code === "22023" ? 422 : 409, { error: error.message });
     return reply(201, { evaluation: { ...data, result_payload: data.result_payload ?? data.result } });

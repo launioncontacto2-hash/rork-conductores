@@ -24,14 +24,9 @@ struct DORICopilotView: View {
                     VStack(spacing: 18) {
                         introduction
                         simulationCard
-                        modeCard
                         if let result = copilot.state.result { resultCard(result) }
                         else if case .failed(let message) = copilot.state { errorCard(message) }
                         offerCard
-                        contextCard
-                        temporalCard
-                        evaluateButton
-                        if let result = copilot.state.result { developmentCard(result) }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -42,7 +37,6 @@ struct DORICopilotView: View {
             .navigationBarTitleDisplayMode(.inline)
             .task { copilot.startSimulationPolling() }
             .onDisappear { copilot.stopSimulationPolling() }
-            .onChange(of: copilot.inputFingerprint) { _, _ in copilot.invalidateResult() }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SessionMenuButton() } }
         }
@@ -110,15 +104,13 @@ struct DORICopilotView: View {
                 Text(offer.readiness).font(.caption.weight(.bold)).foregroundStyle(offer.readiness == "LISTO" ? Palette.volt : Palette.amber)
             }
             if let message = copilot.simulationMessage { Text(message).font(.caption).foregroundStyle(Palette.textMuted) }
-            HStack {
-                Button("Recibir oferta TEST") { Task { await copilot.receiveSimulationCase() } }
-                    .buttonStyle(.borderedProminent).tint(Palette.surfaceRaised)
-                Button("Analizar caso TEST") { Task { await copilot.evaluateSimulation() } }
-                    .buttonStyle(.borderedProminent).tint(Palette.volt)
-                    .disabled(copilot.simulationCaseId == nil || isEvaluating)
-            }
-            if let evaluationID = copilot.simulationEvaluationId {
-                Text("Evaluation ID: \(evaluationID.uuidString)").font(.caption2.monospaced()).foregroundStyle(Palette.textMuted)
+            if copilot.state.result != nil {
+                HStack {
+                    Button("TOMAR") { copilot.confirmDecision(true) }
+                        .buttonStyle(.borderedProminent).tint(Palette.volt)
+                    Button("NO TOMAR") { copilot.confirmDecision(false) }
+                        .buttonStyle(.borderedProminent).tint(Palette.surfaceRaised)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -146,14 +138,9 @@ struct DORICopilotView: View {
     }
 
     private var offerCard: some View {
-        @Bindable var form = copilot
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Oferta").font(.headline)
-            numericField("Tarifa", unit: "$", value: $form.fare)
-            numericField("Minutos para recoger", unit: "min", value: $form.pickupMinutes)
-            numericField("Distancia para recoger", unit: "km", value: $form.pickupKm)
-            numericField("Duración del viaje", unit: "min", value: $form.tripMinutes)
-            numericField("Distancia del viaje", unit: "km", value: $form.tripKm)
+            Text("Oferta recibida").font(.headline)
+            Text("DORI analiza automáticamente tus ofertas.").font(.subheadline).foregroundStyle(Palette.textMuted)
         }
         .padding(16)
         .panelFlat()

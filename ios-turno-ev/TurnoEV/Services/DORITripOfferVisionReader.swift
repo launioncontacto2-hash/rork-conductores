@@ -23,6 +23,11 @@ enum DORITripOfferVisionReader {
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
         let joined = lines.joined(separator: " ")
+            .replacingOccurrences(of: "•", with: "·")
+            .replacingOccurrences(of: "|", with: "·")
+            .replacingOccurrences(of: "—", with: "·")
+            .replacingOccurrences(of: "-", with: "·")
+            .replacingOccurrences(of: "  ", with: " ")
         let product = DORITripOfferParser.normalizeProduct(joined)
         guard product != .unsupported else {
             return DORITripOffer(source: "vision", sourceOfferId: "ocr", product: product,

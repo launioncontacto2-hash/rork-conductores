@@ -113,6 +113,12 @@ enum DORISimulationCopilotService {
     }
 
     struct EvaluationResponse: Decodable, Sendable { let evaluation: Evaluation }
+    private struct EvaluationRequest: Encodable, Sendable {
+        let operation: String
+        let caseId: String
+        let idempotencyKey: String
+        let input: DORIDecisionInput?
+    }
 
     static func nextCase() async throws -> SimulationCase {
         guard let client = SupabaseBridge.client else { throw DORICopilotServiceError.notConfigured }
@@ -123,14 +129,11 @@ enum DORISimulationCopilotService {
         return response.simulationCase
     }
 
-    static func evaluate(caseId: UUID, idempotencyKey: String) async throws -> Evaluation {
+    static func evaluate(caseId: UUID, idempotencyKey: String, input: DORIDecisionInput? = nil) async throws -> Evaluation {
         guard let client = SupabaseBridge.client else { throw DORICopilotServiceError.notConfigured }
         let response: EvaluationResponse = try await client.functions.invoke(
             "dori-copilot-simulation",
-            options: FunctionInvokeOptions(body: [
-                "operation": "evaluate", "caseId": caseId.uuidString,
-                "idempotencyKey": idempotencyKey
-            ])
+            options: FunctionInvokeOptions(body: EvaluationRequest(operation: "evaluate", caseId: caseId.uuidString, idempotencyKey: idempotencyKey, input: input))
         )
         return response.evaluation
     }
