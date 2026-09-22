@@ -8,7 +8,15 @@ struct IncidentView: View {
 
     @State private var kind: IncidentKind = .damage
     @State private var comments: String = ""
-    @State private var photos: [Data?] = [nil, nil, nil]
+    @State private var photos: [Data?] = Array(repeating: nil, count: 6)
+    private let evidenceLabels = [
+        "Foto daño 1",
+        "Foto daño 2",
+        "Frente",
+        "Lateral conductor",
+        "Trasera",
+        "Lateral copiloto"
+    ]
     @State private var errorMessage: String?
     @State private var areDocumentsPresented: Bool = false
     @State private var isSubmitting: Bool = false
@@ -48,9 +56,9 @@ struct IncidentView: View {
 
                         VStack(alignment: .leading, spacing: 8) {
                             CapsLabel(text: "Fotografías")
-                            HStack(spacing: 10) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 10) {
                                 ForEach(photos.indices, id: \.self) { index in
-                                    PhotoSlotView(title: "Foto \(index + 1)", data: photos[index]) { data in
+                                    PhotoSlotView(title: evidenceLabels[index], data: photos[index]) { data in
                                         photos[index] = data
                                     }
                                 }
