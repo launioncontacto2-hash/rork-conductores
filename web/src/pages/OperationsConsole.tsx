@@ -437,12 +437,19 @@ const OperationsConsole = () => {
       const driver = data?.drivers.find((item) => item.id === copilotDriverId);
       if (!driver) throw new Error("Selecciona un conductor TEST activo.");
       const now = new Date();
-      const shiftEnd = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+      // TEST station is America/Mexico_City. Keep all calendar fields and ISO
+      // values derived from one instant so the canonical engine sees one clock.
+      const testOffsetMinutes = 6 * 60;
+      const testNow = new Date(now.getTime() - testOffsetMinutes * 60 * 1000);
+      const localIso = (date: Date) => `${date.toISOString().replace("Z", "")}-06:00`;
+      const marketNow = localIso(testNow);
+      const shiftEnd = new Date(testNow.getTime() + 8 * 60 * 60 * 1000);
+      const weekday = ((testNow.getUTCDay() + 6) % 7) + 1;
       const input = {
-        trip: { fare: Number(copilotFare), pickupMinutes: Number(copilotPickupMinutes), pickupKm: Number(copilotPickupKm), tripMinutes: Number(copilotTripMinutes), tripKm: Number(copilotTripKm), origin: "TEST", destination: "TEST", timestamp: now.toISOString(), service: copilotService },
-        market: { now: now.toISOString(), hour: now.getHours(), weekday: now.getDay() || 7, originZone: "TEST", destinationZone: "TEST", demand: "normal", destinationValue: 85, nextWaitMinutes: 8, repositionKm: 1, repositionMinutes: 3 },
-        vehicle: { vehicleId: "console-test-vehicle", batteryPercent: 80, rangeKm: 200, consumptionKwhPerKm: 0.16, energyCostPerKm: 0.6, distanceToStationKm: 3, destinationToStationKm: 8, requiredReturnAt: shiftEnd.toISOString() },
-        driver: { driverId: driver.profile_id, shiftStart: new Date(now.getTime() - 3600000).toISOString(), shiftEnd: shiftEnd.toISOString(), remainingMinutes: 480, connectedMinutes: 60, accumulatedIncome: 300, completedTrips: 3 },
+        trip: { fare: Number(copilotFare), pickupMinutes: Number(copilotPickupMinutes), pickupKm: Number(copilotPickupKm), tripMinutes: Number(copilotTripMinutes), tripKm: Number(copilotTripKm), origin: "TEST", destination: "TEST", timestamp: marketNow, service: copilotService },
+        market: { now: marketNow, hour: testNow.getUTCHours(), weekday, originZone: "TEST", destinationZone: "TEST", demand: "normal", destinationValue: 85, nextWaitMinutes: 8, repositionKm: 1, repositionMinutes: 3, traffic: null, events: null, weather: null },
+        vehicle: { vehicleId: "console-test-vehicle", batteryPercent: 80, rangeKm: 200, consumptionKwhPerKm: 0.16, energyCostPerKm: 0.6, odometerKm: 20000, distanceToStationKm: 3, destinationToStationKm: 8, requiredReturnAt: localIso(shiftEnd) },
+        driver: { driverId: driver.profile_id, shiftStart: localIso(new Date(testNow.getTime() - 3600000)), shiftEnd: localIso(shiftEnd), remainingMinutes: 480, connectedMinutes: 60, accumulatedIncome: 300, completedTrips: 3 },
         source: "simulated",
       };
       const { data: response, error } = await supabase.functions.invoke("dori-copilot-simulation", { body: { operation: "create", idempotencyKey: `console-${Date.now()}`, testCaseId: `console-${Date.now()}`, driverProfileId: driver.id, input, expected: { recommendation: "RECOMENDADO" }, expiresAt: new Date(now.getTime() + 120000).toISOString() } });

@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { doriCopilot } from "../_shared/dori-copilot-runtime.ts";
 
-const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Content-Type": "application/json" };
+const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers });
 const record = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 
@@ -54,7 +54,7 @@ Deno.serve(async (request) => {
       if (existingError.code === "42501" || existingError.code === "P0002") return reply(403, { error: "case_not_available" });
       return reply(500, { error: "simulation_backend_error" });
     }
-    if (existing) return reply(201, { evaluation: existing });
+    if (existing) return reply(201, { evaluation: { ...existing, result_payload: existing.result } });
     const { data: pending, error: loadError } = await admin.rpc("driver_get_dori_simulation_case", { p_auth_user_id: authUserId, p_case_id: payload.caseId });
     if (loadError) {
       if (loadError.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
@@ -66,7 +66,7 @@ Deno.serve(async (request) => {
     try { result = doriCopilot.evaluate(pending.input_payload); } catch { return reply(422, { error: "invalid_simulation_input" }); }
     const { data, error } = await admin.rpc("record_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey, p_result_payload: result });
     if (error) return reply(error.code === "22023" ? 422 : 409, { error: error.message });
-    return reply(201, { evaluation: data });
+    return reply(201, { evaluation: { ...data, result_payload: data.result } });
   }
   return reply(400, { error: "unsupported_operation" });
 });

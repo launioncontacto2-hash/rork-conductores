@@ -3,6 +3,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { scenario } = require('./copilot-fixtures.cjs');
 const { createSimulationCase, toEngineInput, evaluateSimulation } = require('./copilot-console-simulation-contract.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const makeCase = (expected, overrides = {}) => createSimulationCase({
   testCaseId: overrides.testCaseId ?? 'case-001',
@@ -57,4 +59,12 @@ test('preserva versiones, máximo tres razones y evaluación determinista', () =
 test('caso expirado se rechaza antes de ejecutar el motor', () => {
   const simulation = makeCase('RECOMENDADO', { expiresAt: '2026-09-07T10:00:30-06:00' });
   assert.throws(() => evaluateSimulation(simulation, '2026-09-07T10:00:31-06:00'), /simulation_expired/);
+});
+
+test('contrato remoto expone CORS, estado y result_payload', () => {
+  const edge = fs.readFileSync(path.join(__dirname, '..', 'supabase/functions/dori-copilot-simulation/index.ts'), 'utf8');
+  assert.match(edge, /authorization, x-client-info, apikey, content-type/);
+  assert.match(edge, /result_payload/);
+  const migration = fs.readFileSync(path.join(__dirname, '..', 'supabase/migrations/20260922103000_dori_copilot_simulation_contract.sql'), 'utf8');
+  assert.match(migration, /'status',c\.status/);
 });

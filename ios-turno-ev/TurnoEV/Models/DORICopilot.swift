@@ -54,6 +54,13 @@ nonisolated struct DORITripCandidate: Codable, Equatable, Sendable {
     let origin: String
     let destination: String
     let timestamp: String
+    let service: String?
+
+    init(fare: Double, pickupMinutes: Double, pickupKm: Double, tripMinutes: Double, tripKm: Double, origin: String, destination: String, timestamp: String, service: String? = nil) {
+        self.fare = fare; self.pickupMinutes = pickupMinutes; self.pickupKm = pickupKm
+        self.tripMinutes = tripMinutes; self.tripKm = tripKm; self.origin = origin
+        self.destination = destination; self.timestamp = timestamp; self.service = service
+    }
 }
 
 nonisolated struct DORIMarketContext: Codable, Equatable, Sendable {
@@ -203,7 +210,7 @@ nonisolated enum DORICopilotInputFactory {
             trip: .init(
                 fare: fare, pickupMinutes: pickupMinutes, pickupKm: pickupKm,
                 tripMinutes: tripMinutes, tripKm: tripKm, origin: "Centro",
-                destination: "Zona de oficinas", timestamp: timestamp
+                destination: "Zona de oficinas", timestamp: timestamp, service: nil
             ),
             market: .init(
                 now: timestamp, hour: hour, weekday: isoWeekday, originZone: "Centro",

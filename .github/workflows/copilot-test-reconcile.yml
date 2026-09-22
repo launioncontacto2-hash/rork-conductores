@@ -7,6 +7,8 @@ on:
       - feat/copilot-cross-test-foundation
     paths:
       - "supabase/migrations/20260921170000_dori_copilot_events_reconcile.sql"
+      - "supabase/migrations/20260922103000_dori_copilot_simulation_contract.sql"
+      - "supabase/functions/dori-copilot-simulation/**"
       - ".github/workflows/copilot-test-reconcile.yml"
 
 permissions:

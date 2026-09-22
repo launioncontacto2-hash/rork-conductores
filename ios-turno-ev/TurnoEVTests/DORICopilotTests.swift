@@ -64,6 +64,30 @@ struct DORICopilotContractTests {
         }
     }
 
+    @Test func simulationCaseAndEvaluationResponsesDecodeTheEdgeContract() throws {
+        let caseID = "16000000-0000-4000-8000-000000000010"
+        let input = makeInput(hour: 10, demand: .normal)
+        let inputData = try JSONEncoder().encode(input)
+        let inputObject = try #require(JSONSerialization.jsonObject(with: inputData) as? [String: Any])
+        let caseJSON: [String: Any] = [
+            "case": [
+                "id": caseID, "test_case_id": "console-contract", "status": "pending",
+                "input_payload": inputObject, "expires_at": "2026-09-22T12:00:00-06:00",
+                "contract_version": "1.0.0"
+            ]
+        ]
+        let decodedCase = try JSONDecoder().decode(DORISimulationCopilotService.CaseResponse.self, from: JSONSerialization.data(withJSONObject: caseJSON))
+        #expect(decodedCase.simulationCase.id.uuidString == caseID)
+        #expect(decodedCase.simulationCase.status == "pending")
+        #expect(decodedCase.simulationCase.inputPayload.trip.service == nil)
+        let resultData = try JSONEncoder().encode(try DORILocalCopilotService().evaluate(input))
+        let resultObject = try #require(JSONSerialization.jsonObject(with: resultData) as? [String: Any])
+        let evaluationJSON: [String: Any] = ["evaluation": ["id": caseID, "test_case_id": "console-contract", "actual": "RECOMENDADO", "match": true, "classification": "correct_recommend", "result_payload": resultObject]]
+        let evaluation = try JSONDecoder().decode(DORISimulationCopilotService.EvaluationResponse.self, from: JSONSerialization.data(withJSONObject: evaluationJSON))
+        #expect(evaluation.evaluation.resultPayload.recommendation == .recommended)
+        #expect(evaluation.evaluation.id.uuidString == caseID)
+    }
+
     private func makeInput(hour: Int, demand: DORIDemand) -> DORIDecisionInput {
         DORICopilotInputFactory.make(
             fare: 240, pickupMinutes: 4, pickupKm: 1,

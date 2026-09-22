@@ -40,6 +40,8 @@ struct DORICopilotView: View {
             }
             .navigationTitle("DORI Copiloto")
             .navigationBarTitleDisplayMode(.inline)
+            .task { copilot.startSimulationPolling() }
+            .onDisappear { copilot.stopSimulationPolling() }
             .onChange(of: copilot.inputFingerprint) { _, _ in copilot.invalidateResult() }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SessionMenuButton() } }

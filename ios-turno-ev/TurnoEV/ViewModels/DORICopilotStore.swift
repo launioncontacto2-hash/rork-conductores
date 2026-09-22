@@ -47,6 +47,7 @@ final class DORICopilotStore {
     var destinationValue = 85.0
     var mode: DORICopilotMode = .local
     var state: DORIEvaluationState = .idle
+    private var simulationPollingTask: Task<Void, Never>?
 
     static let demonstrationHours = [5, 7, 10, 14, 18, 22, 1]
 
@@ -92,19 +93,34 @@ final class DORICopilotStore {
         )
     }
 
-    func receiveSimulationCase() async {
+    func startSimulationPolling() {
+        guard simulationPollingTask == nil else { return }
+        simulationPollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.receiveSimulationCase(silent: true)
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    func stopSimulationPolling() {
+        simulationPollingTask?.cancel()
+        simulationPollingTask = nil
+    }
+
+    func receiveSimulationCase(silent: Bool = false) async {
         simulationMessage = nil
         do {
             let simulationCase = try await DORISimulationCopilotService.nextCase()
             simulationCaseId = simulationCase.id
             let input = simulationCase.inputPayload
             let offer = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
-                product: DORITripOfferParser.normalizeProduct(input.trip.origin), offeredEarnings: input.trip.fare,
+                product: DORITripOfferParser.normalizeProduct(input.trip.service ?? input.trip.origin), offeredEarnings: input.trip.fare,
                 currency: "MXN", pickupDistanceKm: input.trip.pickupKm, pickupETAMinutes: input.trip.pickupMinutes,
                 tripDistanceKm: input.trip.tripKm, tripDurationMinutes: input.trip.tripMinutes,
                 riderRating: 5.0, confidence: ["product": 1, "fare": 1, "pickup": 1, "trip": 1, "rating": 1], destinationText: input.trip.destination)
             let visual = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
-                product: .uberX, offeredEarnings: input.trip.fare, currency: "MXN", pickupDistanceKm: input.trip.pickupKm,
+                product: DORITripOfferParser.normalizeProduct(input.trip.service ?? input.trip.origin), offeredEarnings: input.trip.fare, currency: "MXN", pickupDistanceKm: input.trip.pickupKm,
                 pickupETAMinutes: input.trip.pickupMinutes, tripDistanceKm: input.trip.tripKm,
                 tripDurationMinutes: input.trip.tripMinutes, riderRating: 5.0,
                 confidence: ["product": 1, "fare": 1, "pickup": 1, "trip": 1, "rating": 1], destinationText: input.trip.destination)
@@ -116,7 +132,7 @@ final class DORICopilotStore {
             remainingMinutes = input.driver.remainingMinutes; destinationToStationKm = input.vehicle.destinationToStationKm
             destinationValue = input.market.destinationValue
             simulationMessage = "Oferta TEST recibida y leída por Vision/OCR."
-        } catch { simulationMessage = "No hay una oferta TEST disponible." }
+        } catch { if !silent { simulationMessage = "No hay una oferta TEST disponible." } }
     }
 
     func evaluateSimulation() async {
@@ -126,7 +142,7 @@ final class DORICopilotStore {
             let evaluation = try await DORISimulationCopilotService.evaluate(caseId: caseId, idempotencyKey: "ios-\(caseId.uuidString)")
             simulationEvaluationId = evaluation.id
             state = .local(evaluation.resultPayload)
-            simulationMessage = "Evaluación TEST guardada para el mismo caso. ID: (evaluation.id.uuidString)"
+            simulationMessage = "Evaluación TEST guardada para el mismo caso. ID: \(evaluation.id.uuidString)"
         } catch { state = .failed(error.localizedDescription) }
     }
 
