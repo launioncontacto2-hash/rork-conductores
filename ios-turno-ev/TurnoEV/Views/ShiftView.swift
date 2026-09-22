@@ -20,6 +20,7 @@ struct ShiftView: View {
     private enum ShiftRoute: Hashable, Identifiable {
         case start
         case incident
+        case documents
         case finish
 
         var id: Self { self }
@@ -110,6 +111,14 @@ struct ShiftView: View {
                 switch destination {
                 case .start: StartShiftView()
                 case .incident: IncidentView()
+                case .documents:
+                    UnitDocumentsView(
+                        vehicleId: store.displayVehicle?.id,
+                        vehicleLabel: store.displayVehicle.map { "\($0.internalNumber) · \($0.model)" } ?? "Sin unidad asignada",
+                        driverId: store.driver.id,
+                        driverLabel: "\(store.driver.name) · \(store.driver.employeeNumber)",
+                        now: store.now
+                    )
                 case .finish: FinishShiftView()
                 }
             }
@@ -502,6 +511,10 @@ struct ShiftView: View {
         VStack(spacing: 12) {
             actionCard(title: "Reportar incidencia", symbol: "exclamationmark.triangle.fill", tint: Palette.danger) {
                 route = .incident
+            }
+
+            actionCard(title: "Documentos de la unidad", symbol: "doc.text.fill", tint: Palette.info) {
+                route = .documents
             }
 
             Text("Kilómetros, batería, viajes e ingresos del turno se siguen en Metas. Puedes iniciar y finalizar varias veces dentro de tu jornada.")
