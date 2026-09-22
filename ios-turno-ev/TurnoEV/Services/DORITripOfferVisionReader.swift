@@ -50,7 +50,7 @@ enum DORITripOfferVisionReader {
                              pickupETAMinutes: pickupParts.first.flatMap(DORITripOfferParser.parseNumber),
                              tripDistanceKm: tripParts.dropFirst().first.flatMap(DORITripOfferParser.parseNumber),
                              tripDurationMinutes: tripParts.first.flatMap(DORITripOfferParser.parseNumber),
-                             riderRating: rating.flatMap(DORITripOfferParser.parseNumber),
+                             riderRating: rating.flatMap { DORITripOfferParser.parseNumber($0) },
                              confidence: confidence, destinationText: nil)
     }
 
