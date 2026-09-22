@@ -236,6 +236,16 @@ const OperationsConsole = () => {
   const [isEvidenceLoading, setIsEvidenceLoading] = useState(false);
   const [vehicleColor, setVehicleColor] = useState("");
   const [vehicleNote, setVehicleNote] = useState("");
+  const [copilotDriverId, setCopilotDriverId] = useState("");
+  const [copilotFare, setCopilotFare] = useState("240");
+  const [copilotPickupMinutes, setCopilotPickupMinutes] = useState("4");
+  const [copilotPickupKm, setCopilotPickupKm] = useState("1.2");
+  const [copilotTripMinutes, setCopilotTripMinutes] = useState("35");
+  const [copilotTripKm, setCopilotTripKm] = useState("18");
+  const [copilotService, setCopilotService] = useState<"UberX" | "Uber Comfort">("UberX");
+  const [copilotResult, setCopilotResult] = useState<Record<string, unknown> | null>(null);
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+  const [copilotLoading, setCopilotLoading] = useState(false);
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -420,6 +430,28 @@ const OperationsConsole = () => {
 
   if (!identity) return null;
 
+  const createCopilotCase = async () => {
+    if (!supabase || !identity || !copilotDriverId) return;
+    setCopilotLoading(true); setCopilotError(null);
+    try {
+      const driver = data?.drivers.find((item) => item.id === copilotDriverId);
+      if (!driver) throw new Error("Selecciona un conductor TEST activo.");
+      const now = new Date();
+      const shiftEnd = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+      const input = {
+        trip: { fare: Number(copilotFare), pickupMinutes: Number(copilotPickupMinutes), pickupKm: Number(copilotPickupKm), tripMinutes: Number(copilotTripMinutes), tripKm: Number(copilotTripKm), origin: "TEST", destination: "TEST", timestamp: now.toISOString(), service: copilotService },
+        market: { now: now.toISOString(), hour: now.getHours(), weekday: now.getDay() || 7, originZone: "TEST", destinationZone: "TEST", demand: "normal", destinationValue: 85, nextWaitMinutes: 8, repositionKm: 1, repositionMinutes: 3 },
+        vehicle: { vehicleId: "console-test-vehicle", batteryPercent: 80, rangeKm: 200, consumptionKwhPerKm: 0.16, energyCostPerKm: 0.6, distanceToStationKm: 3, destinationToStationKm: 8, requiredReturnAt: shiftEnd.toISOString() },
+        driver: { driverId: driver.profile_id, shiftStart: new Date(now.getTime() - 3600000).toISOString(), shiftEnd: shiftEnd.toISOString(), remainingMinutes: 480, connectedMinutes: 60, accumulatedIncome: 300, completedTrips: 3 },
+        source: "simulated",
+      };
+      const { data: response, error } = await supabase.functions.invoke("dori-copilot-simulation", { body: { operation: "create", idempotencyKey: `console-${Date.now()}`, testCaseId: `console-${Date.now()}`, driverProfileId: driver.id, input, expected: { recommendation: "RECOMENDADO" }, expiresAt: new Date(now.getTime() + 120000).toISOString() } });
+      if (error) throw error;
+      setCopilotResult(response as Record<string, unknown>);
+    } catch (error) { setCopilotError(error instanceof Error ? error.message : "No se pudo crear el caso TEST."); }
+    finally { setCopilotLoading(false); }
+  };
+
   const cards = [
     { label: "Turnos activos", value: data?.live?.active_shifts ?? "—", icon: Activity, tone: "text-primary" },
     { label: "Conductores presentes", value: data?.live?.present_drivers ?? "—", icon: Users, tone: "text-cyan-300" },
@@ -471,6 +503,7 @@ const OperationsConsole = () => {
         <nav className="panel flex gap-2 overflow-x-auto p-2" aria-label="Secciones de Consola DORI">
           {[
             ["#operacion", "Operación"],
+            ["#copiloto", "Copiloto TEST"],
             ["#asignaciones", "Asignaciones"],
             ["#flota", "Flota"],
             ["#incidencias", "Incidencias y taller"],
@@ -483,6 +516,20 @@ const OperationsConsole = () => {
             </a>
           ))}
         </nav>
+
+        <Card id="copiloto" className="panel scroll-mt-4 border-primary/30">
+          <CardHeader><CardTitle className="text-lg">DORI Copiloto · laboratorio TEST</CardTitle><CardDescription>Crea casos simulados para comparar EXPECTED contra ACTUAL. No modifica turnos ni eventos live.</CardDescription></CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="grid gap-2 text-sm font-semibold">Conductor TEST<select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={copilotDriverId} onChange={(event) => setCopilotDriverId(event.target.value)}><option value="">Seleccionar</option>{data?.drivers.filter((driver) => driver.status === "active").map((driver) => <option key={driver.id} value={driver.id}>{driver.employee_number}</option>)}</select></label>
+              <label className="grid gap-2 text-sm font-semibold">Servicio<select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={copilotService} onChange={(event) => setCopilotService(event.target.value as "UberX" | "Uber Comfort")}><option>UberX</option><option>Uber Comfort</option></select></label>
+              {[["Tarifa", copilotFare, setCopilotFare], ["Recogida (min)", copilotPickupMinutes, setCopilotPickupMinutes], ["Recogida (km)", copilotPickupKm, setCopilotPickupKm], ["Viaje (min)", copilotTripMinutes, setCopilotTripMinutes], ["Viaje (km)", copilotTripKm, setCopilotTripKm]].map(([label, value, setter]) => <label key={label as string} className="grid gap-2 text-sm font-semibold">{label as string}<input type="number" step="any" className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={value as string} onChange={(event) => (setter as (v: string) => void)(event.target.value)} /></label>)}
+            </div>
+            <div className="flex flex-wrap items-center gap-3"><Button onClick={() => void createCopilotCase()} disabled={copilotLoading || !copilotDriverId}>{copilotLoading ? "Evaluando…" : "Crear caso Copiloto TEST"}</Button><Badge variant="outline">Resultado local/TEST</Badge></div>
+            {copilotError && <p className="text-sm text-destructive">{copilotError}</p>}
+            {copilotResult && <div className="grid gap-3 rounded-xl border border-border bg-muted/20 p-4 text-sm"><div className="flex flex-wrap gap-2"><Badge>Estado: {String((copilotResult.case as Record<string, unknown> | undefined)?.status ?? copilotResult.status ?? "pending")}</Badge><Badge variant="outline">Caso: {String((copilotResult.case as Record<string, unknown> | undefined)?.id ?? copilotResult.id ?? "—")}</Badge></div><p><strong>EXPECTED:</strong> {JSON.stringify(copilotResult.expected ?? { recommendation: "RECOMENDADO" })}</p><p><strong>ACTUAL:</strong> pendiente de evaluación del conductor</p><p><strong>Clasificación:</strong> pendiente · <strong>Auditabilidad:</strong> idempotencia y evaluation_id del backend TEST</p></div>}
+          </CardContent>
+        </Card>
 
         <section id="operacion" className="scroll-mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map(({ label, value, icon: Icon, tone }) => (

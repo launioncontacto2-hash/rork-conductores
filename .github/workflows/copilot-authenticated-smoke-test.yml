@@ -19,11 +19,16 @@ jobs:
     timeout-minutes: 15
     env:
       SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_TEST }}
       SUPABASE_PUBLISHABLE_KEY: sb_publishable_kNOz-Pfffc7kY-615uPM1A_Kb1FkL85
-      CONSOLE_USER_ID: 186358c4-cfc5-4ccf-9e68-7da154a4c836
-      DRIVER_USER_ID: ffbd204a-2124-4d93-b674-16f09a018c16
-      SUPERVISOR_USER_ID: ae41a630-1eb1-4296-bb47-ae34b65a27d1
+      CONSOLE_USER_ID: ${{ secrets.COPILOT_SMOKE_CONSOLE_USER_ID }}
+      DRIVER_USER_ID: ${{ secrets.COPILOT_SMOKE_DRIVER_USER_ID }}
+      SUPERVISOR_USER_ID: ${{ secrets.COPILOT_SMOKE_SUPERVISOR_USER_ID }}
+      CONSOLE_PASSWORD: ${{ secrets.COPILOT_SMOKE_CONSOLE_PASSWORD }}
+      DRIVER_PASSWORD: ${{ secrets.COPILOT_SMOKE_DRIVER_PASSWORD }}
+      SUPERVISOR_PASSWORD: ${{ secrets.COPILOT_SMOKE_SUPERVISOR_PASSWORD }}
+      COPILOT_SMOKE_CONSOLE_EMAIL: ${{ secrets.COPILOT_SMOKE_CONSOLE_EMAIL }}
+      COPILOT_SMOKE_DRIVER_EMAIL: ${{ secrets.COPILOT_SMOKE_DRIVER_EMAIL }}
+      COPILOT_SMOKE_SUPERVISOR_EMAIL: ${{ secrets.COPILOT_SMOKE_SUPERVISOR_EMAIL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +40,6 @@ jobs:
           grep -q '^\*\*Versión:\*\* 1.3' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
           missing=()
-          [[ -n "$SUPABASE_SERVICE_ROLE_KEY" ]] || missing+=(SUPABASE_SERVICE_ROLE_KEY_TEST)
           [[ "$SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || missing+=(TEST_SUPABASE_PUBLISHABLE_KEY)
           if ((${#missing[@]})); then
             echo "Required GitHub secrets unavailable: ${missing[*]}" >&2
@@ -45,38 +49,29 @@ jobs:
       - name: Install isolated smoke dependency
         run: npm install --no-save --no-package-lock @supabase/supabase-js@2.115.0
 
-      - name: Rotate TEST passwords and run authenticated smoke
+      - name: Run authenticated smoke with isolated automation identities
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const { createClient } = require('@supabase/supabase-js');
-          const crypto = require('node:crypto');
 
           const url = process.env.SUPABASE_URL;
-          const admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
           const anon = process.env.SUPABASE_PUBLISHABLE_KEY;
           const users = {
-            console: [process.env.CONSOLE_USER_ID, 'consola@dori.mx'],
-            driver: [process.env.DRIVER_USER_ID, 'jorge.ramos@dori.mx'],
-            supervisor: [process.env.SUPERVISOR_USER_ID, 'supervision.pue@dori.mx'],
+            console: [process.env.CONSOLE_USER_ID, process.env.COPILOT_SMOKE_CONSOLE_EMAIL],
+            driver: [process.env.DRIVER_USER_ID, process.env.COPILOT_SMOKE_DRIVER_EMAIL],
+            supervisor: [process.env.SUPERVISOR_USER_ID, process.env.COPILOT_SMOKE_SUPERVISOR_EMAIL],
           };
-          const passwords = {};
+          const passwords = { console: process.env.CONSOLE_PASSWORD, driver: process.env.DRIVER_PASSWORD, supervisor: process.env.SUPERVISOR_PASSWORD };
           const clients = {};
-          const pass = (label) => {
-            const value = `DoriTest-${label}-${crypto.randomBytes(24).toString('base64url')}`;
-            process.stdout.write(`::add-mask::${value}\n`);
-            return value;
-          };
           const assert = (name, condition, detail = '') => {
             if (!condition) throw new Error(`${name}: ${detail}`);
             console.log(`PASS ${name}`);
           };
           async function login(name) {
             const [id, email] = users[name];
-            passwords[name] = pass(name);
-            const changed = await admin.auth.admin.updateUserById(id, { password: passwords[name] });
-            assert(`password rotation ${name}`, !changed.error, changed.error?.message || 'admin update failed');
+            assert(`automation credential ${name}`, !!id && !!email && !!passwords[name], 'missing isolated smoke identity secret');
             const client = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
             const { data, error } = await client.auth.signInWithPassword({ email, password: passwords[name] });
             assert(`login ${name}`, !error && !!data.session?.access_token, error?.message || 'no session');
