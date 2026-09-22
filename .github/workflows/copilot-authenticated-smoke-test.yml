@@ -107,12 +107,11 @@ jobs:
             await login('driverB');
             await login('supervisor');
 
-            const driverProfiles = await rest(clients.console.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status,employee_number');
-            const driverProfile = driverProfiles.find((x) => x.id === identities.driver.driverProfileId);
-            const profiles = await rest(clients.driver.client, 'profiles', 'id,environment_id,status');
-            const profile = profiles.find((x) => x.id === identities.driver.profileId);
+            const { data: driverProfile, error: driverProfileError } = await clients.driver.client.from('driver_profiles').select('id,profile_id,station_id,environment_id,status,employee_number').eq('id', identities.driver.driverProfileId).maybeSingle();
+            const { data: profile, error: profileError } = await clients.driver.client.from('profiles').select('id,environment_id,status').eq('id', identities.driver.profileId).maybeSingle();
+            if (driverProfileError || profileError) console.log(`identity query diagnostics: driver=${driverProfileError?.message || 'ok'}, profile=${profileError?.message || 'ok'}`);
             if (!driverProfile || !profile || driverProfile.profile_id !== profile.id) {
-              console.log(`identity diagnostics: profiles=${profiles.length}, driverProfiles=${driverProfiles.length}, profileId=${profile?.id || 'none'}, driverProfileLink=${driverProfile?.profile_id || 'none'}`);
+              console.log(`identity diagnostics: profileId=${profile?.id || 'none'}, driverProfileLink=${driverProfile?.profile_id || 'none'}`);
             }
             assert('driver identity scope', !!driverProfile && !!profile && driverProfile.profile_id === profile.id);
 
