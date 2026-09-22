@@ -14,8 +14,7 @@ enum DORITripOfferVisionReader {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        let observations: [VNRecognizedTextObservation] =
-            (request.results as? [VNRecognizedTextObservation]) ?? []
+        let observations: [VNRecognizedTextObservation] = request.results ?? []
         let lines: [String] = observations.compactMap { observation in
             observation.topCandidates(1).first?.string
         }
@@ -50,7 +49,7 @@ enum DORITripOfferVisionReader {
                              pickupETAMinutes: pickupParts.first.flatMap(DORITripOfferParser.parseNumber),
                              tripDistanceKm: tripParts.dropFirst().first.flatMap(DORITripOfferParser.parseNumber),
                              tripDurationMinutes: tripParts.first.flatMap(DORITripOfferParser.parseNumber),
-                             riderRating: rating.flatMap { DORITripOfferParser.parseNumber($0) },
+                             riderRating: rating,
                              confidence: confidence, destinationText: nil)
     }
 
