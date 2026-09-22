@@ -509,7 +509,7 @@ struct ShiftView: View {
 
     private var quickActions: some View {
         VStack(spacing: 12) {
-            actionCard(title: "Reportar incidencia", symbol: "exclamationmark.triangle.fill", tint: Palette.danger) {
+            actionCard(title: "Reportar accidente o incidencia", symbol: "exclamationmark.triangle.fill", tint: Palette.danger) {
                 route = .incident
             }
 
