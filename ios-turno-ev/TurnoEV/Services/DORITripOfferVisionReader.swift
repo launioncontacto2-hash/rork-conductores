@@ -30,7 +30,7 @@ enum DORITripOfferVisionReader {
                                   pickupETAMinutes: nil, tripDistanceKm: nil, tripDurationMinutes: nil,
                                   riderRating: nil, confidence: ["product": 0.95], destinationText: nil)
         }
-        let fare = value(after: "$", in: joined)
+        let fare = lines.first(where: { $0.contains("$") }).flatMap(DORITripOfferParser.parseNumber)
         let pickup = segment(after: "recogida:", before: "viaje:", in: joined)
         let trip = segment(after: "viaje:", before: "rating:", in: joined)
         let rating = value(after: "rating:", in: joined)
