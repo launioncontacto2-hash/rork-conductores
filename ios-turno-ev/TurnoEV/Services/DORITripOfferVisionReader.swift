@@ -14,8 +14,10 @@ enum DORITripOfferVisionReader {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        let observations = request.results as? [VNRecognizedTextObservation] ?? []
-        let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+        let observations: [VNRecognizedTextObservation] = request.results ?? []
+        let lines: [String] = observations.compactMap { observation in
+            observation.topCandidates(1).first?.string
+        }
         completion(parse(lines))
     }
 
@@ -59,7 +61,9 @@ enum DORITripOfferVisionReader {
     private static func segment(after marker: String, before next: String, in text: String) -> String? {
         guard let start = text.lowercased().range(of: marker) else { return nil }
         let tail = text[start.upperBound...]
-        let end = tail.lowercased().range(of: next).map { tail[..<$0.lowerBound] } ?? tail[...]
-        return String(end)
+        if let endRange = tail.lowercased().range(of: next) {
+            return String(tail[..<endRange.lowerBound])
+        }
+        return String(tail)
     }
 }
