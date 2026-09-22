@@ -24,6 +24,8 @@ jobs:
       VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_kNOz-Pfffc7kY-615uPM1A_Kb1FkL85
       VITE_DORI_CONSOLE_SOURCE_BRANCH: feat/copilot-cross-test-foundation
       VITE_DORI_CONSOLE_SOURCE_SHA: ${{ github.sha }}
+      # Keep the deployed TEST artifact traceable to the Copiloto bridge commit.
+      VITE_DORI_COPILOT_BRIDGE_SHA: ${{ github.sha }}
       VITE_DORI_CONSOLE_DEPLOYMENT_URL: ${{ secrets.DORI_CONSOLE_TEST_URL }}
     steps:
       - uses: actions/checkout@v4
