@@ -20,7 +20,8 @@ jobs:
         working-directory: web
     env:
       VITE_SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+      # Publishable key is intentionally public client configuration for TEST.
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_kNOz-Pfffc7kY-615uPM1A_Kb1FkL85
       VITE_DORI_CONSOLE_SOURCE_BRANCH: feat/copilot-cross-test-foundation
       VITE_DORI_CONSOLE_SOURCE_SHA: ${{ github.sha }}
       VITE_DORI_CONSOLE_DEPLOYMENT_URL: ${{ secrets.DORI_CONSOLE_TEST_URL }}
