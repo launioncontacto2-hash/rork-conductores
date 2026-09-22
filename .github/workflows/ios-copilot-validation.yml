@@ -219,6 +219,24 @@ jobs:
 
       - name: Upload diagnostics on failure
         if: failure()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "## iOS test result summary"
+            if [[ -d TestResults/TurnoEVTests.xcresult ]]; then
+              xcrun xcresulttool get test-results summary --path TestResults/TurnoEVTests.xcresult
+            fi
+            echo "## Simulator crash excerpt"
+            if [[ -n "${SIMULATOR_UDID:-}" ]]; then
+              xcrun simctl spawn "$SIMULATOR_UDID" log show --last 10m --style compact \
+                --predicate 'eventMessage CONTAINS[c] "Fatal error" OR eventMessage CONTAINS[c] "crashed"' \
+                | tail -n 120
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostics artifact
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: ios-copilot-validation-diagnostics
