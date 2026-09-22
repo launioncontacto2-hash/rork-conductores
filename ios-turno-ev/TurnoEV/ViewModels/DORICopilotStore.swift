@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 
 enum DORICopilotMode: String, CaseIterable, Hashable, Identifiable {
     case local
@@ -27,6 +28,11 @@ enum DORIEvaluationState: Equatable {
 
 @Observable
 final class DORICopilotStore {
+    var simulationCaseId: UUID?
+    var simulationOffer: DORITripOffer?
+    var simulationOfferImage: UIImage?
+    var simulationEvaluationId: UUID?
+    var simulationMessage: String?
     var fare = 240.0
     var pickupMinutes = 4.0
     var pickupKm = 1.0
@@ -84,5 +90,49 @@ final class DORICopilotStore {
             destinationValue: destinationValue, driverId: driverId,
             source: mode == .local ? .simulated : .manual
         )
+    }
+
+    func receiveSimulationCase() async {
+        simulationMessage = nil
+        do {
+            let simulationCase = try await DORISimulationCopilotService.nextCase()
+            simulationCaseId = simulationCase.id
+            let input = simulationCase.inputPayload
+            let offer = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
+                product: DORITripOfferParser.normalizeProduct(input.trip.origin), offeredEarnings: input.trip.fare,
+                currency: "MXN", pickupDistanceKm: input.trip.pickupKm, pickupETAMinutes: input.trip.pickupMinutes,
+                tripDistanceKm: input.trip.tripKm, tripDurationMinutes: input.trip.tripMinutes,
+                riderRating: 5.0, confidence: ["product": 1, "fare": 1, "pickup": 1, "trip": 1, "rating": 1], destinationText: input.trip.destination)
+            let visual = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
+                product: .uberX, offeredEarnings: input.trip.fare, currency: "MXN", pickupDistanceKm: input.trip.pickupKm,
+                pickupETAMinutes: input.trip.pickupMinutes, tripDistanceKm: input.trip.tripKm,
+                tripDurationMinutes: input.trip.tripMinutes, riderRating: 5.0,
+                confidence: ["product": 1, "fare": 1, "pickup": 1, "trip": 1, "rating": 1], destinationText: input.trip.destination)
+            simulationOfferImage = DORITripOfferRenderer.render(visual)
+            simulationOffer = try await readVisual(simulationOfferImage!) ?? offer
+            fare = input.trip.fare; pickupMinutes = input.trip.pickupMinutes; pickupKm = input.trip.pickupKm
+            tripMinutes = input.trip.tripMinutes; tripKm = input.trip.tripKm; hour = input.market.hour
+            demand = input.market.demand; batteryPercent = input.vehicle.batteryPercent; rangeKm = input.vehicle.rangeKm
+            remainingMinutes = input.driver.remainingMinutes; destinationToStationKm = input.vehicle.destinationToStationKm
+            destinationValue = input.market.destinationValue
+            simulationMessage = "Oferta TEST recibida y leída por Vision/OCR."
+        } catch { simulationMessage = "No hay una oferta TEST disponible." }
+    }
+
+    func evaluateSimulation() async {
+        guard let caseId = simulationCaseId else { simulationMessage = "Recibe primero una oferta TEST."; return }
+        state = .evaluating
+        do {
+            let evaluation = try await DORISimulationCopilotService.evaluate(caseId: caseId, idempotencyKey: "ios-\(caseId.uuidString)")
+            simulationEvaluationId = evaluation.id
+            state = .local(evaluation.resultPayload)
+            simulationMessage = "Evaluación TEST guardada para el mismo caso. ID: (evaluation.id.uuidString)"
+        } catch { state = .failed(error.localizedDescription) }
+    }
+
+    private func readVisual(_ image: UIImage) async throws -> DORITripOffer? {
+        await withCheckedContinuation { continuation in
+            DORITripOfferVisionReader.read(image) { continuation.resume(returning: $0) }
+        }
     }
 }

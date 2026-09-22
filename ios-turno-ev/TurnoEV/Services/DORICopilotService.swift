@@ -88,3 +88,50 @@ enum DORIRemoteCopilotService {
         return response.event
     }
 }
+
+/// TEST-only transport for cases created by the DORI Console laboratory.
+/// It is deliberately separate from the live decision-event transport above.
+@MainActor
+enum DORISimulationCopilotService {
+    struct SimulationCase: Decodable, Sendable {
+        let id: UUID
+        let testCaseId: String
+        let status: String
+        let inputPayload: DORIDecisionInput
+
+        private enum CodingKeys: String, CodingKey { case id, testCaseId = "test_case_id", status, inputPayload = "input_payload" }
+    }
+
+    struct CaseResponse: Decodable, Sendable { let simulationCase: SimulationCase
+        private enum CodingKeys: String, CodingKey { case simulationCase = "case" }
+    }
+
+    struct Evaluation: Decodable, Sendable {
+        let id: UUID
+        let resultPayload: DORIDecisionResult
+        private enum CodingKeys: String, CodingKey { case id, resultPayload = "result_payload" }
+    }
+
+    struct EvaluationResponse: Decodable, Sendable { let evaluation: Evaluation }
+
+    static func nextCase() async throws -> SimulationCase {
+        guard let client = SupabaseBridge.client else { throw DORICopilotServiceError.notConfigured }
+        let response: CaseResponse = try await client.functions.invoke(
+            "dori-copilot-simulation",
+            options: FunctionInvokeOptions(body: ["operation": "next"])
+        )
+        return response.simulationCase
+    }
+
+    static func evaluate(caseId: UUID, idempotencyKey: String) async throws -> Evaluation {
+        guard let client = SupabaseBridge.client else { throw DORICopilotServiceError.notConfigured }
+        let response: EvaluationResponse = try await client.functions.invoke(
+            "dori-copilot-simulation",
+            options: FunctionInvokeOptions(body: [
+                "operation": "evaluate", "caseId": caseId.uuidString,
+                "idempotencyKey": idempotencyKey
+            ])
+        )
+        return response.evaluation
+    }
+}

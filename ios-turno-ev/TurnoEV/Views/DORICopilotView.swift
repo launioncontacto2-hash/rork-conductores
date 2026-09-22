@@ -23,6 +23,7 @@ struct DORICopilotView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         introduction
+                        simulationCard
                         modeCard
                         if let result = copilot.state.result { resultCard(result) }
                         else if case .failed(let message) = copilot.state { errorCard(message) }
@@ -86,6 +87,36 @@ struct DORICopilotView: View {
                 Label("Decisión guardada", systemImage: "checkmark.icloud.fill")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(Palette.volt)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panelFlat()
+    }
+
+    private var simulationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Oferta TEST de Consola", systemImage: "qrcode.viewfinder")
+                .font(.headline)
+            Text("Recibe el caso asignado, muéstralo como oferta y pásalo por Vision/OCR. No se copian números manualmente.")
+                .font(.caption)
+                .foregroundStyle(Palette.textMuted)
+            if let image = copilot.simulationOfferImage {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 250).clipShape(.rect(cornerRadius: 16))
+            }
+            if let offer = copilot.simulationOffer {
+                Text(offer.readiness).font(.caption.weight(.bold)).foregroundStyle(offer.readiness == "LISTO" ? Palette.volt : Palette.amber)
+            }
+            if let message = copilot.simulationMessage { Text(message).font(.caption).foregroundStyle(Palette.textMuted) }
+            HStack {
+                Button("Recibir oferta TEST") { Task { await copilot.receiveSimulationCase() } }
+                    .buttonStyle(.borderedProminent).tint(Palette.surfaceRaised)
+                Button("Analizar caso TEST") { Task { await copilot.evaluateSimulation() } }
+                    .buttonStyle(.borderedProminent).tint(Palette.volt)
+                    .disabled(copilot.simulationCaseId == nil || isEvaluating)
+            }
+            if let evaluationID = copilot.simulationEvaluationId {
+                Text("Evaluation ID: (evaluationID.uuidString)").font(.caption2.monospaced()).foregroundStyle(Palette.textMuted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
