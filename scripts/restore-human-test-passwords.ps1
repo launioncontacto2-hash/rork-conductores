@@ -33,8 +33,16 @@ function Push-RestoreTrigger {
   $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("restore-request=$marker`n"))
   $body = @{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch } | ConvertTo-Json -Compress
   $existing = $null
-  $existingJson = gh api "repos/$repo/contents/$triggerPath?ref=$branch" 2>$null
-  if ($LASTEXITCODE -eq 0 -and $existingJson) { $existing = $existingJson | ConvertFrom-Json }
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $existingJson = gh api "repos/$repo/contents/$triggerPath?ref=$branch" 2>$null
+    $existingExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  if ($existingExitCode -eq 0 -and $existingJson) { $existing = $existingJson | ConvertFrom-Json }
+  elseif ($existingExitCode -ne 1) { throw "Falló la consulta del trigger con código $existingExitCode." }
   if ($existing -and $existing.sha) { $body = (@{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch; sha = $existing.sha } | ConvertTo-Json -Compress) }
   $result = $body | gh api "repos/$repo/contents/$triggerPath" --method PUT --input - | ConvertFrom-Json
   if ($LASTEXITCODE -ne 0 -or -not $result.commit.sha) { throw 'No se pudo activar el workflow mediante push controlado.' }
