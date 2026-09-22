@@ -32,4 +32,19 @@ struct DORITripOfferContractTests {
         #expect(first != nil)
         #expect(first == second)
     }
+
+    @Test func visionTextParserBuildsCanonicalOfferWithoutSourceJson() {
+        let offer = DORITripOfferVisionReader.parse([
+            "UberX", "$206.21 MXN", "Recogida: 4 min · 1.20 km",
+            "Viaje: 35 min · 18.00 km", "Rating: 4.96"
+        ])
+        #expect(offer?.product == .uberX)
+        #expect(offer?.offeredEarnings == 206.21)
+        #expect(offer?.pickupETAMinutes == 4)
+        #expect(offer?.pickupDistanceKm == 1.2)
+        #expect(offer?.tripDurationMinutes == 35)
+        #expect(offer?.tripDistanceKm == 18)
+        #expect(offer?.riderRating == 4.96)
+        #expect(offer?.readiness == "LISTO")
+    }
 }
