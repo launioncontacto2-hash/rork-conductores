@@ -26,7 +26,10 @@ function Set-GitHubSecret([string]$name, [string]$value) {
 }
 
 function Push-RestoreTrigger {
-  $marker = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24))
+  $bytes = New-Object byte[] 24
+  $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+  $marker = [Convert]::ToBase64String($bytes)
   $content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("restore-request=$marker`n"))
   $body = @{ message = 'chore(copilot): trigger TEST credential restoration'; content = $content; branch = $branch } | ConvertTo-Json -Compress
   $existing = gh api "repos/$repo/contents/$triggerPath?ref=$branch" 2>$null | ConvertFrom-Json
