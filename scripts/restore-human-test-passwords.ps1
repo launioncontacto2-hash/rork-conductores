@@ -47,7 +47,7 @@ try {
   $runId = $null
   for ($attempt = 0; $attempt -lt 30 -and -not $runId; $attempt++) {
     Start-Sleep -Seconds 2
-    $runs = gh run list --repo $repo --workflow $workflow --branch $branch --limit 10 --json databaseId,status,headBranch,headSha,event | ConvertFrom-Json
+    $runs = gh run list --repo $repo --branch $branch --limit 20 --json databaseId,status,headBranch,headSha,event | ConvertFrom-Json
     $runId = ($runs | Where-Object { $_.headBranch -eq $branch -and $_.headSha -eq $triggerSha -and $_.event -eq 'push' } | Select-Object -First 1).databaseId
   }
   if (-not $runId) { throw 'No se pudo localizar el run de restauración.' }
@@ -55,7 +55,17 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "El workflow de restauración terminó con error (run $runId)." }
   Write-Output 'PASS: credenciales TEST actualizadas mediante workflow administrativo.'
 } finally {
-  foreach ($name in $secretNames) { gh secret delete $name --repo $repo --confirm *> $null }
+  $cleanupFailures = @()
+  foreach ($name in $secretNames) {
+    $deleted = $false
+    for ($attempt = 0; $attempt -lt 3 -and -not $deleted; $attempt++) {
+      gh secret delete $name --repo $repo *> $null
+      if ($LASTEXITCODE -eq 0) { $deleted = $true; break }
+      Start-Sleep -Seconds 2
+    }
+    if (-not $deleted) { $cleanupFailures += $name }
+  }
   foreach ($name in @($passwords.Keys)) { $passwords[$name] = $null }
   $passwords.Clear()
+  if ($cleanupFailures.Count -gt 0) { throw "No se pudieron eliminar secretos temporales: $($cleanupFailures -join ', ')" }
 }
