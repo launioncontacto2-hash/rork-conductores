@@ -88,6 +88,20 @@ struct DORICopilotContractTests {
         #expect(evaluation.evaluation.id.uuidString == caseID)
     }
 
+    @Test func effectiveInputUsesObservedFareInsteadOfOriginalCasePayload() throws {
+        let original = makeInput(hour: 10, demand: .normal)
+        #expect(original.trip.fare == 240)
+        let observed = DORITripOffer(source: "ocr", sourceOfferId: "offer-125", product: .uberX,
+                                     offeredEarnings: 125, currency: "MXN", pickupDistanceKm: 1,
+                                     pickupETAMinutes: 4, tripDistanceKm: 10, tripDurationMinutes: 22,
+                                     riderRating: 5, confidence: ["fare": 1, "pickup": 1, "trip": 1],
+                                     destinationText: nil)
+        let effective = original.withObservedOffer(observed)
+        #expect(effective.trip.fare == 125)
+        #expect(effective.market.hour == original.market.hour)
+        #expect(effective.vehicle.batteryPercent == original.vehicle.batteryPercent)
+    }
+
     private func makeInput(hour: Int, demand: DORIDemand) -> DORIDecisionInput {
         DORICopilotInputFactory.make(
             fare: 240, pickupMinutes: 4, pickupKm: 1,

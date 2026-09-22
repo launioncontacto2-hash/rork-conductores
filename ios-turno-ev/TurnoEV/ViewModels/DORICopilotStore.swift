@@ -163,7 +163,9 @@ final class DORICopilotStore {
     }
 }
 
-private extension DORIDecisionInput {
+extension DORIDecisionInput {
+    /// Builds the engine input from OCR-observed offer fields and retained DORI context.
+    /// The source case payload is used only for non-visual context.
     func withObservedOffer(_ offer: DORITripOffer) -> DORIDecisionInput {
         DORIDecisionInput(
             trip: .init(fare: offer.offeredEarnings ?? trip.fare, pickupMinutes: offer.pickupETAMinutes ?? trip.pickupMinutes,

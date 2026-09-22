@@ -47,4 +47,18 @@ struct DORITripOfferContractTests {
         #expect(offer?.riderRating == 4.96)
         #expect(offer?.readiness == "LISTO")
     }
+
+    @Test func visionTextParserAcceptsSeparatorVariants() {
+        for separator in ["·", "•", "-", "|", "   "] {
+            let offer = DORITripOfferVisionReader.parse([
+                "Uber Comfort", "$125.00 MXN", "Recogida: 7 min \(separator) 3.00 km",
+                "Viaje: 35 min \(separator) 18.00 km", "Rating: 5.00"
+            ])
+            #expect(offer?.product == .uberComfort)
+            #expect(offer?.offeredEarnings == 125)
+            #expect(offer?.pickupDistanceKm == 3)
+            #expect(offer?.tripDistanceKm == 18)
+            #expect(offer?.readiness == "LISTO")
+        }
+    }
 }
