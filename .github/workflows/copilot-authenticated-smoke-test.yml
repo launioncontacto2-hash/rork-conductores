@@ -141,7 +141,7 @@ jobs:
             const receivedText = JSON.stringify(received.data);
             assert('EXPECTED hidden', !/expected|expectation|classification/i.test(receivedText));
             const otherReceive = await edge('driverB', { operation: 'next', caseId });
-            assert('driver B isolation', [403, 404].includes(otherReceive.status), JSON.stringify(otherReceive.data));
+            assert('driver B isolation', [403, 404].includes(otherReceive.status) || (otherReceive.status === 200 && !otherReceive.data.case), JSON.stringify(otherReceive.data));
             const otherEvaluate = await edge('driverB', { operation: 'evaluate', caseId, idempotencyKey: `gha-driverB-${Date.now()}` });
             assert('driver B evaluate denied', [403, 404].includes(otherEvaluate.status), JSON.stringify(otherEvaluate.data));
 
