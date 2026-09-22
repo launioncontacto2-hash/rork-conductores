@@ -54,7 +54,7 @@ jobs:
           const admin = createClient(url, serviceRole, { auth: { persistSession: false } });
           const anonClient = createClient(url, anon, { auth: { persistSession: false } });
           const run = Date.now().toString(36);
-          const identities = Object.fromEntries(['console','driver','supervisor'].map((name) => [name, { email: `copilot-smoke-${name}-${run}@local.test`, password: crypto.randomUUID() + crypto.randomUUID() }]));
+          const identities = Object.fromEntries(['console','driver','driverB','supervisor'].map((name) => [name, { email: `copilot-smoke-${name}-${run}@local.test`, password: crypto.randomUUID() + crypto.randomUUID() }]));
           const created = { users: [], profiles: [], memberships: [], drivers: [] };
           const clients = {};
           const assert = (name, condition, detail = '') => {
@@ -69,14 +69,14 @@ jobs:
             const { data: stations, error: stationError } = await admin.from('stations').select('id,environment_id,code').eq('environment_id', env.id).limit(20);
             assert('TEST station', !stationError && !!stations?.length, stationError?.message || 'missing station');
             const station = stations[0];
-            const ids = { console: crypto.randomUUID(), driver: crypto.randomUUID(), supervisor: crypto.randomUUID(), mc: crypto.randomUUID(), md: crypto.randomUUID(), ms: crypto.randomUUID(), dp: crypto.randomUUID() };
+            const ids = { console: crypto.randomUUID(), driver: crypto.randomUUID(), driverB: crypto.randomUUID(), supervisor: crypto.randomUUID(), mc: crypto.randomUUID(), md: crypto.randomUUID(), mdB: crypto.randomUUID(), ms: crypto.randomUUID(), dp: crypto.randomUUID(), dpB: crypto.randomUUID() };
             for (const name of Object.keys(identities)) { const { data, error } = await admin.auth.admin.createUser({ email: identities[name].email, password: identities[name].password, email_confirm: true }); assert(`create automation auth ${name}`, !error && !!data.user, error?.message || 'create failed'); identities[name].userId = data.user.id; created.users.push(data.user.id); }
-            const profiles = [{ id: ids.console, environment_id: env.id, auth_user_id: identities.console.userId, employee_number: `LAB-${run}-CONSOLE`, display_name: 'Copiloto Smoke Console', status: 'active' }, { id: ids.driver, environment_id: env.id, auth_user_id: identities.driver.userId, employee_number: `LAB-${run}-DRIVER`, display_name: 'Copiloto Smoke Driver', status: 'active' }, { id: ids.supervisor, environment_id: env.id, auth_user_id: identities.supervisor.userId, employee_number: `LAB-${run}-SUPERVISOR`, display_name: 'Copiloto Smoke Supervisor', status: 'active' }];
+            const profiles = [{ id: ids.console, environment_id: env.id, auth_user_id: identities.console.userId, employee_number: `LAB-${run}-CONSOLE`, display_name: 'Copiloto Smoke Console', status: 'active' }, { id: ids.driver, environment_id: env.id, auth_user_id: identities.driver.userId, employee_number: `LAB-${run}-DRIVER-A`, display_name: 'Copiloto Smoke Driver A', status: 'active' }, { id: ids.driverB, environment_id: env.id, auth_user_id: identities.driverB.userId, employee_number: `LAB-${run}-DRIVER-B`, display_name: 'Copiloto Smoke Driver B', status: 'active' }, { id: ids.supervisor, environment_id: env.id, auth_user_id: identities.supervisor.userId, employee_number: `LAB-${run}-SUPERVISOR`, display_name: 'Copiloto Smoke Supervisor', status: 'active' }];
             let q = await admin.from('profiles').insert(profiles); assert('create automation profiles', !q.error, q.error?.message || 'insert failed'); created.profiles.push(...profiles.map((x) => x.id));
-            const memberships = [{ id: ids.mc, environment_id: env.id, profile_id: ids.console, station_id: station.id, role: 'console', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.md, environment_id: env.id, profile_id: ids.driver, station_id: station.id, role: 'driver', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.ms, environment_id: env.id, profile_id: ids.supervisor, station_id: station.id, role: 'supervisor', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }];
+            const memberships = [{ id: ids.mc, environment_id: env.id, profile_id: ids.console, station_id: station.id, role: 'console', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.md, environment_id: env.id, profile_id: ids.driver, station_id: station.id, role: 'driver', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.mdB, environment_id: env.id, profile_id: ids.driverB, station_id: station.id, role: 'driver', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.ms, environment_id: env.id, profile_id: ids.supervisor, station_id: station.id, role: 'supervisor', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }];
             q = await admin.from('staff_memberships').insert(memberships); assert('create automation memberships', !q.error, q.error?.message || 'insert failed'); created.memberships.push(...memberships.map((x) => x.id));
-            q = await admin.from('driver_profiles').insert({ id: ids.dp, environment_id: env.id, station_id: station.id, profile_id: ids.driver, membership_id: ids.md, employee_number: `LAB-${run}-DRIVER`, status: 'active' }); assert('create automation driver profile', !q.error, q.error?.message || 'insert failed'); created.drivers.push(ids.dp);
-            identities.console.profileId = ids.console; identities.driver.profileId = ids.driver; identities.driver.driverProfileId = ids.dp; identities.supervisor.profileId = ids.supervisor;
+            q = await admin.from('driver_profiles').insert([{ id: ids.dp, environment_id: env.id, station_id: station.id, profile_id: ids.driver, membership_id: ids.md, employee_number: `LAB-${run}-DRIVER-A`, status: 'active' }, { id: ids.dpB, environment_id: env.id, station_id: station.id, profile_id: ids.driverB, membership_id: ids.mdB, employee_number: `LAB-${run}-DRIVER-B`, status: 'active' }]); assert('create automation driver profiles', !q.error, q.error?.message || 'insert failed'); created.drivers.push(ids.dp, ids.dpB);
+            identities.console.profileId = ids.console; identities.driver.profileId = ids.driver; identities.driver.driverProfileId = ids.dp; identities.driverB.profileId = ids.driverB; identities.driverB.driverProfileId = ids.dpB; identities.supervisor.profileId = ids.supervisor;
           }
           async function cleanup() { try { await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
           async function login(name) {
@@ -104,6 +104,7 @@ jobs:
             await provision();
             await login('console');
             await login('driver');
+            await login('driverB');
             await login('supervisor');
 
             const driverProfiles = await rest(clients.console.client, 'driver_profiles', 'id,profile_id,station_id,environment_id,status,employee_number');
@@ -139,6 +140,10 @@ jobs:
             const receivedCaseId = received.data.case?.id || caseId;
             const receivedText = JSON.stringify(received.data);
             assert('EXPECTED hidden', !/expected|expectation|classification/i.test(receivedText));
+            const otherReceive = await edge('driverB', { operation: 'next', caseId });
+            assert('driver B isolation', [403, 404].includes(otherReceive.status), JSON.stringify(otherReceive.data));
+            const otherEvaluate = await edge('driverB', { operation: 'evaluate', caseId, idempotencyKey: `gha-driverB-${Date.now()}` });
+            assert('driver B evaluate denied', [403, 404].includes(otherEvaluate.status), JSON.stringify(otherEvaluate.data));
 
             const evaluationKey = `gha-${Date.now()}-eval`;
             const evaluated = await edge('driver', { operation: 'evaluate', caseId: receivedCaseId, idempotencyKey: evaluationKey });
@@ -158,6 +163,6 @@ jobs:
             const decision = await edge('driver', { kind: 'decision', idempotencyKey: `gha-event-${Date.now()}`, input }, 'dori-copilot-events');
             assert('remote decision event', [200, 201].includes(decision.status), JSON.stringify(decision.data));
             console.log('PASS live invariance (simulation path uses dedicated tables; no live mutation requested)');
-            console.log('AISLAMIENTO DRIVER B — GATE PENDIENTE');
+            console.log('PASS driver B isolation');
           })().catch((error) => { console.error(`SMOKE_FAILED ${error.message}`); process.exitCode = 1; }).finally(cleanup);
           NODE
