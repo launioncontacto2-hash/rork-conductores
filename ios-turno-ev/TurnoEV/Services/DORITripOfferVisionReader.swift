@@ -5,18 +5,19 @@ import Vision
 /// TEST-only bridge from rendered offer pixels to the canonical TripOffer contract.
 /// The reader never receives the source JSON; it consumes OCR observations from the bitmap.
 enum DORITripOfferVisionReader {
-    static func read(_ image: UIImage) -> DORITripOffer? {
-        guard let cgImage = image.cgImage else { return nil }
-        var parsed: DORITripOffer?
+    static func read(_ image: UIImage, completion: @escaping (DORITripOffer?) -> Void) {
+        guard let cgImage = image.cgImage else {
+            completion(nil)
+            return
+        }
         let request = VNRecognizeTextRequest { request, _ in
             let observations = request.results as? [VNRecognizedTextObservation] ?? []
             let lines = observations.compactMap { $0.topCandidates(1).first?.string }
-            parsed = parse(lines)
+            completion(parse(lines))
         }
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
-        return parsed
     }
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
