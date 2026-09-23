@@ -48,7 +48,7 @@ final class UberTestAuth: ObservableObject {
         var message: String {
             switch self {
             case .invalidCredentials: return "Correo o contraseña TEST incorrectos."
-            case .http(let status): return "Supabase TEST respondió HTTP (status)."
+            case .http(let status): return "Supabase TEST respondió HTTP \(status)."
             case .network: return "No se pudo conectar con Supabase TEST."
             }
         }
