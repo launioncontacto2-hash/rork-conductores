@@ -23,11 +23,6 @@ enum DORITripOfferVisionReader {
 
     static func parse(_ lines: [String]) -> DORITripOffer? {
         let joined = normalizeSeparators(lines.joined(separator: " "))
-            .replacingOccurrences(of: "•", with: "·")
-            .replacingOccurrences(of: "|", with: "·")
-            .replacingOccurrences(of: "—", with: "·")
-            .replacingOccurrences(of: "-", with: "·")
-            .replacingOccurrences(of: "  ", with: " ")
         let product = DORITripOfferParser.normalizeProduct(joined)
         guard product != .unsupported else {
             return DORITripOffer(source: "vision", sourceOfferId: "ocr", product: product,
@@ -35,25 +30,25 @@ enum DORITripOfferVisionReader {
                                   pickupETAMinutes: nil, tripDistanceKm: nil, tripDurationMinutes: nil,
                                   riderRating: nil, confidence: ["product": 0.95], destinationText: nil)
         }
-        let fare = lines.first(where: { $0.contains("$") }).flatMap(DORITripOfferParser.parseNumber)
-        let pickup = segment(after: "recogida:", before: "viaje:", in: joined)
-        let trip = segment(after: "viaje:", before: "rating:", in: joined)
-        let rating = value(after: "rating:", in: joined)
-        let pickupParts = pickup?.split(separator: "·").map(String.init) ?? []
-        let tripParts = trip?.split(separator: "·").map(String.init) ?? []
+        let fare = firstNumber(matching: #"\$\s*([0-9]+(?:[.,][0-9]+)?)"#, in: joined)
+        let pickupMinutes = firstNumber(matching: #"(?i)recogida\s*:\s*([0-9]+(?:[.,][0-9]+)?)\s*min"#, in: joined)
+        let pickupKm = firstNumber(matching: #"(?i)recogida\s*:[^·|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
+        let tripMinutes = firstNumber(matching: #"(?i)viaje\s*:\s*([0-9]+(?:[.,][0-9]+)?)\s*min"#, in: joined)
+        let tripKm = firstNumber(matching: #"(?i)viaje\s*:[^·|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
+        let rating = firstNumber(matching: #"(?i)rating\s*:\s*([0-9]+(?:[.,][0-9]+)?)"#, in: joined)
         let confidence: [String: Double] = [
             "product": product == .unsupported ? 0.95 : 0.9,
             "fare": fare == nil ? 0.0 : 0.9,
-            "pickup": pickupParts.count == 2 ? 0.9 : 0.0,
-            "trip": tripParts.count == 2 ? 0.9 : 0.0,
+            "pickup": pickupMinutes != nil && pickupKm != nil ? 0.9 : 0.0,
+            "trip": tripMinutes != nil && tripKm != nil ? 0.9 : 0.0,
             "rating": rating == nil ? 0.0 : 0.9
         ]
         return DORITripOffer(source: "vision", sourceOfferId: "ocr", product: product,
                              offeredEarnings: fare, currency: "MXN",
-                             pickupDistanceKm: pickupParts.dropFirst().first.flatMap(DORITripOfferParser.parseNumber),
-                             pickupETAMinutes: pickupParts.first.flatMap(DORITripOfferParser.parseNumber),
-                             tripDistanceKm: tripParts.dropFirst().first.flatMap(DORITripOfferParser.parseNumber),
-                             tripDurationMinutes: tripParts.first.flatMap(DORITripOfferParser.parseNumber),
+                             pickupDistanceKm: pickupKm,
+                             pickupETAMinutes: pickupMinutes,
+                             tripDistanceKm: tripKm,
+                             tripDurationMinutes: tripMinutes,
                              riderRating: rating,
                              confidence: confidence, destinationText: nil)
     }
@@ -61,6 +56,14 @@ enum DORITripOfferVisionReader {
     private static func value(after marker: String, in text: String) -> Double? {
         guard let range = text.range(of: marker, options: .caseInsensitive) else { return nil }
         return DORITripOfferParser.parseNumber(String(text[range.upperBound...]))
+    }
+
+    private static func firstNumber(matching pattern: String, in text: String) -> Double? {
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: text) else { return nil }
+        return DORITripOfferParser.parseNumber(String(text[range]))
     }
 
     private static func normalizeSeparators(_ text: String) -> String {
@@ -74,6 +77,7 @@ enum DORITripOfferVisionReader {
         while normalized.contains("  ") {
             normalized = normalized.replacingOccurrences(of: "  ", with: " ")
         }
+        normalized = normalized.replacingOccurrences(of: #"(?i)(recogida|viaje|rating)\s*:\s*"#, with: "$1: ", options: .regularExpression)
         return normalized
     }
 

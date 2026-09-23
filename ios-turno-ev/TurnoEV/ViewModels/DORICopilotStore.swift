@@ -147,6 +147,10 @@ final class DORICopilotStore {
 
     func evaluateSimulation() async {
         guard let caseId = simulationCaseId, let effectiveInput else { simulationMessage = "No pudimos analizar esta oferta."; return }
+        guard simulationOffer?.product == .uberX || simulationOffer?.product == .uberComfort else {
+            simulationMessage = "Este servicio no está disponible para tu vehículo."
+            return
+        }
         state = .evaluating
         do {
             let evaluation = try await DORISimulationCopilotService.evaluate(caseId: caseId, idempotencyKey: "ios-\(caseId.uuidString)", input: effectiveInput)
@@ -167,11 +171,17 @@ extension DORIDecisionInput {
     /// Builds the engine input from OCR-observed offer fields and retained DORI context.
     /// The source case payload is used only for non-visual context.
     func withObservedOffer(_ offer: DORITripOffer) -> DORIDecisionInput {
+        let service: String?
+        switch offer.product {
+        case .uberX: service = "UberX"
+        case .uberComfort: service = "Uber Comfort"
+        case .unsupported: service = nil
+        }
         DORIDecisionInput(
             trip: .init(fare: offer.offeredEarnings ?? trip.fare, pickupMinutes: offer.pickupETAMinutes ?? trip.pickupMinutes,
                         pickupKm: offer.pickupDistanceKm ?? trip.pickupKm, tripMinutes: offer.tripDurationMinutes ?? trip.tripMinutes,
                         tripKm: offer.tripDistanceKm ?? trip.tripKm, origin: trip.origin, destination: trip.destination,
-                        timestamp: trip.timestamp, service: offer.product == .uberX ? "UberX" : "Uber Comfort"),
+                        timestamp: trip.timestamp, service: service),
             market: market, vehicle: vehicle, driver: driver, source: .simulated)
     }
 
