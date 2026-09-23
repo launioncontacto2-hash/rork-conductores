@@ -11,7 +11,11 @@ Deno.serve(async (request) => {
   const client = createClient(url, anon, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false, autoRefreshToken: false } });
   const { data: user, error: authError } = await client.auth.getUser();
   if (authError || !user.user) return reply(401, { error: "invalid_access_token" });
-  const { data, error } = await client.rpc("driver_get_uber_test_batch");
+  const installationId = request.headers.get("x-uber-test-installation-id")?.trim();
+  if (!installationId) return reply(400, { error: "installation_id_required" });
+  const { data: active, error: activeError } = await client.rpc("uber_test_assert_active_receiver", { p_installation_id: installationId });
+  if (activeError || active !== true) return reply(403, { error: "uber_test_receiver_inactive" });
+  const { data, error } = await client.rpc("driver_get_uber_test_batch", { p_installation_id: installationId });
   if (error) return reply(error.code === "42501" ? 403 : 500, { error: error.message });
   if (!data) return reply(200, { batch: null });
   const { data: presented, error: presentError } = await client.rpc("present_next_uber_test_offer", { p_batch_id: data.id });

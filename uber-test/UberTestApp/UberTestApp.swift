@@ -150,21 +150,24 @@ struct UberTestApp: App {
 
     init() {
         let runtime = UberTestRuntimeConfiguration()
+        let receiver = UberTestReceiverState()
         self.runtime = runtime
-        let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken) }
+        _receiver = StateObject(wrappedValue: receiver)
+        let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID) }
         _store = StateObject(wrappedValue: UberTestStore(resultSink: sink))
     }
 
     var body: some Scene {
         WindowGroup {
-            Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { await receiver.release(using: await UberTestSession.shared.validToken()); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
+            Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { receiver.stopHeartbeat(); await receiver.release(using: runtime.accessToken, refresh: runtime.refreshAccessToken); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
                 .task(id: auth.isSignedIn) {
                     if !auth.isSignedIn { await auth.restoreSession() }
                     guard auth.isSignedIn else { return }
-                    await receiver.claim(using: await UberTestSession.shared.validToken())
+                    await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
+                    receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
-                        let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken)
+                        let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
                         await store.recover(using: client)
                         await store.startForegroundRecovery(using: client)
                     }

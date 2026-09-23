@@ -14,6 +14,10 @@ Deno.serve(async (request) => {
   const client = createClient(url, anon, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false, autoRefreshToken: false } });
   const { data: user, error: authError } = await client.auth.getUser();
   if (authError || !user.user) return reply(401, { error: "invalid_access_token" });
+  const installationId = request.headers.get("x-uber-test-installation-id")?.trim();
+  if (!installationId) return reply(400, { error: "installation_id_required" });
+  const { data: active, error: activeError } = await client.rpc("uber_test_assert_active_receiver", { p_installation_id: installationId });
+  if (activeError || active !== true) return reply(403, { error: "uber_test_receiver_inactive" });
   let body: unknown;
   try { body = await request.json(); } catch { return reply(400, { error: "invalid_json" }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return reply(400, { error: "invalid_request_shape" });
