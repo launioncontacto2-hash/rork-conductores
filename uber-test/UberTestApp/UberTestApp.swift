@@ -16,6 +16,11 @@ final class UberTestAuth: ObservableObject {
         isSignedIn = false
     }
     func restoreSession() async { isSignedIn = await UberTestSession.shared.validToken() != nil }
+    func signOut() async {
+        await UberTestSession.shared.clearTokens()
+        isSignedIn = false
+        errorMessage = nil
+    }
     func signIn(email: String, password: String) async {
         guard let baseURL, let publishableKey, !publishableKey.isEmpty else { errorMessage = "Configuración TEST incompleta."; return }
         guard let authURL = Self.authURL(baseURL: baseURL) else { errorMessage = AuthFailure.network.message; return }
@@ -71,6 +76,7 @@ private actor UberTestSession {
     private let publishableKey = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String
     private var refreshTask: Task<String?, Never>?
     func save(accessToken: String, refreshToken: String) { Self.write(accessToken, account: "access-token"); Self.write(refreshToken, account: "refresh-token") }
+    func clearTokens() { Self.clear(account: "access-token"); Self.clear(account: "refresh-token") }
     func validToken(force: Bool = false) async -> String? {
         if !force, let token = Self.read(account: "access-token"), let exp = Self.expiration(token), exp > Date().addingTimeInterval(60) { return token }
         guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else { return nil }
@@ -139,6 +145,7 @@ struct UberTestApp: App {
     @UIApplicationDelegateAdaptor(UberTestAppDelegate.self) private var appDelegate
     @StateObject private var store: UberTestStore
     @StateObject private var auth = UberTestAuth()
+    @StateObject private var receiver = UberTestReceiverState()
     private let runtime: UberTestRuntimeConfiguration
 
     init() {
@@ -150,10 +157,11 @@ struct UberTestApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group { if auth.isSignedIn { UberTestOfferView(store: store) } else { UberTestLoginView(auth: auth) } }
+            Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { await receiver.release(using: await UberTestSession.shared.validToken()); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
                 .task(id: auth.isSignedIn) {
                     if !auth.isSignedIn { await auth.restoreSession() }
                     guard auth.isSignedIn else { return }
+                    await receiver.claim(using: await UberTestSession.shared.validToken())
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
                         let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken)
