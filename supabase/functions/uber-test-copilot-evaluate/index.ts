@@ -39,5 +39,11 @@ Deno.serve(async (request) => {
   await admin.from("uber_test_offer_events").update({ copilot_status: "evaluated" }).eq("presented_offer_id", body.offerId);
   const trip = input.trip as { fare: number; pickupKm: number; tripKm: number; pickupMinutes: number; tripMinutes: number };
   const result = event.result as Record<string, unknown>;
-  return json(201, { status: "evaluated", offerId: body.offerId, event: stored, recommendation: result.recommendation, reasons: result.reasons, effectivePerKm: trip.fare / (trip.pickupKm + trip.tripKm), effectivePerHour: trip.fare / ((trip.pickupMinutes + trip.tripMinutes) / 60) });
+  const recommendation = result.recommendation as string;
+  const effectivePerKm = trip.fare / (trip.pickupKm + trip.tripKm);
+  const effectivePerHour = trip.fare / ((trip.pickupMinutes + trip.tripMinutes) / 60);
+  const bodyText = `${recommendation === "RECOMENDADO" ? "TOMAR" : "NO TOMAR"} · $${effectivePerKm.toFixed(2)}/km · $${effectivePerHour.toFixed(0)}/h`;
+  const { error: notificationError } = await admin.from("dori_copilot_notifications").upsert({ environment_id: context.environment_id, profile_id: input.driver.driverId, offer_id: body.offerId, recommendation, body: bodyText, payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour }, status: "pending" }, { onConflict: "offer_id" });
+  if (notificationError) return json(500, { error: "notification_enqueue_failed" });
+  return json(201, { status: "evaluated", offerId: body.offerId, event: stored, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour, notification: "pending" });
 });

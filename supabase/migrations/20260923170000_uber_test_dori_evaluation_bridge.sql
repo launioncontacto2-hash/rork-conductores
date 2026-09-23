@@ -88,6 +88,50 @@ grant execute on function public.resolve_uber_test_dori_context(uuid) to authent
 
 comment on table public.dori_copilot_test_vehicle_parameters is 'TEST-only, versioned vehicle context for DORI Copiloto; never client supplied.';
 
+create table if not exists public.dori_copilot_push_devices (
+  id uuid primary key default gen_random_uuid(), environment_id uuid not null references public.environments(id) on delete restrict,
+  profile_id uuid not null references public.profiles(id) on delete restrict, device_token text not null,
+  bundle_id text not null, status text not null default 'active' check(status in ('active','revoked')),
+  updated_at timestamptz not null default now(), unique(environment_id, profile_id, device_token, bundle_id)
+);
+create table if not exists public.dori_copilot_notifications (
+  id uuid primary key default gen_random_uuid(), environment_id uuid not null references public.environments(id) on delete restrict,
+  profile_id uuid not null references public.profiles(id) on delete restrict, offer_id uuid not null unique,
+  recommendation text not null check(recommendation in ('RECOMENDADO','NO RECOMENDADO')),
+  body text not null, payload jsonb not null, status text not null default 'pending' check(status in ('pending','sent','failed')),
+  created_at timestamptz not null default now(), sent_at timestamptz
+);
+alter table public.dori_copilot_push_devices enable row level security;
+alter table public.dori_copilot_notifications enable row level security;
+revoke all on public.dori_copilot_push_devices, public.dori_copilot_notifications from public, anon, authenticated;
+grant all on public.dori_copilot_push_devices, public.dori_copilot_notifications to postgres, service_role;
+
+create or replace function public.register_dori_copilot_push_device(p_device_token text, p_bundle_id text)
+returns jsonb language plpgsql security definer set search_path = pg_catalog, public, app, auth, pg_temp as $$
+declare env uuid := app.current_environment_id(); profile uuid := app.auth_profile_id();
+begin
+  if env is null or profile is null or env <> (select id from public.environments where code='test' and id=env) then raise exception 'test_environment_required' using errcode='42501'; end if;
+  if p_device_token is null or p_device_token !~ '^[0-9a-fA-F]{64,200}$' or coalesce(btrim(p_bundle_id),'')='' then raise exception 'invalid_device_registration' using errcode='22023'; end if;
+  insert into public.dori_copilot_push_devices(environment_id,profile_id,device_token,bundle_id) values(env,profile,lower(p_device_token),btrim(p_bundle_id))
+  on conflict(environment_id,profile_id,device_token,bundle_id) do update set status='active',updated_at=now();
+  return jsonb_build_object('status','registered','environment_id',env,'bundle_id',btrim(p_bundle_id));
+end; $$;
+revoke all on function public.register_dori_copilot_push_device(text,text) from public,anon;
+grant execute on function public.register_dori_copilot_push_device(text,text) to authenticated;
+
+alter table public.dori_copilot_notifications drop constraint if exists dori_copilot_notifications_status_check;
+alter table public.dori_copilot_notifications add constraint dori_copilot_notifications_status_check check(status in ('pending','sending','sent','failed'));
+create or replace function public.claim_dori_copilot_notifications(p_limit integer default 25)
+returns setof public.dori_copilot_notifications language plpgsql security definer
+set search_path = pg_catalog, public, app, auth, pg_temp as $$
+begin
+  if current_user <> 'service_role' and current_user <> 'postgres' then raise exception 'copilot_push_service_role_required' using errcode='42501'; end if;
+  return query update public.dori_copilot_notifications n set status='sending'
+    where n.id in (select id from public.dori_copilot_notifications where status='pending' order by created_at,id for update skip locked limit greatest(1,least(p_limit,100))) returning n.*;
+end; $$;
+revoke all on function public.claim_dori_copilot_notifications(integer) from public, anon, authenticated;
+grant execute on function public.claim_dori_copilot_notifications(integer) to service_role, postgres;
+
 create or replace function public.console_send_uber_test_batch(
   p_driver_profile_id uuid, p_offers jsonb, p_idempotency_key text
 ) returns jsonb language plpgsql security definer
