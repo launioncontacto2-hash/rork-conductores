@@ -2,7 +2,7 @@ import SwiftUI
 
 struct DORICopilotView: View {
     @Environment(FleetStore.self) private var fleet
-    @State private var copilot = DORICopilotStore()
+    @Environment(DORICopilotStore.self) private var copilot
 
     private var driverId: String? {
         guard let principal = fleet.currentPrincipal, principal.role == .driver else {
@@ -35,8 +35,6 @@ struct DORICopilotView: View {
             }
             .navigationTitle("DORI Copiloto")
             .navigationBarTitleDisplayMode(.inline)
-            .task { copilot.startSimulationPolling() }
-            .onDisappear { copilot.stopSimulationPolling() }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SessionMenuButton() } }
         }
@@ -47,10 +45,10 @@ struct DORICopilotView: View {
             Label("DORI Copiloto", systemImage: "sparkles")
                 .font(.system(.title2, weight: .black))
                 .foregroundStyle(Palette.text)
-            Text("Tu copiloto para elegir mejor cada viaje.")
+            Text("DORI analiza tus ofertas automáticamente.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.textMuted)
-            Text("Laboratorio de ofertas")
+            Text("En espera de ofertas")
                 .font(.caption.weight(.bold))
                 .textCase(.uppercase)
                 .tracking(1.2)
@@ -266,5 +264,6 @@ struct DORICopilotView: View {
 #Preview {
     DORICopilotView()
         .environment(FleetStore())
+        .environment(DORICopilotStore())
         .preferredColorScheme(.dark)
 }

@@ -1,7 +1,7 @@
 # DORI COPILOTO — CANÓNICO DE DOMINIO
 
 **Estado:** ACTIVO  
-**Versión:** 1.4
+**Versión:** 1.5
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Repositorio objetivo:** `launioncontacto2-hash/rork-conductores`  
@@ -1005,3 +1005,15 @@ La Consola es la única superficie que crea y parametriza ofertas TEST. El condu
 La recepción iOS procesa cada case_id una sola vez; repetir el mismo caso durante el polling se ignora. El DecisionInput efectivo combina los campos visuales obtenidos por Vision/OCR con el contexto DORI autorizado. La UI normal no expone controles técnicos, identificadores, errores de backend ni edición manual de contexto.
 
 Los únicos servicios soportados por el vehículo de laboratorio son UberX y Uber Comfort. Los demás se marcan como servicio no soportado. El cierre requiere evidencia del circuito Consola → píxeles → OCR → motor → recomendación → decisión → Consola.
+
+---
+
+## Decisiones v1.5 — recepción persistente y aviso global
+
+- El receptor de ofertas TEST vive a nivel de sesión autenticada del conductor (sesión/TurnoRoot), no dentro de `DORICopilotView`.
+- Cambiar entre Turno, Metas, Bonos, Cartera, Guardias o Copiloto no detiene la recepción.
+- La entrega dirigida por evento (Supabase Realtime o mecanismo equivalente autorizado) es el mecanismo primario.
+- El polling sólo funciona como fallback de recuperación ante desconexión, pérdida de evento o retorno a foreground; no introduce un retardo deliberado de cinco segundos.
+- La misma oferta se deduplica por `case_id` y se procesa una sola vez.
+- Una nueva oferta activa un aviso global visual, háptico y sonoro sin mostrar identificadores ni detalles técnicos.
+- En background o pantalla bloqueada se requiere, para operación real, una notificación remota compatible con iOS/APNs; el gate TEST foreground no se considera operación completa mientras ese camino no esté implementado.

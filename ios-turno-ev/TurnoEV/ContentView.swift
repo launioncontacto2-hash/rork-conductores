@@ -116,7 +116,9 @@ struct ContentView: View {
 struct RootTabView: View {
     @Environment(FleetStore.self) private var store
     @Environment(CoverageStore.self) private var coverage
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: Int = 0
+    @State private var copilotInbox = DORICopilotInbox()
 
     /// Seats this driver could take right now.
     ///
@@ -171,6 +173,10 @@ struct RootTabView: View {
                     }
                 }
                 .tint(Palette.volt)
+                .environment(copilotInbox.store)
+                .overlay {
+                    if copilotInbox.isOfferAlertPresented { DORICopilotOfferAlert(inbox: copilotInbox) }
+                }
                 .safeAreaInset(edge: .top) {
                     if store.backendOperationalError != nil {
                         HStack(spacing: 10) {
@@ -197,9 +203,59 @@ struct RootTabView: View {
                 AccessDeniedView()
             }
         }
+        .task(id: store.currentPrincipal?.environmentId) {
+            guard store.currentPrincipal?.role == .driver, store.isBackendTestSession,
+                  let environment = store.currentPrincipal?.environmentId,
+                  let environmentID = UUID(uuidString: environment) else {
+                copilotInbox.stop()
+                return
+            }
+            copilotInbox.start(environmentID: environmentID)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await copilotInbox.receiveAndAnnounce() } }
+        }
     }
 }
 
+private struct DORICopilotOfferAlert: View {
+    @Bindable var inbox: DORICopilotInbox
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Label("NUEVA OFERTA", systemImage: "bell.badge.fill")
+                .font(.system(.headline, weight: .black))
+                .foregroundStyle(Palette.volt)
+            Text(inbox.store.simulationMessage ?? "DORI está leyendo la oferta.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Palette.text)
+            if let result = inbox.store.state.result {
+                Text(result.recommendation.rawValue)
+                    .font(.system(.title, weight: .black))
+                    .foregroundStyle(result.recommendation == .recommended ? Palette.volt : Palette.danger)
+                ForEach(Array(result.reasons.prefix(3).enumerated()), id: \.offset) { _, reason in
+                    Text(reason).font(.caption).foregroundStyle(Palette.textMuted)
+                }
+                HStack {
+                    Button("TOMAR") { inbox.store.confirmDecision(true); inbox.dismissOffer() }
+                        .buttonStyle(.borderedProminent).tint(Palette.volt)
+                    Button("NO TOMAR") { inbox.store.confirmDecision(false); inbox.dismissOffer() }
+                        .buttonStyle(.bordered).tint(Palette.surfaceRaised)
+                }
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: 360)
+        .background(Palette.surfaceRaised, in: .rect(cornerRadius: 24))
+        .overlay { RoundedRectangle(cornerRadius: 24).stroke(Palette.volt.opacity(0.65), lineWidth: 1) }
+        .shadow(radius: 20)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(.black.opacity(0.25))
+        .accessibilityAddTraits(.isModal)
+    }
+}
 #Preview {
     ContentView()
         .environment(FleetStore())
