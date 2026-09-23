@@ -319,7 +319,8 @@ struct ShiftView: View {
     // MARK: - Sections
 
     private var driverHeader: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
                 Image(store.driver.photoAsset)
                     .resizable()
@@ -354,6 +355,47 @@ struct ShiftView: View {
             }
 
             Spacer(minLength: 0)
+            }
+
+            // The assignment is part of the driver's operational identity. Keep it on
+            // the first layer so the driver can verify the physical unit before starting
+            // a shift or opening the QR flow; FleetStore remains the only source of truth.
+            HStack(spacing: 10) {
+                Image(systemName: "car.fill")
+                    .foregroundStyle(Palette.volt)
+                    .frame(width: 30, height: 30)
+                    .background(Palette.volt.opacity(0.12), in: .rect(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tu unidad asignada")
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(Palette.textMuted)
+                        .textCase(.uppercase)
+                    if let vehicle = store.displayVehicle {
+                        Text("Unidad \(vehicle.internalNumber)")
+                            .font(.system(.subheadline, weight: .black))
+                        Text(vehicle.model)
+                            .font(.caption)
+                            .foregroundStyle(Palette.textMuted)
+                    } else {
+                        Text("Sin unidad asignada")
+                            .font(.system(.subheadline, weight: .bold))
+                            .foregroundStyle(Palette.amber)
+                    }
+                }
+                Spacer(minLength: 0)
+                if store.displayVehicle != nil {
+                    Text("CONFIRMADA")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(0.8)
+                        .foregroundStyle(Palette.volt)
+                }
+            }
+            .padding(12)
+            .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Palette.hairline, lineWidth: 1)
+            }
         }
     }
 
