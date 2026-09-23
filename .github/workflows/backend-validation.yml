@@ -10,6 +10,7 @@ on:
     branches:
       - feat/copilot-cross-test-foundation
       - codex/uber-test-console
+      - feat/copilot-uber-test-bridge
     paths:
       - "supabase/**"
       - "scripts/validate-backend.ps1"

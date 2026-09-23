@@ -6,7 +6,7 @@ on:
       - "uber-test/**"
       - ".github/workflows/uber-test-ios.yml"
   push:
-    branches: ["codex/uber-test-console"]
+    branches: ["codex/uber-test-console", "feat/copilot-uber-test-bridge"]
     paths:
       - "uber-test/**"
       - ".github/workflows/uber-test-ios.yml"

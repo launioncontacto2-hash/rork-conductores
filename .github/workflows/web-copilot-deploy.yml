@@ -6,6 +6,7 @@ on:
     branches:
       - feat/copilot-cross-test-foundation
       - codex/uber-test-console
+      - feat/copilot-uber-test-bridge
     paths:
       - 'web/**'
       - '.github/workflows/web-copilot-deploy.yml'
