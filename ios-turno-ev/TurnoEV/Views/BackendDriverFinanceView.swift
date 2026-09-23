@@ -110,6 +110,7 @@ struct BackendDriverFinanceView: View {
                             bankCard(snapshot)
                             settlementsCard(snapshot)
                             incomeHistoryCard(snapshot)
+                            operationalProductsCard(snapshot)
                         } else {
                             emptyCard
                         }
@@ -401,6 +402,42 @@ struct BackendDriverFinanceView: View {
         }
         .padding(16)
         .panel()
+    }
+
+    /// Makes the remaining financial product boundaries explicit without routing a
+    /// backend-authenticated driver into the legacy Wallet/Credit demo state.
+    private func operationalProductsCard(_ value: SupabaseFinancialService.DriverSnapshot) -> some View {
+        let income = value.incomes.reduce(0) { $0 + $1.amount_mxn }
+        let charges = value.cashCharges.reduce(0) { $0 + $1.amount_mxn }
+
+        return VStack(alignment: .leading, spacing: 10) {
+            SupSectionHeader(title: "Productos y periodos", subtitle: "Estado de contratos TEST")
+            DetailRow(label: "Resumen mes", value: "(value.incomes.count) ingresos · (Fmt.mxn(income))", tone: Palette.info)
+            DetailRow(label: "Resumen semana", value: "(value.cashCharges.count) cargos · (Fmt.mxn(charges))", tone: Palette.amber)
+            statusRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette")
+            statusRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark")
+            statusRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote")
+        }
+        .padding(16)
+        .panel()
+    }
+
+    private func statusRow(title: String, message: String, symbol: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(Palette.textMuted)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(.footnote, weight: .bold))
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(Palette.textMuted)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(11)
+        .panelFlat(cornerRadius: 13)
     }
 
     private var emptyCard: some View {
