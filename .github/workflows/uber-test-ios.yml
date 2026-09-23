@@ -87,7 +87,15 @@ jobs:
           set -euo pipefail
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
-          xcrun altool --upload-app -f "$RUNNER_TEMP/export/UberTest.ipa" -t ios --apiKey "$APP_STORE_CONNECT_API_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+          upload_log="$RUNNER_TEMP/altool-upload.log"
+          set +e
+          xcrun altool --upload-app -f "$RUNNER_TEMP/export/UberTest.ipa" -t ios --apiKey "$APP_STORE_CONNECT_API_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID" 2>&1 | tee "$upload_log"
+          upload_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$upload_status" -ne 0 ] || grep -q "UPLOAD FAILED\|Validation failed\|Failed to upload package" "$upload_log"; then
+            echo "App Store Connect rejected the UBER Test IPA."
+            exit 1
+          fi
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
