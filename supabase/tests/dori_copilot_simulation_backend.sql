@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(39);
+SELECT plan(41);
 
 SELECT has_table('public','dori_copilot_simulation_cases','tabla de casos simulados');
 SELECT has_table('public','dori_copilot_simulation_expectations','tabla de expectativas separadas');
