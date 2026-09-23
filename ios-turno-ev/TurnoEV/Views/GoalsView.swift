@@ -364,7 +364,7 @@ struct GoalsView: View {
         return NoticeBanner(
             symbol: "timer",
             title: debt > 0 ? "Debes \(debt) minutos esta semana" : "Sin atrasos esta semana",
-            message: "Ventana de pago \(store.driver.slot.paybackWindowLabel) · consulta la bitácora en Historial.",
+            message: "Ventana de pago \(store.driver.slot.paybackWindowLabel) · consulta la bitácora dentro de Cartera.",
             tone: debt > 0 ? .amber : .volt
         )
     }
