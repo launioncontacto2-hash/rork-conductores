@@ -440,6 +440,7 @@ struct BackendDriverFinanceView: View {
             SupSectionHeader(title: "Productos y periodos", subtitle: "Estado de contratos TEST")
             DetailRow(label: "Resumen mes", value: "\(value.incomes.count) ingresos · \(Fmt.mxn(income))", tone: Palette.info)
             DetailRow(label: "Resumen semana", value: "\(value.cashCharges.count) cargos · \(Fmt.mxn(charges))", tone: Palette.amber)
+            productRow(title: "Transferir fondos a mi cuenta", message: "Disponible solo cuando exista una liquidación transferible en el contrato remoto", symbol: "arrow.up.right.square") { productNotice = .transfer }
             productRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette") { productNotice = .bonuses }
             productRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark") { productNotice = .credit }
             productRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote") { productNotice = .cash }
@@ -449,10 +450,11 @@ struct BackendDriverFinanceView: View {
     }
 
     enum FinanceProductNotice: String, Identifiable {
-        case bonuses, credit, cash
+        case transfer, bonuses, credit, cash
         var id: String { rawValue }
         var title: String {
             switch self {
+            case .transfer: "Transferir fondos"
             case .bonuses: "Bonos"
             case .credit: "Crédito automotriz"
             case .cash: "Efectivo"
@@ -460,6 +462,7 @@ struct BackendDriverFinanceView: View {
         }
         var message: String {
             switch self {
+            case .transfer: "La transferencia se habilitará cuando el servidor entregue una liquidación disponible y una cuenta bancaria aprobada. No se simula ningún envío local."
             case .bonuses: "La evaluación de bonos vive en Metas. Su cálculo financiero se habilitará cuando exista el contrato remoto correspondiente."
             case .credit: "El crédito y el abono a capital no están disponibles para esta sesión TEST. No se muestra una simulación ni se crea una solicitud."
             case .cash: "Depositar a DORI requiere el contrato de evidencia y almacenamiento. Esta versión no simula depósitos."
@@ -682,6 +685,7 @@ private struct FinanceProductDetailView: View {
 
     private var icon: String {
         switch notice {
+        case .transfer: "arrow.up.right.square"
         case .bonuses: "rosette"
         case .credit: "car.side.and.exclamationmark"
         case .cash: "banknote"
@@ -697,6 +701,12 @@ private struct FinanceProductDetailView: View {
 
     private var rows: [Row] {
         switch notice {
+        case .transfer:
+            return [
+                Row(title: "Liquidación", detail: "Solo se puede transferir una liquidación marcada como disponible por Supabase.", symbol: "checkmark.circle", isReady: true),
+                Row(title: "Cuenta destino", detail: "Requiere una cuenta bancaria aprobada para esta identidad.", symbol: "building.columns", isReady: false),
+                Row(title: "Enviar", detail: "El contrato remoto de transferencia no está habilitado en esta sesión TEST.", symbol: "lock.circle", isReady: false)
+            ]
         case .bonuses:
             return [
                 Row(title: "Evaluación", detail: "Consulta el detalle operativo en la pestaña Bonos.", symbol: "checkmark.circle", isReady: true),
