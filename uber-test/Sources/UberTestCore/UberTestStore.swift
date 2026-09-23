@@ -48,17 +48,8 @@ public final class UberTestStore: ObservableObject {
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
-        do {
-            try queue.receive(batch); persist(); startTimer()
-            if let offer = queue.current, let copilotSink, !copilotEvaluatedOfferIDs.contains(offer.id) {
-                copilotEvaluatedOfferIDs.insert(offer.id)
-                UserDefaults.standard.set(Array(copilotEvaluatedOfferIDs), forKey: copilotEvaluatedOfferIDsKey)
-                Task { [weak self] in
-                    do { try await copilotSink.evaluate(offer, batchId: batch.id) }
-                    catch { await MainActor.run { self?.errorMessage = "No se pudo preparar la evaluación DORI." } }
-                }
-            }
-        } catch { errorMessage = String(describing: error) }
+        do { try queue.receive(batch); persist(); startTimer(); evaluateCurrentOfferIfNeeded() }
+        catch { errorMessage = String(describing: error) }
     }
     public func recover(using client: UberTestBatchClient) async {
         await flushPendingResults()
@@ -84,6 +75,17 @@ public final class UberTestStore: ObservableObject {
         if resultSink != nil { Task { [weak self] in await self?.flushPendingResults() } }
         persist()
         startTimer()
+        evaluateCurrentOfferIfNeeded()
+    }
+    private func evaluateCurrentOfferIfNeeded() {
+        guard let offer = queue.current, let batchId = queue.batch?.id, let copilotSink,
+              !copilotEvaluatedOfferIDs.contains(offer.id) else { return }
+        copilotEvaluatedOfferIDs.insert(offer.id)
+        UserDefaults.standard.set(Array(copilotEvaluatedOfferIDs), forKey: copilotEvaluatedOfferIDsKey)
+        Task { [weak self] in
+            do { try await copilotSink.evaluate(offer, batchId: batchId) }
+            catch { await MainActor.run { self?.errorMessage = "No se pudo preparar la evaluación DORI." } }
+        }
     }
     private func persist() { if let data = try? queue.snapshotData() { UserDefaults.standard.set(data, forKey: persistenceKey) } }
     private func persistPendingResults() { if let data = try? JSONEncoder().encode(pendingResults) { UserDefaults.standard.set(data, forKey: pendingResultsKey) } }
