@@ -208,21 +208,20 @@ struct GoalsView: View {
                         group: shift.group,
                         elapsedMinutes: Double(store.elapsedSeconds(at: now)) / 60
                     )
-                    let paceDelta = earnedToday - paceTarget
                     VStack(spacing: 8) {
                         HStack {
                             CapsLabel(text: "Ritmo por hora")
                             Spacer()
-                            Text(paceDelta >= 0 ? "Vas arriba" : "Vas abajo")
+                            Text("Ritmo de referencia")
                                 .font(.system(.caption, weight: .bold))
-                                .foregroundStyle(paceDelta >= 0 ? Palette.volt : Palette.amber)
+                                .foregroundStyle(Palette.textMuted)
                         }
                         ProgressTrack(
                             value: Double(earnedToday),
                             goal: Double(goals.dailyMxn),
                             marker: Double(paceTarget)
                         )
-                        Text("Próxima meta: \(Fmt.mxn(goals.dailyMxn)) · referencia \(Fmt.mxn(paceTarget))")
+                        Text("Referencia \(Fmt.mxn(paceTarget)) · \(Fmt.mxn(goals.hourlyMxn)) por hora")
                             .font(.system(size: 10))
                             .foregroundStyle(Palette.textMuted)
                             .frame(maxWidth: .infinity, alignment: .leading)
