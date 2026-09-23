@@ -471,6 +471,18 @@ struct ShiftView: View {
                 }
                 .padding(.top, 14)
 
+                TimeScope(.minute) { now in
+                    HStack {
+                        Text("Jornada laborada: \(Fmt.stopwatch(store.elapsedSeconds(at: now)))")
+                        Spacer()
+                        Text("Restante: \(Fmt.stopwatch(max(0, Int(phase.closesAt.timeIntervalSince(now)))))")
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Palette.textMuted)
+                    .monospacedDigit()
+                }
+                .padding(.top, 6)
+
                 HStack {
                     Text("8 h efectivas + 1 h comida")
                     Spacer()
