@@ -32,9 +32,9 @@ enum DORITripOfferVisionReader {
         }
         let fare = firstNumber(matching: #"\$\s*([0-9]+(?:[.,][0-9]+)?)"#, in: joined)
         let pickupMinutes = firstNumber(matching: #"(?i)recogida\s*:\s*([0-9]+(?:[.,][0-9]+)?)\s*min"#, in: joined)
-        let pickupKm = firstNumber(matching: #"(?i)recogida\s*:[^·|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
+        let pickupKm = firstNumber(matching: #"(?i)recogida\s*:[^|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
         let tripMinutes = firstNumber(matching: #"(?i)viaje\s*:\s*([0-9]+(?:[.,][0-9]+)?)\s*min"#, in: joined)
-        let tripKm = firstNumber(matching: #"(?i)viaje\s*:[^·|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
+        let tripKm = firstNumber(matching: #"(?i)viaje\s*:[^|\n]*?([0-9]+(?:[.,][0-9]+)?)\s*km"#, in: joined)
         let rating = firstNumber(matching: #"(?i)rating\s*:\s*([0-9]+(?:[.,][0-9]+)?)"#, in: joined)
         let confidence: [String: Double] = [
             "product": product == .unsupported ? 0.95 : 0.9,
