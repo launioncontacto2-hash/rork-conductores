@@ -76,6 +76,24 @@ jobs:
           test -n "$TEST_SUPABASE_PUBLISHABLE_KEY" || { echo "Missing TEST_SUPABASE_PUBLISHABLE_KEY" >&2; exit 1; }
           [[ "$TEST_SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || { echo "TEST_SUPABASE_PUBLISHABLE_KEY is not a publishable client key" >&2; exit 1; }
           echo "UBER TEST CONFIG INPUTS — PASS"
+      - name: Supabase Auth URL and reachability smoke
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          auth_url="${TEST_SUPABASE_URL%/}/auth/v1/token?grant_type=password"
+          response_file="$RUNNER_TEMP/uber-test-auth-smoke.json"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            -X POST "$auth_url" \
+            -H "apikey: $TEST_SUPABASE_PUBLISHABLE_KEY" \
+            -H 'Content-Type: application/json' \
+            --data '{"email":"uber-test-invalid@example.invalid","password":"deliberately-invalid"}')"
+          test "$status" = "400" || { echo "Expected Supabase Auth invalid-credentials response 400, got $status" >&2; cat "$response_file"; exit 1; }
+          grep -Eq 'invalid_credentials|Invalid login credentials' "$response_file" || { echo 'Supabase Auth smoke did not return a credential error' >&2; cat "$response_file"; exit 1; }
+          echo "AUTH URL — PASS"
+          echo "PUBLISHABLE KEY — PASS"
+          echo "SUPABASE AUTH REACHABLE — PASS"
       - name: Archive
         env:
           TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}

@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const offer = (id) => ({ id, service: "UberX", fare: 120, currency: "MXN", pickup: "Centro", pickupDistanceKm: 1.2, tripDurationMinutes: 20, tripDistanceKm: 8, riderRating: 4.9, expiresAfterSeconds: 15 });
 const batch = (count = 3) => ({ id: "batch-1", environment: "TEST", offers: Array.from({ length: count }, (_, i) => offer(`offer-${i + 1}`)) });
@@ -15,6 +17,18 @@ function receive(state, incoming) {
   state.batches.add(incoming.id); incoming.offers.forEach((item) => state.offers.add(item.id)); state.current = incoming.offers; state.index = 0;
 }
 function finish(state, outcome) { const item = state.current[state.index++]; state.results.push({ id: item.id, outcome }); return item; }
+
+test("builds the Supabase Auth URL with a real query item", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "UberTestApp", "UberTestApp.swift"), "utf8");
+  assert.match(source, /appendingPathComponent\("auth\/v1\/token"\)/);
+  assert.match(source, /URLQueryItem\(name: "grant_type", value: "password"\)/);
+  assert.doesNotMatch(source, /appendingPathComponent\("auth\/v1\/token\?grant_type=password"\)/);
+  const url = new URL("https://yyxzuiantrmoyozetswv.supabase.co/auth/v1/token");
+  url.searchParams.set("grant_type", "password");
+  assert.equal(url.toString(), "https://yyxzuiantrmoyozetswv.supabase.co/auth/v1/token?grant_type=password");
+  assert.ok(url.toString().endsWith("/auth/v1/token?grant_type=password"));
+  assert.equal(url.toString().includes("token%3Fgrant_type"), false);
+});
 
 test("accept, discard and expiry advance FIFO", () => {
   const state = { batches: new Set(), offers: new Set(), current: [], index: 0, results: [] };

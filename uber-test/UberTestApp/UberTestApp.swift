@@ -17,7 +17,8 @@ final class UberTestAuth: ObservableObject {
     }
     func signIn(email: String, password: String) async {
         guard let baseURL, let publishableKey, !publishableKey.isEmpty else { errorMessage = "Configuración TEST incompleta."; return }
-        var request = URLRequest(url: baseURL.appendingPathComponent("auth/v1/token?grant_type=password")); request.httpMethod = "POST"
+        guard let authURL = Self.authURL(baseURL: baseURL) else { errorMessage = AuthFailure.network.message; return }
+        var request = URLRequest(url: authURL); request.httpMethod = "POST"
         request.setValue(publishableKey, forHTTPHeaderField: "apikey"); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email, "password": password])
         do {
@@ -40,6 +41,11 @@ final class UberTestAuth: ObservableObject {
         } catch {
             errorMessage = AuthFailure.network.message
         }
+    }
+    static func authURL(baseURL: URL) -> URL? {
+        var components = URLComponents(url: baseURL.appendingPathComponent("auth/v1/token"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "grant_type", value: "password")]
+        return components?.url
     }
     private enum AuthFailure: Error {
         case invalidCredentials
