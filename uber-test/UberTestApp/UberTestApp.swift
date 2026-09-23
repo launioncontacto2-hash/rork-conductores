@@ -13,8 +13,9 @@ final class UberTestAuth: ObservableObject {
     init() {
         baseURL = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String).flatMap(URL.init(string:))
         publishableKey = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String
-        isSignedIn = Self.read(account: "access-token", service: service) != nil
+        isSignedIn = false
     }
+    func restoreSession() async { isSignedIn = await UberTestSession.shared.validToken() != nil }
     func signIn(email: String, password: String) async {
         guard let baseURL, let publishableKey, !publishableKey.isEmpty else { errorMessage = "Configuración TEST incompleta."; return }
         guard let authURL = Self.authURL(baseURL: baseURL) else { errorMessage = AuthFailure.network.message; return }
@@ -32,8 +33,7 @@ final class UberTestAuth: ObservableObject {
                 throw AuthFailure.http(http.statusCode)
             }
             let payload = try JSONDecoder().decode(AuthPayload.self, from: data)
-            Self.write(payload.accessToken, account: "access-token", service: service)
-            Self.write(payload.refreshToken, account: "refresh-token", service: service)
+            await UberTestSession.shared.save(accessToken: payload.accessToken, refreshToken: payload.refreshToken)
             errorMessage = nil
             isSignedIn = true
         } catch let failure as AuthFailure {
@@ -61,14 +61,46 @@ final class UberTestAuth: ObservableObject {
     }
     private struct AuthPayload: Decodable { let accessToken: String; let refreshToken: String; enum CodingKeys: String, CodingKey { case accessToken = "access_token"; case refreshToken = "refresh_token" } }
     private struct AuthErrorPayload: Decodable { let errorCode: String?; enum CodingKeys: String, CodingKey { case errorCode = "error_code" } }
-    private static func read(account: String, service: String) -> String? { var item: CFTypeRef?; let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]; guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }; return String(data: data, encoding: .utf8) }
-    private static func write(_ value: String, account: String, service: String) { let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account]; SecItemDelete(query as CFDictionary); SecItemAdd(query.merging([kSecValueData as String:Data(value.utf8)]) { _, new in new } as CFDictionary, nil) }
+    fileprivate static func read(account: String, service: String) -> String? { var item: CFTypeRef?; let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]; guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }; return String(data: data, encoding: .utf8) }
+    fileprivate static func write(_ value: String, account: String, service: String) { let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account]; SecItemDelete(query as CFDictionary); SecItemAdd(query.merging([kSecValueData as String:Data(value.utf8)]) { _, new in new } as CFDictionary, nil) }
+}
+
+private actor UberTestSession {
+    static let shared = UberTestSession()
+    private let baseURL = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String).flatMap(URL.init(string:))
+    private let publishableKey = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String
+    private var refreshTask: Task<String?, Never>?
+    func save(accessToken: String, refreshToken: String) { Self.write(accessToken, account: "access-token"); Self.write(refreshToken, account: "refresh-token") }
+    func validToken(force: Bool = false) async -> String? {
+        if !force, let token = Self.read(account: "access-token"), let exp = Self.expiration(token), exp > Date().addingTimeInterval(60) { return token }
+        guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else { return nil }
+        if let refreshTask { return await refreshTask.value }
+        let task = Task { Self.refresh(baseURL: baseURL, key: publishableKey, token: refresh) }
+        refreshTask = task
+        let token = await task.value
+        refreshTask = nil
+        if let token { return token }
+        Self.clear(account: "access-token"); Self.clear(account: "refresh-token"); return nil
+    }
+    private static func refresh(baseURL: URL, key: String, token: String) async -> String? {
+        var c = URLComponents(url: baseURL.appendingPathComponent("auth/v1/token"), resolvingAgainstBaseURL: false); c?.queryItems = [URLQueryItem(name: "grant_type", value: "refresh_token")]
+        guard let url = c?.url else { return nil }
+        var request = URLRequest(url: url); request.httpMethod = "POST"; request.setValue(key, forHTTPHeaderField: "apikey"); request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": token])
+        guard let (data, response) = try? await URLSession.shared.data(for: request), let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
+        write(payload.accessToken, account: "access-token"); write(payload.refreshToken, account: "refresh-token"); return payload.accessToken
+    }
+    private struct Payload: Decodable { let accessToken: String; let refreshToken: String; enum CodingKeys: String, CodingKey { case accessToken = "access_token"; case refreshToken = "refresh_token" } }
+    private static func expiration(_ token: String) -> Date? { let p = token.split(separator: "."); guard p.count == 3 else { return nil }; var s = String(p[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/"); s += String(repeating: "=", count: (4 - s.count % 4) % 4); guard let d = Data(base64Encoded: s), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let e = o["exp"] as? TimeInterval else { return nil }; return Date(timeIntervalSince1970: e) }
+    private static func read(account: String) -> String? { UberTestAuth.read(account: account, service: "uber.test.auth") }
+    private static func write(_ value: String, account: String) { UberTestAuth.write(value, account: account, service: "uber.test.auth") }
+    private static func clear(account: String) { let q: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"uber.test.auth",kSecAttrAccount as String:account]; SecItemDelete(q as CFDictionary) }
 }
 
 private struct UberTestRuntimeConfiguration {
     let resultURL: URL?
     let batchURL: URL?
     let accessToken: @Sendable () async -> String?
+    let refreshAccessToken: @Sendable () async -> String?
 
     init() {
         let configuredURL = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String
@@ -76,19 +108,8 @@ private struct UberTestRuntimeConfiguration {
         let base = (configuredURL ?? legacyURL).flatMap(URL.init(string:))
         resultURL = base?.appendingPathComponent("functions/v1/uber-test-result")
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
-        accessToken = {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: "uber.test.auth",
-                kSecAttrAccount as String: "access-token",
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-            ]
-            var item: CFTypeRef?
-            guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-                  let data = item as? Data else { return nil }
-            return String(data: data, encoding: .utf8)
-        }
+        accessToken = { await UberTestSession.shared.validToken() }
+        refreshAccessToken = { await UberTestSession.shared.validToken(force: true) }
     }
 }
 
@@ -123,7 +144,7 @@ struct UberTestApp: App {
     init() {
         let runtime = UberTestRuntimeConfiguration()
         self.runtime = runtime
-        let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken) }
+        let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken) }
         _store = StateObject(wrappedValue: UberTestStore(resultSink: sink))
     }
 
@@ -131,11 +152,13 @@ struct UberTestApp: App {
         WindowGroup {
             Group { if auth.isSignedIn { UberTestOfferView(store: store) } else { UberTestLoginView(auth: auth) } }
                 .task(id: auth.isSignedIn) {
+                    if !auth.isSignedIn { await auth.restoreSession() }
                     guard auth.isSignedIn else { return }
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
-                        await store.recover(using: UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken))
-                        await store.startForegroundRecovery(using: UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken))
+                        let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken)
+                        await store.recover(using: client)
+                        await store.startForegroundRecovery(using: client)
                     }
                 }
         }
