@@ -412,8 +412,8 @@ struct BackendDriverFinanceView: View {
 
         return VStack(alignment: .leading, spacing: 10) {
             SupSectionHeader(title: "Productos y periodos", subtitle: "Estado de contratos TEST")
-            DetailRow(label: "Resumen mes", value: "(value.incomes.count) ingresos · (Fmt.mxn(income))", tone: Palette.info)
-            DetailRow(label: "Resumen semana", value: "(value.cashCharges.count) cargos · (Fmt.mxn(charges))", tone: Palette.amber)
+            DetailRow(label: "Resumen mes", value: "\(value.incomes.count) ingresos · \(Fmt.mxn(income))", tone: Palette.info)
+            DetailRow(label: "Resumen semana", value: "\(value.cashCharges.count) cargos · \(Fmt.mxn(charges))", tone: Palette.amber)
             statusRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette")
             statusRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark")
             statusRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote")
