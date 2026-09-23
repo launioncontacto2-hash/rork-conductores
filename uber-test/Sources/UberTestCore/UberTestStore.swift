@@ -32,8 +32,9 @@ public final class UberTestStore: ObservableObject {
             self?.receive(batch)
         }
         NotificationCenter.default.addObserver(forName: Notification.Name("UIApplication.willEnterForegroundNotification"), object: nil, queue: .main) { [weak self] _ in
-            guard let self, self.queue.current != nil else { return }
-            self.startTimer(resetDeadline: false)
+            guard let self else { return }
+            if self.queue.current != nil { self.startTimer(resetDeadline: false) }
+            Task { [weak self] in await self?.flushPendingResults() }
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
