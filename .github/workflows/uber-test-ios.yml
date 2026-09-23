@@ -65,6 +65,17 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH"
           security default-keychain -s "$KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+      - name: Validate UBER TEST embedded configuration inputs
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$TEST_SUPABASE_URL" || { echo "Missing TEST_SUPABASE_URL" >&2; exit 1; }
+          test "$TEST_SUPABASE_URL" = "https://yyxzuiantrmoyozetswv.supabase.co" || { echo "Unexpected TEST_SUPABASE_URL" >&2; exit 1; }
+          test -n "$TEST_SUPABASE_PUBLISHABLE_KEY" || { echo "Missing TEST_SUPABASE_PUBLISHABLE_KEY" >&2; exit 1; }
+          [[ "$TEST_SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || { echo "TEST_SUPABASE_PUBLISHABLE_KEY is not a publishable client key" >&2; exit 1; }
+          echo "UBER TEST CONFIG INPUTS — PASS"
       - name: Archive
         env:
           TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
@@ -77,6 +88,20 @@ jobs:
           AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
           xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" INFOPLIST_KEY_UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" INFOPLIST_KEY_UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" DEVELOPMENT_TEAM=H9S3662NMB CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="UBER Test App Store Push v2" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" archive
+      - name: Inspect archived embedded configuration
+        env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          APP_PLIST="$RUNNER_TEMP/UberTest.xcarchive/Products/Applications/UberTest.app/Info.plist"
+          test -f "$APP_PLIST" || { echo "Archived UBER Test Info.plist missing" >&2; exit 1; }
+          embedded_url=$(/usr/libexec/PlistBuddy -c 'Print :UBER_TEST_SUPABASE_URL' "$APP_PLIST")
+          embedded_key=$(/usr/libexec/PlistBuddy -c 'Print :UBER_TEST_SUPABASE_PUBLISHABLE_KEY' "$APP_PLIST")
+          test -n "$embedded_url" && test -n "$embedded_key" || { echo "UBER TEST embedded configuration is empty" >&2; exit 1; }
+          test "$embedded_url" = "$TEST_SUPABASE_URL" || { echo "Archived URL does not match TEST URL" >&2; exit 1; }
+          test "$embedded_key" = "$TEST_SUPABASE_PUBLISHABLE_KEY" || { echo "Archived publishable key does not match TEST key" >&2; exit 1; }
+          echo "UBER TEST EMBEDDED CONFIG — PASS"
       - name: Export IPA
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}

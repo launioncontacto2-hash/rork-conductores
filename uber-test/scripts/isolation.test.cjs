@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const root = path.resolve(__dirname, "..");
 const migration = fs.readFileSync(path.resolve(root, "..", "supabase", "migrations", "20260923063241_uber_test_offer_batches.sql"), "utf8");
+const iosWorkflow = fs.readFileSync(path.resolve(root, "..", ".github", "workflows", "uber-test-ios.yml"), "utf8");
 const sourceFiles = [
   path.join(root, "Sources", "UberTestCore", "OfferBatch.swift"),
   path.join(root, "Sources", "UberTestCore", "UberTestStore.swift"),
@@ -28,4 +29,11 @@ test("recovery RPC emits the public camelCase offer contract", () => {
     assert.match(migration, new RegExp(`'${field}'`));
   }
   assert.match(migration, /driver_get_uber_test_batch/);
+});
+
+test("iOS distribution requires and verifies TEST embedded configuration", () => {
+  assert.match(iosWorkflow, /Missing TEST_SUPABASE_URL/);
+  assert.match(iosWorkflow, /Missing TEST_SUPABASE_PUBLISHABLE_KEY/);
+  assert.match(iosWorkflow, /UBER TEST EMBEDDED CONFIG — PASS/);
+  assert.match(iosWorkflow, /PlistBuddy/);
 });
