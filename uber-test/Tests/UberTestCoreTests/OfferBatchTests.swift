@@ -16,7 +16,7 @@ final class OfferBatchTests: XCTestCase {
         XCTAssertTrue(queue.isWaiting); XCTAssertEqual(queue.results.count, 3)
     }
     func testRejectsMoreThanTenAndProduction() {
-        XCTAssertThrowsError(try UberTestOfferBatch(id: "too-many", offers: (0..<11).map(offer)))
+        XCTAssertThrowsError(try UberTestOfferBatch(id: "too-many", offers: (0..<11).map { offer($0) }))
         XCTAssertThrowsError(try UberTestOfferBatch(id: "prod", environment: "PRODUCTION", offers: [offer(1)]))
     }
     func testDeduplicatesBatchAndOffers() throws {
@@ -33,7 +33,7 @@ final class OfferBatchTests: XCTestCase {
     }
     func testTenConsecutiveOffers() throws {
         var queue = UberTestQueue()
-        try queue.receive(try UberTestOfferBatch(id: "ten", offers: (0..<10).map(offer)))
+        try queue.receive(try UberTestOfferBatch(id: "ten", offers: (0..<10).map { offer($0) }))
         for _ in 0..<10 { XCTAssertNotNil(queue.finishCurrent(as: .accepted)) }
         XCTAssertTrue(queue.isWaiting)
     }

@@ -71,9 +71,11 @@ public final class UberTestStore: ObservableObject {
         remainingSeconds = max(0, Int(ceil((deadline ?? .now).timeIntervalSinceNow)))
         alertSound.playOfferAlert()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.remainingSeconds = max(0, Int(ceil((self.deadline ?? .now).timeIntervalSinceNow)))
-            if self.remainingSeconds == 0 { self.timer?.invalidate(); self.finish(.expired) }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.remainingSeconds = max(0, Int(ceil((self.deadline ?? .now).timeIntervalSinceNow)))
+                if self.remainingSeconds == 0 { self.timer?.invalidate(); self.finish(.expired) }
+            }
         }
     }
     deinit { timer?.invalidate() }
