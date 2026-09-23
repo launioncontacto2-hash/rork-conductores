@@ -53,11 +53,6 @@ struct GoalsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     SessionMenuButton()
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text("\(store.driver.group.label) · \(store.driver.slot.label)")
-                        .font(.system(.caption2, weight: .semibold))
-                        .foregroundStyle(Palette.textMuted)
-                }
             }
             .fullScreenCover(isPresented: $isIncomePresented) {
                 if store.usesBackendFinancialCycle {
