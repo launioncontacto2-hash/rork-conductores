@@ -5,6 +5,37 @@ import AudioToolbox
 import UIKit
 
 @MainActor
+final class DORICopilotPushCoordinator {
+    static let shared = DORICopilotPushCoordinator()
+    private var deviceToken: String?
+    private let bundleID = Bundle.main.bundleIdentifier ?? "com.turnoev.mobility"
+
+    func receivedDeviceToken(_ data: Data) {
+        deviceToken = data.map { String(format: "%02x", $0) }.joined()
+        Task { await registerIfReady() }
+    }
+
+    func receivedNotification(_ userInfo: [AnyHashable: Any]) {
+        guard let dori = userInfo["dori"] as? [String: Any], let offerID = dori["offerId"] as? String else { return }
+        NotificationCenter.default.post(name: .doriCopilotOfferReceived, object: nil, userInfo: ["offerId": offerID, "payload": dori])
+    }
+
+    private func registerIfReady() async {
+        guard let token = deviceToken, let client = SupabaseBridge.client else { return }
+        struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
+        do {
+            try await client.rpc("register_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute()
+        } catch {
+            // Registration is best-effort while the TEST session is being restored.
+        }
+    }
+}
+
+extension Notification.Name {
+    static let doriCopilotOfferReceived = Notification.Name("dori.copilot.offer.received")
+}
+
+@MainActor
 @Observable
 final class DORICopilotInbox {
     let store: DORICopilotStore

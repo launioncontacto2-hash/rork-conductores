@@ -24,7 +24,9 @@ Deno.serve(async (request) => {
   try { body = await request.json(); } catch { return json(400, { error: "invalid_json" }); }
   if (typeof body.offerId !== "string" || typeof body.idempotencyKey !== "string") return json(400, { error: "offer_id_and_idempotency_key_required" });
   const admin = createClient(url, serviceRole, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: context, error: contextError } = await admin.rpc("resolve_uber_test_dori_context", { p_offer_id: body.offerId });
+  // Resolve with the caller's JWT so app.auth_profile_id() remains the
+  // conductor identity. The service client is reserved for backend writes.
+  const { data: context, error: contextError } = await caller.rpc("resolve_uber_test_dori_context", { p_offer_id: body.offerId });
   if (contextError) return json(contextError.code === "PGRST116" ? 404 : 422, { error: "context_resolution_failed" });
   if (!context || context.status !== "ready") return json(200, { status: context?.status ?? "context_missing", reason: context?.reason ?? null, offerId: body.offerId });
   const input = context.input;
@@ -45,5 +47,14 @@ Deno.serve(async (request) => {
   const bodyText = `${recommendation === "RECOMENDADO" ? "TOMAR" : "NO TOMAR"} · $${effectivePerKm.toFixed(2)}/km · $${effectivePerHour.toFixed(0)}/h`;
   const { error: notificationError } = await admin.from("dori_copilot_notifications").upsert({ environment_id: context.environment_id, profile_id: input.driver.driverId, offer_id: body.offerId, recommendation, body: bodyText, payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour }, status: "pending" }, { onConflict: "offer_id" });
   if (notificationError) return json(500, { error: "notification_enqueue_failed" });
-  return json(201, { status: "evaluated", offerId: body.offerId, event: stored, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour, notification: "pending" });
+  let notificationDispatch = "pending";
+  const dispatchSecret = Deno.env.get("PUSH_DISPATCH_SECRET");
+  if (dispatchSecret) {
+    const dispatchResponse = await fetch(`${url}/functions/v1/dori-copilot-push`, {
+      method: "POST",
+      headers: { Authorization: authorization, apikey: anon, "x-push-dispatch-secret": dispatchSecret },
+    });
+    notificationDispatch = dispatchResponse.ok ? "attempted" : "pending";
+  }
+  return json(201, { status: "evaluated", offerId: body.offerId, event: stored, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour, notification: "pending", notificationDispatch });
 });

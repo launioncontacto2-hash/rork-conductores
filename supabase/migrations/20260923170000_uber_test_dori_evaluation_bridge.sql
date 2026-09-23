@@ -50,7 +50,6 @@ declare
   p public.dori_copilot_test_vehicle_parameters%rowtype;
   r public.shift_readings%rowtype;
   tz text;
-  now_local timestamptz;
   battery numeric;
   input jsonb;
 begin
@@ -68,14 +67,13 @@ begin
   select * into r from public.shift_readings where shift_id=sh.id order by captured_at desc, id desc limit 1;
   battery := coalesce(r.battery_pct, v.battery_pct, sh.start_battery_pct);
   tz := (select timezone from public.stations where id=sh.station_id and environment_id=sh.environment_id);
-  now_local := now() at time zone coalesce(tz,'America/Mexico_City');
   if o.service not in ('UberX','Uber Comfort') then return jsonb_build_object('status','unsupported','reason','service'); end if;
   if o.pickup_minutes is null or o.destination_to_station_km is null or o.destination_value is null then
     return jsonb_build_object('status','context_missing','reason','offer_metadata');
   end if;
   input := jsonb_build_object(
     'trip', jsonb_build_object('fare',o.fare_mxn,'pickupMinutes',o.pickup_minutes,'pickupKm',o.pickup_distance_km,'tripMinutes',o.trip_duration_minutes,'tripKm',o.trip_distance_km,'origin',o.pickup,'destination','TEST','timestamp',now()::text,'service',o.service),
-    'market', jsonb_build_object('now',now()::text,'hour',extract(hour from now_local)::int,'weekday',extract(isodow from now_local)::int,'originZone',o.pickup,'destinationZone','TEST','demand','automatic','historicalDemand',null,'forecastDemand',null,'nextWaitMinutes',null,'destinationValue',o.destination_value,'repositionKm',0,'repositionMinutes',0,'traffic',jsonb_build_object(),'events',jsonb_build_object(),'weather',jsonb_build_object()),
+    'market', jsonb_build_object('now',now()::text,'hour',extract(hour from (now() at time zone coalesce(tz,'America/Mexico_City')))::int,'weekday',extract(isodow from (now() at time zone coalesce(tz,'America/Mexico_City')))::int,'originZone',o.pickup,'destinationZone','TEST','demand','automatic','historicalDemand',null,'forecastDemand',null,'nextWaitMinutes',null,'destinationValue',o.destination_value,'repositionKm',0,'repositionMinutes',0,'traffic',jsonb_build_object(),'events',jsonb_build_object(),'weather',jsonb_build_object()),
     'vehicle', jsonb_build_object('vehicleId',v.id,'batteryPercent',battery,'rangeKm',p.full_charge_range_km*battery/100,'consumptionKwhPerKm',p.consumption_kwh_per_km,'energyCostPerKm',p.energy_cost_per_km,'odometerKm',coalesce(r.odometer_km,v.odometer_km,sh.start_odometer_km),'distanceToStationKm',p.distance_to_station_km,'destinationToStationKm',o.destination_to_station_km,'requiredReturnAt',sh.scheduled_end_at::text),
     'driver', jsonb_build_object('driverId',d.profile_id,'shiftStart',sh.started_at::text,'shiftEnd',sh.scheduled_end_at::text,'remainingMinutes',greatest(0,extract(epoch from (sh.scheduled_end_at-now()))/60),'connectedMinutes',greatest(0,extract(epoch from (now()-sh.started_at))/60),'accumulatedIncome',coalesce((select sum(i.amount_mxn) from public.incomes i where i.shift_id=sh.id),0),'completedTrips',coalesce((select sum(i.trips) from public.incomes i where i.shift_id=sh.id),0)),
     'source','historical');

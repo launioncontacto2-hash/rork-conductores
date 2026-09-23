@@ -157,12 +157,14 @@ final class AcquisitionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
         UNUserNotificationCenter.current().delegate = self
         if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
             Task { @MainActor in AcquisitionPushCoordinator.shared.receivedNotification(remote) }
+            Task { @MainActor in DORICopilotPushCoordinator.shared.receivedNotification(remote) }
         }
         return true
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in AcquisitionPushCoordinator.shared.receivedDeviceToken(deviceToken) }
+        Task { @MainActor in DORICopilotPushCoordinator.shared.receivedDeviceToken(deviceToken) }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
@@ -181,7 +183,10 @@ final class AcquisitionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
         didReceive response: UNNotificationResponse
     ) async {
         await MainActor.run {
-            AcquisitionPushCoordinator.shared.receivedNotification(
+        AcquisitionPushCoordinator.shared.receivedNotification(
+                response.notification.request.content.userInfo
+            )
+            DORICopilotPushCoordinator.shared.receivedNotification(
                 response.notification.request.content.userInfo
             )
         }

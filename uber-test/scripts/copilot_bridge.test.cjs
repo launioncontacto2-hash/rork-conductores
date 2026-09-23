@@ -8,6 +8,11 @@ const migration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '202
 const edge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-copilot-evaluate', 'index.ts'), 'utf8');
 const push = fs.readFileSync(path.join(root, 'supabase', 'functions', 'dori-copilot-push', 'index.ts'), 'utf8');
 const deployWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'uber-test-backend-deploy.yml'), 'utf8');
+const nextEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-next', 'index.ts'), 'utf8');
+const resultEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-result', 'index.ts'), 'utf8');
+const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-test-uber-dori-parameters.sql'), 'utf8');
+const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
+const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
   assert.match(migration, /pickup_minutes/);
@@ -40,4 +45,24 @@ test('TEST deployment workflow includes the evaluation and push functions', () =
   assert.match(deployWorkflow, /supabase functions deploy uber-test-copilot-evaluate/);
   assert.match(deployWorkflow, /supabase functions deploy dori-copilot-push/);
   assert.match(deployWorkflow, /yyxzuiantrmoyozetswv/);
+});
+
+test('presentation and outcomes invoke the evaluator with offer-scoped idempotency', () => {
+  assert.match(nextEdge, /uber-test-copilot-evaluate/);
+  assert.match(nextEdge, /uber-test-offer-\$\{presented\.offer\.id\}/);
+  assert.match(resultEdge, /next_offer_id/);
+  assert.match(resultEdge, /uber-test-offer-\$\{nextOfferId\}/);
+});
+
+test('context resolution preserves caller identity and TEST parameters are provisioned explicitly', () => {
+  assert.match(edge, /caller\.rpc\("resolve_uber_test_dori_context"/);
+  assert.match(vehicleFixture, /uber-test-v1/);
+  assert.match(vehicleFixture, /where e\.code = 'test'/);
+});
+
+test('DORI app receives the shared APNs token without a competing app delegate', () => {
+  assert.match(doriPushSwift, /class DORICopilotPushCoordinator/);
+  assert.match(doriPushSwift, /register_dori_copilot_push_device/);
+  assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedDeviceToken/);
+  assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
 });

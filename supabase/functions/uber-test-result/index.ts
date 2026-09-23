@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Content-Type": "application/json" };
+const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers });
 
 Deno.serve(async (request) => {
@@ -21,5 +21,12 @@ Deno.serve(async (request) => {
   if (typeof payload.offerId !== "string" || typeof payload.outcome !== "string" || typeof payload.idempotencyKey !== "string") return reply(400, { error: "result_fields_required" });
   const { data, error } = await client.rpc("record_uber_test_result", { p_offer_id: payload.offerId, p_outcome: payload.outcome, p_idempotency_key: payload.idempotencyKey });
   if (error) return reply(error.code === "42501" ? 403 : error.code === "23505" ? 409 : 422, { error: error.message });
-  return reply(201, { result: data });
+  let evaluation: unknown = null;
+  const nextOfferId = data?.next_offer_id;
+  if (typeof nextOfferId === "string") {
+    const evaluator = `${url}/functions/v1/uber-test-copilot-evaluate`;
+    const response = await fetch(evaluator, { method: "POST", headers: { Authorization: authorization, apikey: anon, "Content-Type": "application/json" }, body: JSON.stringify({ offerId: nextOfferId, idempotencyKey: `uber-test-offer-${nextOfferId}` }) });
+    evaluation = await response.json().catch(() => null);
+  }
+  return reply(201, { result: data, nextEvaluation: evaluation });
 });
