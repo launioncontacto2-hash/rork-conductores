@@ -42,3 +42,4 @@ jobs:
         run: |
           test -f dist/index.html
           echo "Cloudflare Pages TEST deployment is provided by the existing Git integration."
+          echo "Preview branch is enabled for the isolated UBER Test console branch."
