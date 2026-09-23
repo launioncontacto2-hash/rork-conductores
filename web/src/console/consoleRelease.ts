@@ -1,6 +1,7 @@
 export const RELEASE_FALLBACK = "Pendiente de despliegue";
 
 export interface ReleaseBuildInputs {
+  build?: string;
   sourceBranch?: string;
   sourceSha?: string;
   deploymentUrl?: string;
@@ -31,6 +32,7 @@ export const resolveReleaseBuildMetadata = (inputs: ReleaseBuildInputs) => {
 };
 
 const injected = {
+  build: import.meta.env.VITE_DORI_CONSOLE_BUILD,
   sourceBranch: import.meta.env.VITE_DORI_CONSOLE_SOURCE_BRANCH,
   sourceSha: import.meta.env.VITE_DORI_CONSOLE_SOURCE_SHA,
   deploymentUrl: import.meta.env.VITE_DORI_CONSOLE_DEPLOYMENT_URL,
@@ -41,11 +43,11 @@ const injected = {
 
 export const CONSOLE_RELEASE = {
   version: "1.0.0",
-  build: "1001",
+  build: injected.build?.trim() || "1002",
   validationStatus: "CANDIDATE",
   lifecycle: "ACTIVE",
   environment: "TEST",
-  previousBuild: "Ninguno — baseline inicial",
+  previousBuild: "1.0.0 (1001) — REJECTED / SUPERSEDED",
   backendBaseline: "TEST · yyxzuiantrmoyozetswv",
   rollbackCompatibility: "REQUIRES REVIEW",
   changeSummary: "Recuperación de alta de unidades TEST; preservación de Asignar unidad; homologación visual del login mediante video aprobado; versionado formal de Consola.",

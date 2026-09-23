@@ -32,6 +32,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { ConsoleReleaseDialog } from "@/console/ConsoleReleaseDialog";
+import { ConsoleReleaseStatus } from "@/console/ConsoleReleaseStatus";
 
 interface StationLive {
   active_shifts: number;
@@ -560,6 +561,7 @@ const OperationsConsole = () => {
               </Badge>
             </div>
             <h1 className="mt-3 text-2xl font-black tracking-tight md:text-3xl">Consola DORI</h1>
+            <ConsoleReleaseStatus />
             <p className="mt-1 text-sm text-muted-foreground">
               {identity.station_name} · {identity.station_code} · {identity.display_name}
             </p>
