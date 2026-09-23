@@ -96,6 +96,9 @@ struct GoalsView: View {
             .custom("goals.telemetry", "Recorrido y batería del turno", kind: .kpi) {
                 shiftTelemetrySection(reference: reference)
             },
+            .custom("goals.hours", "Mejores horas", kind: .chart) {
+                bestHoursSection
+            },
             .chart(
                 "goals.weekly",
                 "Avance semanal",
@@ -354,6 +357,45 @@ struct GoalsView: View {
             )
             .font(.caption2)
             .foregroundStyle(Palette.textMuted)
+        }
+        .padding(18)
+        .panel()
+    }
+
+    /// Reference-only demand guide. It is intentionally not an earnings calculation.
+    private var bestHoursSection: some View {
+        let points: [(String, Int, String)] = [
+            ("06", 34, "Baja"), ("09", 58, "Media"), ("12", 76, "Alta"),
+            ("15", 49, "Media"), ("18", 92, "Alta"), ("21", 67, "Media")
+        ]
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Mejores horas", systemImage: "chart.bar.fill")
+                    .font(.system(.caption, weight: .semibold))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                Text("Referencia")
+                    .font(.system(size: 9, weight: .black))
+                    .tracking(1)
+                    .foregroundStyle(Palette.info)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(points, id: \.0) { hour, value, level in
+                    VStack(spacing: 5) {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(level == "Alta" ? Palette.volt : Palette.info.opacity(0.65))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: CGFloat(value) * 0.75)
+                        Text(hour)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Palette.textMuted)
+                    }
+                }
+            }
+            .frame(height: 100, alignment: .bottom)
+            Text("Guía visual de demanda; no modifica tu meta ni calcula ingresos.")
+                .font(.caption2)
+                .foregroundStyle(Palette.textMuted)
         }
         .padding(18)
         .panel()

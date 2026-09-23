@@ -25,6 +25,7 @@ struct BackendDriverFinanceView: View {
     @State private var showsBankForm = false
     @State private var bankName = ""
     @State private var clabe = ""
+    @State private var productNotice: FinanceProductNotice?
 
     @FocusState private var focusedField: Field?
 
@@ -138,6 +139,28 @@ struct BackendDriverFinanceView: View {
                 }
             }
             .task { await refresh() }
+            .sheet(item: $productNotice) { notice in
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.largeTitle)
+                            .foregroundStyle(Palette.info)
+                        Text(notice.title)
+                            .font(.system(.title2, weight: .black))
+                        Text(notice.message)
+                            .foregroundStyle(Palette.textMuted)
+                        Spacer()
+                    }
+                    .padding(24)
+                    .background(StationBackground())
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Cerrar") { productNotice = nil }
+                        }
+                    }
+                }
+                .preferredColorScheme(.dark)
+            }
         }
         .preferredColorScheme(.dark)
     }
@@ -436,12 +459,44 @@ struct BackendDriverFinanceView: View {
             SupSectionHeader(title: "Productos y periodos", subtitle: "Estado de contratos TEST")
             DetailRow(label: "Resumen mes", value: "\(value.incomes.count) ingresos · \(Fmt.mxn(income))", tone: Palette.info)
             DetailRow(label: "Resumen semana", value: "\(value.cashCharges.count) cargos · \(Fmt.mxn(charges))", tone: Palette.amber)
-            statusRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette")
-            statusRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark")
-            statusRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote")
+            productRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette") { productNotice = .bonuses }
+            productRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark") { productNotice = .credit }
+            productRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote") { productNotice = .cash }
         }
         .padding(16)
         .panel()
+    }
+
+    private enum FinanceProductNotice: String, Identifiable {
+        case bonuses, credit, cash
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .bonuses: "Bonos"
+            case .credit: "Crédito automotriz"
+            case .cash: "Efectivo"
+            }
+        }
+        var message: String {
+            switch self {
+            case .bonuses: "La evaluación de bonos vive en Metas. Su cálculo financiero se habilitará cuando exista el contrato remoto correspondiente."
+            case .credit: "El crédito y el abono a capital no están disponibles para esta sesión TEST. No se muestra una simulación ni se crea una solicitud."
+            case .cash: "Depositar a DORI requiere el contrato de evidencia y almacenamiento. Esta versión no simula depósitos."
+            }
+        }
+    }
+
+    private func productRow(title: String, message: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            statusRow(title: title, message: message, symbol: symbol)
+                .overlay(alignment: .trailing) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.textMuted)
+                        .padding(.trailing, 12)
+                }
+        }
+        .buttonStyle(.plain)
     }
 
     private func statusRow(title: String, message: String, symbol: String) -> some View {
