@@ -130,7 +130,7 @@ struct UberTestApp: App {
     var body: some Scene {
         WindowGroup {
             Group { if auth.isSignedIn { UberTestOfferView(store: store) } else { UberTestLoginView(auth: auth) } }
-                .task {
+                .task(id: auth.isSignedIn) {
                     guard auth.isSignedIn else { return }
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
