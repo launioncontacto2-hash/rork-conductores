@@ -73,7 +73,15 @@ jobs:
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
           xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" DEVELOPMENT_TEAM=H9S3662NMB CODE_SIGN_STYLE=Automatic -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" archive
       - name: Export IPA
-        run: xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist uber-test/ExportOptions.plist -exportPath "$RUNNER_TEMP/export"
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
+          echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist uber-test/ExportOptions.plist -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID"
       - name: Upload to TestFlight
         run: |
           set -euo pipefail
