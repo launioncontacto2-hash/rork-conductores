@@ -22,7 +22,8 @@ final class OfferBatchTests: XCTestCase {
     func testDeduplicatesBatchAndOffers() throws {
         var queue = UberTestQueue(); let first = try UberTestOfferBatch(id: "same", offers: [offer(1)])
         try queue.receive(first)
-        XCTAssertThrowsError(try queue.receive(first))
+        XCTAssertNoThrow(try queue.receive(first))
+        XCTAssertEqual(queue.current?.id, "offer-1")
         XCTAssertThrowsError(try queue.receive(try UberTestOfferBatch(id: "other", offers: [offer(1)])))
     }
     func testRecoveryResumesSameBatchAfterPersistedResult() throws {
