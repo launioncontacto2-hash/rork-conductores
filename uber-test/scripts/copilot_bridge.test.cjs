@@ -11,6 +11,7 @@ const deployWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', '
 const nextEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-next', 'index.ts'), 'utf8');
 const resultEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-result', 'index.ts'), 'utf8');
 const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-test-uber-dori-parameters.sql'), 'utf8');
+const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260923170000_uber_test_dori_evaluation_bridge.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 
@@ -52,6 +53,8 @@ test('presentation and outcomes invoke the evaluator with offer-scoped idempoten
   assert.match(nextEdge, /uber-test-offer-\$\{presented\.offer\.id\}/);
   assert.match(resultEdge, /next_offer_id/);
   assert.match(resultEdge, /uber-test-offer-\$\{nextOfferId\}/);
+  assert.match(bridgeMigration, /next_offer_id/);
+  assert.match(bridgeMigration, /not exists\(select 1 from public\.uber_test_offer_results/);
 });
 
 test('context resolution preserves caller identity and TEST parameters are provisioned explicitly', () => {

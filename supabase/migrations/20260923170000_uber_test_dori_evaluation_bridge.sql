@@ -168,3 +168,39 @@ begin
 end; $$;
 revoke all on function public.driver_get_uber_test_batch() from public,anon;
 grant execute on function public.driver_get_uber_test_batch() to authenticated;
+
+-- Return the next offer explicitly so the backend can evaluate it immediately
+-- after an accepted, discarded, or expired result.
+create or replace function public.record_uber_test_result(
+  p_offer_id uuid, p_outcome text, p_idempotency_key text
+) returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, app, auth, pg_temp as $$
+declare
+  v_offer public.uber_test_offers%rowtype;
+  v_result public.uber_test_offer_results%rowtype;
+  v_next uuid;
+begin
+  if p_idempotency_key is null or char_length(btrim(p_idempotency_key)) not between 8 and 200 then raise exception 'idempotency_key_required'; end if;
+  if p_outcome not in ('accepted','discarded','expired') then raise exception 'invalid_uber_test_outcome'; end if;
+  select o.* into strict v_offer
+    from public.uber_test_offers o
+    join public.uber_test_offer_batches b on b.id=o.batch_id
+    join public.driver_profiles d on d.id=b.driver_profile_id
+   where o.id=p_offer_id and d.profile_id=app.auth_profile_id() and b.environment='TEST';
+  insert into public.uber_test_offer_results(batch_id,offer_id,outcome,idempotency_key)
+    values(v_offer.batch_id,v_offer.id,p_outcome,p_idempotency_key)
+    on conflict(idempotency_key) do nothing returning * into v_result;
+  if v_result.id is null then select * into strict v_result from public.uber_test_offer_results where idempotency_key=p_idempotency_key; end if;
+  if (select count(*) from public.uber_test_offers where batch_id=v_offer.batch_id)=(select count(*) from public.uber_test_offer_results where batch_id=v_offer.batch_id) then
+    update public.uber_test_offer_batches set status='completed',completed_at=now() where id=v_offer.batch_id;
+  else
+    update public.uber_test_offer_batches set status='active' where id=v_offer.batch_id;
+    select o.id into v_next from public.uber_test_offers o
+     where o.batch_id=v_offer.batch_id
+       and not exists(select 1 from public.uber_test_offer_results r where r.offer_id=o.id)
+     order by o.sequence_no asc limit 1;
+  end if;
+  return jsonb_build_object('id',v_result.id,'batch_id',v_result.batch_id,'offer_id',v_result.offer_id,'outcome',v_result.outcome,'next_offer_id',v_next);
+end; $$;
+revoke all on function public.record_uber_test_result(uuid,text,text) from public,anon;
+grant execute on function public.record_uber_test_result(uuid,text,text) to authenticated;
