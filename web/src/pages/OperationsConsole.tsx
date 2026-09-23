@@ -8,9 +8,11 @@ import {
   Clock3,
   Images,
   LogOut,
+  Plus,
   Radio,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Users,
   Wrench,
 } from "lucide-react";
@@ -187,6 +189,19 @@ interface ConsoleSnapshot {
   auditEvents: AuditEvent[];
 }
 
+interface UberTestDraftOffer {
+  service: "UberX" | "Uber Comfort";
+  fare: string;
+  pickup: string;
+  pickupDistanceKm: string;
+  tripDurationMinutes: string;
+  tripDistanceKm: string;
+  riderRating: string;
+  expiresAfterSeconds: string;
+}
+
+const emptyUberOffer = (): UberTestDraftOffer => ({ service: "UberX", fare: "240", pickup: "Centro", pickupDistanceKm: "1.2", tripDurationMinutes: "35", tripDistanceKm: "18", riderRating: "4.90", expiresAfterSeconds: "15" });
+
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
   if (result.error) throw new Error(result.error.message);
   return result.data as T;
@@ -246,6 +261,11 @@ const OperationsConsole = () => {
   const [copilotResult, setCopilotResult] = useState<Record<string, unknown> | null>(null);
   const [copilotError, setCopilotError] = useState<string | null>(null);
   const [copilotLoading, setCopilotLoading] = useState(false);
+  const [uberTestDriverId, setUberTestDriverId] = useState("");
+  const [uberTestOffers, setUberTestOffers] = useState<UberTestDraftOffer[]>([emptyUberOffer()]);
+  const [uberTestError, setUberTestError] = useState<string | null>(null);
+  const [uberTestResult, setUberTestResult] = useState<Record<string, unknown> | null>(null);
+  const [uberTestLoading, setUberTestLoading] = useState(false);
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -468,6 +488,29 @@ const OperationsConsole = () => {
     finally { setCopilotLoading(false); }
   };
 
+  const sendUberTestBatch = async () => {
+    if (!supabase || !uberTestDriverId || uberTestOffers.length < 1 || uberTestOffers.length > 10) return;
+    setUberTestLoading(true); setUberTestError(null); setUberTestResult(null);
+    try {
+      const offers = uberTestOffers.map((offer) => ({
+        service: offer.service, fare: Number(offer.fare), currency: "MXN", pickup: offer.pickup,
+        pickupDistanceKm: Number(offer.pickupDistanceKm), tripDurationMinutes: Number(offer.tripDurationMinutes),
+        tripDistanceKm: Number(offer.tripDistanceKm), riderRating: offer.riderRating ? Number(offer.riderRating) : null,
+        expiresAfterSeconds: Number(offer.expiresAfterSeconds),
+      }));
+      if (offers.some((offer) => !Number.isFinite(offer.fare) || !offer.pickup || !Number.isFinite(offer.pickupDistanceKm) || !Number.isFinite(offer.tripDurationMinutes) || !Number.isFinite(offer.tripDistanceKm))) throw new Error("Completa los datos obligatorios de cada oferta.");
+      const { data: response, error } = await supabase.rpc("console_send_uber_test_batch", { p_driver_profile_id: uberTestDriverId, p_offers: offers, p_idempotency_key: `console-uber-test-${crypto.randomUUID()}` });
+      if (error) throw error;
+      const result = (response ?? {}) as Record<string, unknown>;
+      if (result.status === "sent" && typeof result.batch_id === "string") {
+        const { data: copilotDispatch, error: copilotError } = await supabase.functions.invoke("dori-copilot-dispatch", { body: { batchId: result.batch_id } });
+        if (!copilotError && copilotDispatch) result.copilot = copilotDispatch;
+      }
+      setUberTestResult(result);
+    } catch (error) { setUberTestError(error instanceof Error ? error.message : "No se pudo mandar la tanda TEST."); }
+    finally { setUberTestLoading(false); }
+  };
+
   const cards = [
     { label: "Turnos activos", value: data?.live?.active_shifts ?? "—", icon: Activity, tone: "text-primary" },
     { label: "Conductores presentes", value: data?.live?.present_drivers ?? "—", icon: Users, tone: "text-cyan-300" },
@@ -519,6 +562,7 @@ const OperationsConsole = () => {
         <nav className="panel flex gap-2 overflow-x-auto p-2" aria-label="Secciones de Consola DORI">
           {[
             ["#operacion", "Operación"],
+            ["#uber-test", "UBER Test"],
             ["#copiloto", "Copiloto TEST"],
             ["#asignaciones", "Asignaciones"],
             ["#flota", "Flota"],
@@ -532,6 +576,21 @@ const OperationsConsole = () => {
             </a>
           ))}
         </nav>
+
+        <Card id="uber-test" className="panel scroll-mt-4 border-amber-400/40">
+          <CardHeader><CardTitle className="text-lg">UBER Test · tanda de viajes</CardTitle><CardDescription>Compón hasta 10 ofertas TEST en el orden en que el receptor las mostrará. Esta acción no ejecuta el motor DORI.</CardDescription></CardHeader>
+          <CardContent className="grid gap-4">
+            <label className="grid max-w-md gap-2 text-sm font-semibold">Conductor TEST<select className="h-11 rounded-md border border-border bg-background px-3 font-normal" value={uberTestDriverId} onChange={(event) => setUberTestDriverId(event.target.value)}><option value="">Seleccionar</option>{data?.drivers.filter((driver) => driver.status === "active").map((driver) => <option key={driver.id} value={driver.id}>{driver.employee_number}</option>)}</select></label>
+            {uberTestOffers.map((offer, index) => <div key={index} className="grid gap-3 rounded-xl border border-border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="flex items-center justify-between sm:col-span-2 lg:col-span-4"><Badge variant="outline">#{index + 1} · orden FIFO</Badge><Button size="sm" variant="ghost" onClick={() => setUberTestOffers((current) => current.length === 1 ? current : current.filter((_, itemIndex) => itemIndex !== index))} disabled={uberTestOffers.length === 1}><Trash2 className="size-4" /> Quitar</Button></div>
+              <label className="grid gap-2 text-sm font-semibold">Servicio<select className="h-10 rounded-md border border-border bg-background px-3 font-normal" value={offer.service} onChange={(event) => setUberTestOffers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, service: event.target.value as UberTestDraftOffer["service"] } : item))}><option>UberX</option><option>Uber Comfort</option></select></label>
+              {(["fare", "pickup", "pickupDistanceKm", "tripDurationMinutes", "tripDistanceKm", "riderRating", "expiresAfterSeconds"] as const).map((field) => <label key={field} className="grid gap-2 text-sm font-semibold">{({ fare: "Tarifa MXN", pickup: "Recogida", pickupDistanceKm: "Recogida km", tripDurationMinutes: "Viaje min", tripDistanceKm: "Viaje km", riderRating: "Rating", expiresAfterSeconds: "Expira segundos" } as Record<string, string>)[field]}<input className="h-10 rounded-md border border-border bg-background px-3 font-normal" type={field === "pickup" ? "text" : "number"} step="any" value={offer[field]} onChange={(event) => setUberTestOffers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: event.target.value } : item))} /></label>)}
+            </div>)}
+            <div className="flex flex-wrap items-center gap-3"><Button variant="outline" onClick={() => setUberTestOffers((current) => current.length < 10 ? [...current, emptyUberOffer()] : current)} disabled={uberTestOffers.length >= 10}><Plus className="size-4" /> Agregar oferta</Button><Button onClick={() => void sendUberTestBatch()} disabled={uberTestLoading || !uberTestDriverId}>{uberTestLoading ? "Mandando…" : "MANDAR TANDA DE VIAJES"}</Button><Badge variant="outline">{uberTestOffers.length}/10 TEST</Badge></div>
+            {uberTestError && <p className="text-sm text-destructive">{uberTestError}</p>}
+            {uberTestResult && <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm"><strong>Tanda enviada:</strong> {String(uberTestResult.batch_id ?? "—")} · {String(uberTestResult.offer_count ?? uberTestOffers.length)} ofertas · estado {String(uberTestResult.status ?? "sent")}<br /><strong>DORI Copiloto:</strong> {String((uberTestResult.copilot as Record<string, unknown> | undefined)?.status ?? "sin despacho: turno cerrado")}</div>}
+          </CardContent>
+        </Card>
 
         <Card id="copiloto" className="panel scroll-mt-4 border-primary/30">
           <CardHeader><CardTitle className="text-lg">DORI Copiloto · laboratorio TEST</CardTitle><CardDescription>Crea casos simulados para comparar EXPECTED contra ACTUAL. No modifica turnos ni eventos live.</CardDescription></CardHeader>

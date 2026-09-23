@@ -416,9 +416,21 @@ enabled = true
 enabled = true
 verify_jwt = true
 import_map = "./functions/dori-copilot-events/deno.json"
+entrypoint = "./functions/dori-copilot-events/index.ts"
+
+[functions.uber-test-result]
+verify_jwt = false
+entrypoint = "./functions/uber-test-result/index.ts"
+
+[functions.dori-copilot-dispatch]
+verify_jwt = false
+entrypoint = "./functions/dori-copilot-dispatch/index.ts"
+
+[functions.uber-test-next]
+verify_jwt = false
+entrypoint = "./functions/uber-test-next/index.ts"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/dori-copilot-events/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/dori-copilot-events/*.html" ]
