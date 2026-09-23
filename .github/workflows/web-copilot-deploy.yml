@@ -3,7 +3,9 @@ name: Web Copilot TEST deployment
 on:
   workflow_dispatch:
   push:
-    branches: [feat/copilot-cross-test-foundation]
+    branches:
+      - feat/copilot-cross-test-foundation
+      - codex/uber-test-console
     paths:
       - 'web/**'
       - '.github/workflows/web-copilot-deploy.yml'
@@ -22,7 +24,7 @@ jobs:
       VITE_SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
       # Publishable key is intentionally public client configuration for TEST.
       VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_kNOz-Pfffc7kY-615uPM1A_Kb1FkL85
-      VITE_DORI_CONSOLE_SOURCE_BRANCH: feat/copilot-cross-test-foundation
+      VITE_DORI_CONSOLE_SOURCE_BRANCH: ${{ github.ref_name }}
       VITE_DORI_CONSOLE_SOURCE_SHA: ${{ github.sha }}
       # Keep the deployed TEST artifact traceable to the Copiloto bridge commit.
       VITE_DORI_COPILOT_BRIDGE_SHA: ${{ github.sha }}
