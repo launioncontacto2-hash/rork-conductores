@@ -17,6 +17,20 @@ struct DORIBrandTests {
     }
 }
 
+/// Canonical conductor-surface invariants. These are intentionally model-level tests:
+/// they prove the prototype exposes the four independent bonus tracks and the five
+/// read-only driver/unit documents without coupling the test target to SwiftUI layout.
+struct DriverCanonicalSurfaceTests {
+    @Test func keepsTheFourIndependentBonusTracks() {
+        #expect(BonusKind.allCases.count == 4)
+        #expect(Set(BonusKind.allCases.map(\.rawValue)).count == 4)
+    }
+
+    @Test func keepsTheFiveDriverAndUnitDocumentKinds() {
+        #expect(DossierDocument.allCases.count == 5)
+    }
+}
+
 struct BackendAuthenticationRoutingTests {
     @Test func acceptsAnInstitutionalEmailForBackendResolution() {
         #expect(BackendAuthenticationRouting.shouldUseBackend(

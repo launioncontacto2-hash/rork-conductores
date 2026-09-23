@@ -295,24 +295,6 @@ struct BonusesView: View {
                 }
             }
 
-            ForEach(evaluation.weeks) { result in
-                if result.status != .upcoming {
-                    HStack(spacing: 8) {
-                        Text("S\(result.week.index)")
-                            .font(.system(size: 10, weight: .black))
-                            .foregroundStyle(color(for: result.status))
-                            .frame(width: 20, alignment: .leading)
-                        Text(result.detail)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.textMuted)
-                        Spacer(minLength: 0)
-                        Text(result.week.rangeLabel)
-                            .font(.system(size: 10))
-                            .foregroundStyle(Palette.textMuted.opacity(0.7))
-                    }
-                }
-            }
-
             Button {
                 withAnimation(.smooth(duration: 0.25)) {
                     if isOpen { expanded.remove(kind.rawValue) } else { expanded.insert(kind.rawValue) }
