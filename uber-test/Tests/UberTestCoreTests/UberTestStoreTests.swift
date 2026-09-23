@@ -1,6 +1,12 @@
 import XCTest
 @testable import UberTestCore
 
+private actor RecordingSink: UberTestResultSink {
+    private(set) var recorded: [UberTestResult] = []
+    func record(_ result: UberTestResult) async throws { recorded.append(result) }
+    func count() -> Int { recorded.count }
+}
+
 @MainActor
 final class UberTestStoreTests: XCTestCase {
     func testAcceptAndDiscardProduceResults() throws {
@@ -28,5 +34,23 @@ final class UberTestStoreTests: XCTestCase {
         XCTAssertEqual(store.queue.results.map(\.outcome), [.expired])
         XCTAssertEqual(store.queue.current?.id, "timer-b")
         XCTAssertGreaterThan(store.remainingSeconds, 0)
+    }
+
+    func testResultIsDeliveredToConfiguredSink() async throws {
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
+        let sink = RecordingSink()
+        let store = UberTestStore(resultSink: sink)
+        store.receive(try UberTestOfferBatch(id: "sink-batch", offers: [UberTestOffer(id: "sink-offer", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4)]))
+        store.accept()
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        let delivered = await sink.count()
+        XCTAssertEqual(delivered, 1)
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
     }
 }
