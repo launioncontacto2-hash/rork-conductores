@@ -5,10 +5,13 @@ on:
   push:
     branches:
       - codex/uber-test-console
+      - feat/copilot-uber-test-bridge
     paths:
       - "supabase/migrations/20260923063241_uber_test_offer_batches.sql"
       - "supabase/functions/uber-test-next/**"
       - "supabase/functions/uber-test-result/**"
+      - "supabase/functions/uber-test-copilot-evaluate/**"
+      - "supabase/functions/dori-copilot-push/**"
       - ".github/workflows/uber-test-backend-deploy.yml"
 
 permissions:
@@ -55,3 +58,5 @@ jobs:
         run: |
           supabase functions deploy uber-test-next --project-ref yyxzuiantrmoyozetswv
           supabase functions deploy uber-test-result --project-ref yyxzuiantrmoyozetswv
+          supabase functions deploy uber-test-copilot-evaluate --project-ref yyxzuiantrmoyozetswv
+          supabase functions deploy dori-copilot-push --project-ref yyxzuiantrmoyozetswv
