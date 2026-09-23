@@ -6,7 +6,7 @@ public struct UberTestHTTPResultSink: UberTestResultSink {
     public let refreshAccessToken: (@Sendable () async -> String?)?
     private let session: URLSession
 
-    public init(functionURL: URL, accessToken: @escaping @Sendable () async -> String?, refreshAccessToken: (@escaping @Sendable () async -> String?)? = nil, session: URLSession = .shared) {
+    public init(functionURL: URL, accessToken: @escaping @Sendable () async -> String?, refreshAccessToken: (@Sendable () async -> String?)? = nil, session: URLSession = .shared) {
         self.functionURL = functionURL; self.accessToken = accessToken; self.refreshAccessToken = refreshAccessToken; self.session = session
     }
     public func record(_ result: UberTestResult) async throws {
