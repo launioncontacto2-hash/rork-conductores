@@ -5,22 +5,30 @@ public protocol UberTestResultSink: Sendable {
     func record(_ result: UberTestResult) async throws
 }
 
+public protocol UberTestCopilotSink: Sendable {
+    func evaluate(_ offer: UberTestOffer, batchId: String) async throws
+}
+
 @MainActor
 public final class UberTestStore: ObservableObject {
     @Published public private(set) var queue = UberTestQueue()
     @Published public private(set) var remainingSeconds = 0
     @Published public private(set) var errorMessage: String?
     public var resultSink: (any UberTestResultSink)?
+    public var copilotSink: (any UberTestCopilotSink)?
     private var timer: Timer?
     private let persistenceKey = "uber.test.pending.queue.v1"
     private let deadlineKey = "uber.test.current.offer.deadline.v1"
     private let pendingResultsKey = "uber.test.pending.results.v1"
+    private let copilotEvaluatedOfferIDsKey = "uber.test.copilot.evaluated-offers.v1"
+    private var copilotEvaluatedOfferIDs: Set<String> = []
     private var deadline: Date?
     private var pendingResults: [UberTestResult] = []
     private let alertSound = UberTestAlertSound()
     private var recoveryTask: Task<Void, Never>?
 
-    public init(resultSink: (any UberTestResultSink)? = nil) {
+    public init(resultSink: (any UberTestResultSink)? = nil, copilotSink: (any UberTestCopilotSink)? = nil) {
+        self.copilotSink = copilotSink
         self.resultSink = resultSink
         if let data = UserDefaults.standard.data(forKey: persistenceKey), let restored = try? UberTestQueue(snapshotData: data) {
             queue = restored
@@ -28,6 +36,7 @@ public final class UberTestStore: ObservableObject {
             if queue.current != nil { startTimer(resetDeadline: deadline == nil) }
         }
         if let data = UserDefaults.standard.data(forKey: pendingResultsKey), let restored = try? JSONDecoder().decode([UberTestResult].self, from: data) { pendingResults = restored }
+        copilotEvaluatedOfferIDs = Set(UserDefaults.standard.stringArray(forKey: copilotEvaluatedOfferIDsKey) ?? [])
         NotificationCenter.default.addObserver(forName: UberTestPushCoordinator.batchNotification, object: nil, queue: .main) { [weak self] notification in
             guard let batch = notification.object as? UberTestOfferBatch else { return }
             self?.receive(batch)
@@ -39,7 +48,17 @@ public final class UberTestStore: ObservableObject {
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
-        do { try queue.receive(batch); persist(); startTimer() } catch { errorMessage = String(describing: error) }
+        do {
+            try queue.receive(batch); persist(); startTimer()
+            if let offer = queue.current, let copilotSink, !copilotEvaluatedOfferIDs.contains(offer.id) {
+                copilotEvaluatedOfferIDs.insert(offer.id)
+                UserDefaults.standard.set(Array(copilotEvaluatedOfferIDs), forKey: copilotEvaluatedOfferIDsKey)
+                Task { [weak self] in
+                    do { try await copilotSink.evaluate(offer, batchId: batch.id) }
+                    catch { await MainActor.run { self?.errorMessage = "No se pudo preparar la evaluación DORI." } }
+                }
+            }
+        } catch { errorMessage = String(describing: error) }
     }
     public func recover(using client: UberTestBatchClient) async {
         await flushPendingResults()

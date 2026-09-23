@@ -7,6 +7,12 @@ private actor RecordingSink: UberTestResultSink {
     func count() -> Int { recorded.count }
 }
 
+private actor CopilotSink: UberTestCopilotSink {
+    private(set) var evaluated: [(String, String)] = []
+    func evaluate(_ offer: UberTestOffer, batchId: String) async throws { evaluated.append((offer.id, batchId)) }
+    func count() -> Int { evaluated.count }
+}
+
 @MainActor
 final class UberTestStoreTests: XCTestCase {
     func testAcceptAndDiscardProduceResults() throws {
@@ -51,6 +57,28 @@ final class UberTestStoreTests: XCTestCase {
         XCTAssertEqual(delivered, 1)
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
+    }
+
+    func testCopilotSinkEvaluatesPresentedOfferOnlyOnce() async throws {
+        UserDefaults.standard.removeObject(forKey: "uber.test.copilot.evaluated-offers.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
+        let sink = CopilotSink()
+        let store = UberTestStore(copilotSink: sink)
+        let batch = try UberTestOfferBatch(id: "copilot-batch", offers: [
+            UberTestOffer(id: "copilot-offer-1", service: "UberX", fare: 120, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 20, tripDistanceKm: 8),
+            UberTestOffer(id: "copilot-offer-2", service: "Uber Comfort", fare: 140, pickup: "B", pickupDistanceKm: 1.2, tripDurationMinutes: 22, tripDistanceKm: 9)
+        ])
+        store.receive(batch)
+        store.receive(batch)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(await sink.count(), 1)
+        store.accept()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(await sink.count(), 2)
+        UserDefaults.standard.removeObject(forKey: "uber.test.copilot.evaluated-offers.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
         UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
     }
 }
