@@ -60,4 +60,34 @@ final class SessionRefreshContractTests: XCTestCase {
         do { try await UberTestHTTPResultSink(functionURL: URL(string: "https://test.invalid/result")!, accessToken: { "expired" }, refreshAccessToken: { "refreshed" }, session: session()).record(.init(batchId: "b", offerId: "o", outcome: .discarded, occurredAt: .now)); XCTFail("expected failure") } catch {}
         XCTAssertEqual(ProtocolStub.authorization.count, 2)
     }
+
+    func testSuccessfulBatchResponseDoesNotCallRefresh() async throws {
+        let refreshes = Counter()
+        _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { "current" }, refreshAccessToken: { await refreshes.increment(); return "new" }, session: session()).loadPendingBatch()
+        let count = await refreshes.read(); XCTAssertEqual(count, 0)
+    }
+
+    func testResultWithout401DoesNotCallRefresh() async throws {
+        let refreshes = Counter()
+        try await UberTestHTTPResultSink(functionURL: URL(string: "https://test.invalid/result")!, accessToken: { "current" }, refreshAccessToken: { await refreshes.increment(); return "new" }, session: session()).record(.init(batchId: "b", offerId: "o", outcome: .expired, occurredAt: .now))
+        let count = await refreshes.read(); XCTAssertEqual(count, 0)
+    }
+
+    func test401WithUnavailableRefreshFailsClosed() async {
+        ProtocolStub.statuses = [401]
+        do { _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { "expired" }, refreshAccessToken: { nil }, session: session()).loadPendingBatch(); XCTFail("expected authentication failure") } catch {}
+        XCTAssertEqual(ProtocolStub.authorization, ["Bearer expired"])
+    }
+
+    func testResultRetryUsesOnlyRefreshedAuthorization() async throws {
+        ProtocolStub.statuses = [401, 200]
+        try await UberTestHTTPResultSink(functionURL: URL(string: "https://test.invalid/result")!, accessToken: { "old" }, refreshAccessToken: { "new" }, session: session()).record(.init(batchId: "b", offerId: "o", outcome: .accepted, occurredAt: .now))
+        XCTAssertEqual(ProtocolStub.authorization, ["Bearer old", "Bearer new"])
+    }
+
+    func testBatchRetryUsesOnlyRefreshedAuthorization() async throws {
+        ProtocolStub.statuses = [401, 200]
+        _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { "old" }, refreshAccessToken: { "new" }, session: session()).loadPendingBatch()
+        XCTAssertEqual(ProtocolStub.authorization, ["Bearer old", "Bearer new"])
+    }
 }
