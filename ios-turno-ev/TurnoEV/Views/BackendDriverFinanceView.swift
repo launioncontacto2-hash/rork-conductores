@@ -140,26 +140,7 @@ struct BackendDriverFinanceView: View {
             }
             .task { await refresh() }
             .sheet(item: $productNotice) { notice in
-                NavigationStack {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.largeTitle)
-                            .foregroundStyle(Palette.info)
-                        Text(notice.title)
-                            .font(.system(.title2, weight: .black))
-                        Text(notice.message)
-                            .foregroundStyle(Palette.textMuted)
-                        Spacer()
-                    }
-                    .padding(24)
-                    .background(StationBackground())
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Cerrar") { productNotice = nil }
-                        }
-                    }
-                }
-                .preferredColorScheme(.dark)
+                FinanceProductDetailView(notice: notice)
             }
         }
         .preferredColorScheme(.dark)
@@ -467,7 +448,7 @@ struct BackendDriverFinanceView: View {
         .panel()
     }
 
-    private enum FinanceProductNotice: String, Identifiable {
+    enum FinanceProductNotice: String, Identifiable {
         case bonuses, credit, cash
         var id: String { rawValue }
         var title: String {
@@ -641,6 +622,99 @@ struct BackendDriverFinanceView: View {
         case "pending", "processing", "authorized": Palette.amber
         case "rejected", "failed", "cancelled": Palette.danger
         default: Palette.info
+        }
+    }
+}
+
+/// Second-layer product surfaces for the backend wallet. These are intentionally
+/// navigable even while a remote contract is pending, but they never fabricate a
+/// balance, approval, transfer, deposit or credit payment.
+private struct FinanceProductDetailView: View {
+    let notice: BackendDriverFinanceView.FinanceProductNotice
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Image(systemName: icon)
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(Palette.info)
+                    Text(notice.title)
+                        .font(.system(.title2, weight: .black))
+                    Text(notice.message)
+                        .foregroundStyle(Palette.textMuted)
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(rows, id: \.title) { row in
+                            HStack(alignment: .top, spacing: 10) {
+                                Image(systemName: row.symbol)
+                                    .foregroundStyle(row.isReady ? Palette.volt : Palette.neutral)
+                                    .frame(width: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.title)
+                                        .font(.system(.footnote, weight: .bold))
+                                    Text(row.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(Palette.textMuted)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(12)
+                            .panelFlat(cornerRadius: 13)
+                        }
+                    }
+                    Button("Cerrar") { dismiss() }
+                        .buttonStyle(.bordered)
+                }
+                .padding(24)
+            }
+            .background(StationBackground())
+            .navigationTitle(notice.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Cerrar") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var icon: String {
+        switch notice {
+        case .bonuses: "rosette"
+        case .credit: "car.side.and.exclamationmark"
+        case .cash: "banknote"
+        }
+    }
+
+    private struct Row {
+        let title: String
+        let detail: String
+        let symbol: String
+        let isReady: Bool
+    }
+
+    private var rows: [Row] {
+        switch notice {
+        case .bonuses:
+            return [
+                Row(title: "Evaluación", detail: "Consulta el detalle operativo en la pestaña Bonos.", symbol: "checkmark.circle", isReady: true),
+                Row(title: "Cálculo financiero", detail: "Pendiente de contrato remoto; no se muestran importes inventados.", symbol: "lock.circle", isReady: false),
+                Row(title: "Recuperación", detail: "Solo se ofrece para bonos realmente perdidos según la regla vigente.", symbol: "arrow.counterclockwise.circle", isReady: true)
+            ]
+        case .credit:
+            return [
+                Row(title: "Contrato", detail: "No disponible para esta sesión TEST.", symbol: "lock.circle", isReady: false),
+                Row(title: "Abono a capital", detail: "No se simula ni se registra ningún pago local.", symbol: "nosign", isReady: false),
+                Row(title: "Siguiente paso", detail: "Requiere contrato remoto de crédito y autorización del backend.", symbol: "arrow.right.circle", isReady: false)
+            ]
+        case .cash:
+            return [
+                Row(title: "Efectivo recibido", detail: "Se muestra únicamente cuando existe un movimiento real en Supabase.", symbol: "banknote", isReady: true),
+                Row(title: "Evidencia", detail: "El depósito requiere comprobante y almacenamiento remoto.", symbol: "photo", isReady: false),
+                Row(title: "Depositar a DORI", detail: "Contrato pendiente; el botón de envío permanece deshabilitado.", symbol: "lock.circle", isReady: false)
+            ]
         }
     }
 }
