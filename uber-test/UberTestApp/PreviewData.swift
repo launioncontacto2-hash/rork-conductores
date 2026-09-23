@@ -1,5 +1,4 @@
 import Foundation
-import UberTestCore
 
 extension UberTestStore {
     static func previewStore() -> UberTestStore {
