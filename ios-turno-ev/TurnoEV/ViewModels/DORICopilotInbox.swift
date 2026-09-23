@@ -13,6 +13,7 @@ final class DORICopilotInbox {
     private var listenerTask: Task<Void, Never>?
     private var fallbackTask: Task<Void, Never>?
     private var sessionKey: String?
+    private var deliveryGate = DORICopilotDeliveryGate()
 
     init(store: DORICopilotStore = DORICopilotStore()) { self.store = store }
 
@@ -44,17 +45,27 @@ final class DORICopilotInbox {
         listenerTask?.cancel(); fallbackTask?.cancel()
         listenerTask = nil; fallbackTask = nil
         if let channel { Task { await channel.unsubscribe() } }
-        channel = nil; sessionKey = nil
+        channel = nil; sessionKey = nil; deliveryGate.reset()
     }
 
     func receiveAndAnnounce() async {
         let previous = store.simulationCaseId
         await store.receiveSimulationCase(silent: true)
-        guard let current = store.simulationCaseId, current != previous else { return }
+        guard let current = store.simulationCaseId, current != previous, deliveryGate.accept(current) else { return }
         isOfferAlertPresented = true
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         AudioServicesPlaySystemSound(1007)
     }
 
     func dismissOffer() { isOfferAlertPresented = false }
+}
+
+struct DORICopilotDeliveryGate: Sendable {
+    private(set) var activeCaseId: UUID?
+    mutating func accept(_ id: UUID) -> Bool {
+        guard activeCaseId != id else { return false }
+        activeCaseId = id
+        return true
+    }
+    mutating func reset() { activeCaseId = nil }
 }
