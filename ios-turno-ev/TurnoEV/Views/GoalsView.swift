@@ -10,7 +10,6 @@ struct GoalsView: View {
     @Environment(FleetStore.self) private var store
 
     @State private var isIncomePresented: Bool = false
-    @State private var isBonusesPresented: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -51,14 +50,6 @@ struct GoalsView: View {
             .navigationTitle("Metas")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        isBonusesPresented = true
-                    } label: {
-                        Label("Bonos", systemImage: "rosette")
-                    }
-                    .accessibilityHint("Abre el seguimiento mensual de bonos")
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     SessionMenuButton()
                 }
@@ -74,23 +65,6 @@ struct GoalsView: View {
                 } else {
                     IncomeView()
                 }
-            }
-            .fullScreenCover(isPresented: $isBonusesPresented) {
-                BonusesView()
-                    .safeAreaInset(edge: .top, alignment: .leading) {
-                        Button {
-                            isBonusesPresented = false
-                        } label: {
-                            Label("Volver a metas", systemImage: "chevron.left")
-                                .font(.system(.subheadline, weight: .bold))
-                                .padding(.horizontal, 14)
-                                .frame(minHeight: 44)
-                                .background(.ultraThinMaterial, in: .capsule)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 6)
-                    }
             }
         }
         .editorScreen(.driverGoals)
@@ -234,23 +208,20 @@ struct GoalsView: View {
                         group: shift.group,
                         elapsedMinutes: Double(store.elapsedSeconds(at: now)) / 60
                     )
-                    let delta = earnedToday - paceTarget
-
                     VStack(spacing: 8) {
                         HStack {
                             CapsLabel(text: "Ritmo por hora")
                             Spacer()
-                            Text("\(delta >= 0 ? "+" : "−")\(Fmt.mxn(abs(delta))) vs objetivo")
+                            Text("Ritmo de referencia")
                                 .font(.system(.caption, weight: .bold))
-                                .monospacedDigit()
-                                .foregroundStyle(delta >= 0 ? Palette.volt : Palette.amber)
+                                .foregroundStyle(Palette.textMuted)
                         }
                         ProgressTrack(
                             value: Double(earnedToday),
                             goal: Double(goals.dailyMxn),
                             marker: Double(paceTarget)
                         )
-                        Text("Objetivo acumulado \(Fmt.mxn(paceTarget)) · \(Fmt.mxn(goals.hourlyMxn)) por hora")
+                        Text("Referencia \(Fmt.mxn(paceTarget)) · \(Fmt.mxn(goals.hourlyMxn)) por hora")
                             .font(.system(size: 10))
                             .foregroundStyle(Palette.textMuted)
                             .frame(maxWidth: .infinity, alignment: .leading)

@@ -143,7 +143,20 @@ struct RootTabView: View {
                     Tab("Turno", systemImage: "gauge.with.dots.needle.bottom.50percent", value: 0) {
                         ShiftView()
                     }
-                    Tab(value: 1) {
+                    Tab("Metas", systemImage: "target", value: 1) {
+                        GoalsView()
+                    }
+                    Tab("Bonos", systemImage: "rosette", value: 2) {
+                        BonusesView()
+                    }
+                    Tab("Cartera", systemImage: "wallet.pass.fill", value: 3) {
+                        if store.usesBackendFinancialCycle {
+                            BackendDriverFinanceView()
+                        } else {
+                            WalletView()
+                        }
+                    }
+                    Tab(value: 4) {
                         if let principal = store.currentPrincipal,
                            store.usesBackendCoverageCycle {
                             BackendDriverCoverageView(principal: principal)
@@ -151,24 +164,11 @@ struct RootTabView: View {
                             DriverShiftsView()
                         }
                     } label: {
-                        Label("Turnos", systemImage: "calendar")
+                        Label("Guardias", systemImage: "calendar.badge.clock")
                     }
                     // `badge(_: Int)` draws nothing at zero, which is exactly the wanted
                     // behaviour: no dot on a driver with nothing to take.
                     .badge(availableGuardCount)
-                    Tab("Metas", systemImage: "target", value: 2) {
-                        GoalsView()
-                    }
-                    Tab("Finanzas", systemImage: "banknote.fill", value: 3) {
-                        if store.usesBackendFinancialCycle {
-                            BackendDriverFinanceView()
-                        } else {
-                            WalletView()
-                        }
-                    }
-                    Tab("Historial", systemImage: "list.clipboard.fill", value: 4) {
-                        HistoryView()
-                    }
                 }
                 .tint(Palette.volt)
                 .safeAreaInset(edge: .top) {
