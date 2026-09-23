@@ -33,12 +33,14 @@ create table public.uber_test_offer_results (
   idempotency_key text not null unique
 );
 
-create table public.uber_test_copilot_dispatches (
+-- Future source event only. No DORI consumer is created in this phase.
+create table public.uber_test_offer_events (
   id uuid primary key default gen_random_uuid(),
   batch_id uuid not null unique references public.uber_test_offer_batches(id) on delete restrict,
   driver_profile_id uuid not null references public.driver_profiles(id),
-  status text not null default 'pending' check (status in ('pending','processed','ignored')),
-  input_payload jsonb not null,
+  event_type text not null default 'offer_batch_ready' check (event_type = 'offer_batch_ready'),
+  status text not null default 'pending' check (status in ('pending','acknowledged')),
+  payload jsonb not null,
   created_at timestamptz not null default now(),
   processed_at timestamptz
 );
@@ -46,10 +48,10 @@ create table public.uber_test_copilot_dispatches (
 alter table public.uber_test_offer_batches enable row level security;
 alter table public.uber_test_offers enable row level security;
 alter table public.uber_test_offer_results enable row level security;
-alter table public.uber_test_copilot_dispatches enable row level security;
+alter table public.uber_test_offer_events enable row level security;
 revoke all on public.uber_test_offer_batches, public.uber_test_offers, public.uber_test_offer_results from anon;
-revoke all on public.uber_test_copilot_dispatches from anon;
-grant select on public.uber_test_offer_batches, public.uber_test_offers, public.uber_test_offer_results, public.uber_test_copilot_dispatches to authenticated;
+revoke all on public.uber_test_offer_events from anon;
+grant select on public.uber_test_offer_batches, public.uber_test_offers, public.uber_test_offer_results, public.uber_test_offer_events to authenticated;
 
 do $$
 begin
@@ -57,7 +59,7 @@ begin
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'uber_test_offer_batches') then alter publication supabase_realtime add table public.uber_test_offer_batches; end if;
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'uber_test_offers') then alter publication supabase_realtime add table public.uber_test_offers; end if;
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'uber_test_offer_results') then alter publication supabase_realtime add table public.uber_test_offer_results; end if;
-    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'uber_test_copilot_dispatches') then alter publication supabase_realtime add table public.uber_test_copilot_dispatches; end if;
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'uber_test_offer_events') then alter publication supabase_realtime add table public.uber_test_offer_events; end if;
   end if;
 end $$;
 
@@ -75,9 +77,9 @@ create policy uber_test_result_console_read on public.uber_test_offer_results fo
   using (exists (select 1 from public.uber_test_offer_batches b where b.id = batch_id and app.auth_has_role('console', (select station_id from public.driver_profiles where id = b.driver_profile_id))));
 create policy uber_test_result_driver_insert on public.uber_test_offer_results for insert to authenticated
   with check (exists (select 1 from public.uber_test_offer_batches b join public.driver_profiles d on d.id = b.driver_profile_id where b.id = batch_id and d.profile_id = (select auth.uid()) and b.environment = 'TEST'));
-create policy uber_test_dispatch_driver_read on public.uber_test_copilot_dispatches for select to authenticated
+create policy uber_test_event_driver_read on public.uber_test_offer_events for select to authenticated
   using (exists (select 1 from public.driver_profiles d where d.id = driver_profile_id and d.profile_id = (select auth.uid())));
-create policy uber_test_dispatch_console_read on public.uber_test_copilot_dispatches for select to authenticated
+create policy uber_test_event_console_read on public.uber_test_offer_events for select to authenticated
   using (app.auth_has_role('console', (select station_id from public.driver_profiles where id = driver_profile_id)));
 
 create or replace function public.console_send_uber_test_batch(
@@ -110,10 +112,8 @@ begin
     insert into public.uber_test_offers(batch_id, sequence_no, service, fare_mxn, pickup, pickup_distance_km, trip_duration_minutes, trip_distance_km, rider_rating, expires_after_seconds)
     values (v_batch_id, v_index, v_offer->>'service', (v_offer->>'fare')::numeric, v_offer->>'pickup', (v_offer->>'pickupDistanceKm')::numeric, (v_offer->>'tripDurationMinutes')::numeric, (v_offer->>'tripDistanceKm')::numeric, nullif(v_offer->>'riderRating','')::numeric, coalesce((v_offer->>'expiresAfterSeconds')::smallint,15));
   end loop;
-  if exists (select 1 from public.shifts where driver_profile_id = v_driver.id and status = 'open' and environment_id = v_driver.environment_id) then
-    insert into public.uber_test_copilot_dispatches(batch_id, driver_profile_id, input_payload)
-      values (v_batch_id, v_driver.id, jsonb_build_object('kind','uber_test.offer_batch','environment','TEST','batchId',v_batch_id,'offers',p_offers,'turno','open'));
-  end if;
+  insert into public.uber_test_offer_events(batch_id, driver_profile_id, payload)
+    values (v_batch_id, v_driver.id, jsonb_build_object('kind','uber_test.offer_batch','environment','TEST','batchId',v_batch_id,'offers',p_offers));
   insert into public.audit_log(environment_id, actor_profile_id, station_id, event_type, entity_type, entity_id, metadata)
     values (v_driver.environment_id, v_actor, v_driver.station_id, 'uber_test.batch.sent', 'uber_test_offer_batch', v_batch_id, jsonb_build_object('idempotency_key',p_idempotency_key,'offer_count',v_index));
   return jsonb_build_object('status','sent','batch_id',v_batch_id,'offer_count',v_index);

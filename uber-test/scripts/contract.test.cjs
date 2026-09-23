@@ -38,8 +38,8 @@ test("supports ten consecutive offers", () => {
   for (let i = 0; i < 10; i++) finish(state, "accepted");
   assert.equal(state.results.length, 10); assert.equal(state.index, 10);
 });
-test("Copilot dispatch is created only for an open TEST shift", () => {
-  const dispatchFor = (shiftStatus) => shiftStatus === "open" ? { status: "pending", environment: "TEST" } : null;
-  assert.deepEqual(dispatchFor("open"), { status: "pending", environment: "TEST" });
-  assert.equal(dispatchFor("closed"), null);
+test("future source event is independent from DORI and shift state", () => {
+  const sourceEventFor = (shiftStatus) => ({ type: "offer_batch_ready", environment: "TEST", doriConsumer: false, shiftStatus });
+  assert.deepEqual(sourceEventFor("open"), { type: "offer_batch_ready", environment: "TEST", doriConsumer: false, shiftStatus: "open" });
+  assert.deepEqual(sourceEventFor("closed"), { type: "offer_batch_ready", environment: "TEST", doriConsumer: false, shiftStatus: "closed" });
 });

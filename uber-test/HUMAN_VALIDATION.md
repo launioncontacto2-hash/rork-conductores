@@ -2,14 +2,14 @@
 
 Estado requerido: `ESPERANDO VALIDACIÓN HUMANA — MISIÓN ABIERTA` cuando sólo falte dispositivo físico.
 
-1. Abrir Consola TEST con un conductor cuyo turno esté abierto.
-2. Crear 3 ofertas y confirmar el orden `#1`, `#2`, `#3`.
+1. Abrir Consola TEST con un conductor TEST habilitado; esta prueba no requiere Copiloto ni un turno abierto.
+2. Crear 10 ofertas y confirmar el orden `#1` a `#10`.
 3. Pulsar `MANDAR TANDA DE VIAJES` y confirmar que UBER Test recibe una sola oferta, reproduce la alerta TEST y muestra la barra.
-4. En la primera oferta pulsar `ACEPTAR`; confirmar que aparece la segunda.
-5. En la segunda pulsar `DESCARTAR`; confirmar que aparece la tercera.
-6. Dejar expirar la tercera; confirmar que se registra `expired` y vuelve a `EN ESPERA DE VIAJES`.
-7. Repetir con 10 ofertas y verificar FIFO, sin duplicados.
-8. Cerrar el turno, mandar otra tanda y confirmar que no aparece despacho DORI Copiloto.
-9. Reabrir la app durante una tanda y confirmar recuperación del estado pendiente.
+4. En las ofertas 1 y 2 pulsar `ACEPTAR` y `DESCARTAR`; confirmar que avanza automáticamente.
+5. Dejar expirar la oferta 3; confirmar que se registra `expired` y continúa la cola.
+6. Completar las 10 ofertas con una combinación de aceptar, descartar y expirar.
+7. Confirmar FIFO, un solo viaje visible, sin duplicados ni pérdidas, alerta sonora/háptica y temporizador.
+8. Cerrar/cambiar de pantalla durante la tanda y confirmar recuperación del estado pendiente.
+9. Confirmar que al terminar vuelve a `EN ESPERA DE VIAJES` y Consola refleja los 10 resultados.
 
 Evidencia mínima: video corto de los pasos 3–6, identificador de tanda, tres resultados y estado final `completed`/`EN ESPERA DE VIAJES`.

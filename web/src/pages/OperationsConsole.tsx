@@ -200,6 +200,20 @@ interface UberTestDraftOffer {
   expiresAfterSeconds: string;
 }
 
+interface UberTestOfferRow {
+  id: string;
+  sequence_no: number;
+  service: string;
+  fare_mxn: number;
+  pickup: string;
+}
+
+interface UberTestResultRow {
+  offer_id: string;
+  outcome: "accepted" | "discarded" | "expired";
+  occurred_at: string;
+}
+
 const emptyUberOffer = (): UberTestDraftOffer => ({ service: "UberX", fare: "240", pickup: "Centro", pickupDistanceKm: "1.2", tripDurationMinutes: "35", tripDistanceKm: "18", riderRating: "4.90", expiresAfterSeconds: "15" });
 
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
@@ -266,6 +280,23 @@ const OperationsConsole = () => {
   const [uberTestError, setUberTestError] = useState<string | null>(null);
   const [uberTestResult, setUberTestResult] = useState<Record<string, unknown> | null>(null);
   const [uberTestLoading, setUberTestLoading] = useState(false);
+
+  const uberTestBatchId = typeof uberTestResult?.batch_id === "string" ? uberTestResult.batch_id : null;
+  const uberTestResultsQuery = useQuery({
+    queryKey: ["console", "uber-test-results", uberTestBatchId],
+    enabled: Boolean(supabase && identity && uberTestBatchId),
+    refetchInterval: 1_500,
+    queryFn: async () => {
+      if (!supabase || !uberTestBatchId) return { offers: [] as UberTestOfferRow[], results: [] as UberTestResultRow[] };
+      const [offers, results] = await Promise.all([
+        supabase.from("uber_test_offers").select("id,sequence_no,service,fare_mxn,pickup").eq("batch_id", uberTestBatchId).order("sequence_no"),
+        supabase.from("uber_test_offer_results").select("offer_id,outcome,occurred_at").eq("batch_id", uberTestBatchId).order("occurred_at"),
+      ]);
+      if (offers.error) throw offers.error;
+      if (results.error) throw results.error;
+      return { offers: (offers.data ?? []) as UberTestOfferRow[], results: (results.data ?? []) as UberTestResultRow[] };
+    },
+  });
 
   const snapshot = useQuery({
     queryKey: ["console", identity?.station_id, "snapshot"],
@@ -502,10 +533,6 @@ const OperationsConsole = () => {
       const { data: response, error } = await supabase.rpc("console_send_uber_test_batch", { p_driver_profile_id: uberTestDriverId, p_offers: offers, p_idempotency_key: `console-uber-test-${crypto.randomUUID()}` });
       if (error) throw error;
       const result = (response ?? {}) as Record<string, unknown>;
-      if (result.status === "sent" && typeof result.batch_id === "string") {
-        const { data: copilotDispatch, error: copilotError } = await supabase.functions.invoke("dori-copilot-dispatch", { body: { batchId: result.batch_id } });
-        if (!copilotError && copilotDispatch) result.copilot = copilotDispatch;
-      }
       setUberTestResult(result);
     } catch (error) { setUberTestError(error instanceof Error ? error.message : "No se pudo mandar la tanda TEST."); }
     finally { setUberTestLoading(false); }
@@ -588,7 +615,11 @@ const OperationsConsole = () => {
             </div>)}
             <div className="flex flex-wrap items-center gap-3"><Button variant="outline" onClick={() => setUberTestOffers((current) => current.length < 10 ? [...current, emptyUberOffer()] : current)} disabled={uberTestOffers.length >= 10}><Plus className="size-4" /> Agregar oferta</Button><Button onClick={() => void sendUberTestBatch()} disabled={uberTestLoading || !uberTestDriverId}>{uberTestLoading ? "Mandando…" : "MANDAR TANDA DE VIAJES"}</Button><Badge variant="outline">{uberTestOffers.length}/10 TEST</Badge></div>
             {uberTestError && <p className="text-sm text-destructive">{uberTestError}</p>}
-            {uberTestResult && <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm"><strong>Tanda enviada:</strong> {String(uberTestResult.batch_id ?? "—")} · {String(uberTestResult.offer_count ?? uberTestOffers.length)} ofertas · estado {String(uberTestResult.status ?? "sent")}<br /><strong>DORI Copiloto:</strong> {String((uberTestResult.copilot as Record<string, unknown> | undefined)?.status ?? "sin despacho: turno cerrado")}</div>}
+            {uberTestResult && <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm"><strong>Tanda enviada:</strong> {String(uberTestResult.batch_id ?? "—")} · {String(uberTestResult.offer_count ?? uberTestOffers.length)} ofertas · estado {String(uberTestResult.status ?? "sent")}</div>}
+            {uberTestBatchId && <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-bold">Resultados de la tanda</p><p className="text-sm text-muted-foreground">Seguimiento TEST en orden FIFO. {uberTestResultsQuery.data?.results.length ?? 0}/{uberTestResultsQuery.data?.offers.length ?? Number(uberTestResult.offer_count ?? 0)} resueltos.</p></div><Badge variant="outline">{uberTestResultsQuery.isFetching ? "Actualizando…" : "Tiempo real"}</Badge></div>
+              <Table><TableHeader><TableRow><TableHead>#</TableHead><TableHead>Servicio</TableHead><TableHead>Tarifa</TableHead><TableHead>Recogida</TableHead><TableHead>Resultado</TableHead></TableRow></TableHeader><TableBody>{(uberTestResultsQuery.data?.offers ?? []).map((offer) => { const result = uberTestResultsQuery.data?.results.find((item) => item.offer_id === offer.id); return <TableRow key={offer.id}><TableCell>{offer.sequence_no}</TableCell><TableCell>{offer.service}</TableCell><TableCell>${Number(offer.fare_mxn).toFixed(2)}</TableCell><TableCell>{offer.pickup}</TableCell><TableCell><Badge variant={result ? "default" : "outline"}>{result?.outcome ?? "pendiente"}</Badge></TableCell></TableRow>; })}</TableBody></Table>
+            </div>}
           </CardContent>
         </Card>
 

@@ -9,7 +9,7 @@ select ok((select relrowsecurity from pg_class where oid='public.uber_test_offer
 select has_function('public','console_send_uber_test_batch',array['uuid','jsonb','text'],'RPC Consola disponible');
 select has_function('public','record_uber_test_result',array['uuid','text','text'],'RPC resultado disponible');
 select has_function('public','driver_get_uber_test_batch',array[]::text[],'RPC recuperacion disponible');
-select has_table('public','uber_test_copilot_dispatches','existe tabla de despacho Copiloto');
+select has_table('public','uber_test_offer_events','existe evento fuente TEST para integracion futura');
 select ok(not has_table_privilege('anon','public.uber_test_offer_batches','SELECT'),'anon no lee tandas');
 select ok(not has_table_privilege('anon','public.uber_test_offer_results','INSERT'),'anon no inserta resultados');
 select * from finish();

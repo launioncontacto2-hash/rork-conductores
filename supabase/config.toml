@@ -422,10 +422,6 @@ entrypoint = "./functions/dori-copilot-events/index.ts"
 verify_jwt = false
 entrypoint = "./functions/uber-test-result/index.ts"
 
-[functions.dori-copilot-dispatch]
-verify_jwt = false
-entrypoint = "./functions/dori-copilot-dispatch/index.ts"
-
 [functions.uber-test-next]
 verify_jwt = false
 entrypoint = "./functions/uber-test-next/index.ts"
