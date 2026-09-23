@@ -8,6 +8,7 @@ on:
       - feat/copilot-uber-test-bridge
     paths:
       - "supabase/migrations/20260923063241_uber_test_offer_batches.sql"
+      - "supabase/migrations/20260923170000_uber_test_dori_evaluation_bridge.sql"
       - "supabase/functions/uber-test-next/**"
       - "supabase/functions/uber-test-result/**"
       - "supabase/functions/uber-test-copilot-evaluate/**"
