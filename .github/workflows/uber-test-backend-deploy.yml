@@ -1,0 +1,57 @@
+name: UBER Test backend deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/uber-test-console
+    paths:
+      - "supabase/migrations/20260923063241_uber_test_offer_batches.sql"
+      - "supabase/functions/uber-test-next/**"
+      - "supabase/functions/uber-test-result/**"
+      - ".github/workflows/uber-test-backend-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uber-test-backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy UBER Test TEST backend
+    runs-on: ubuntu-latest
+    environment: test
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 2.116.0
+      - name: Require TEST-only credentials
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        shell: bash
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test -n "$SUPABASE_DB_PASSWORD"
+      - name: Link only the authorized TEST project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        run: |
+          supabase link --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
+          test "$(supabase projects list --output json | jq -r '.[] | select(.id=="yyxzuiantrmoyozetswv") | .id')" = "yyxzuiantrmoyozetswv"
+      - name: Apply UBER Test migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        run: supabase db push --linked
+      - name: Deploy UBER Test Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase functions deploy uber-test-next --project-ref yyxzuiantrmoyozetswv
+          supabase functions deploy uber-test-result --project-ref yyxzuiantrmoyozetswv

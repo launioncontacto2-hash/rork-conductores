@@ -32,7 +32,9 @@ jobs:
           xcodebuild -project uber-test/UberTest.xcodeproj -list
           plutil -lint uber-test/UberTestApp/UberTest.entitlements
       - name: iOS simulator build
-        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        env:
+          UBER_TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO UBER_TEST_SUPABASE_URL="$UBER_TEST_SUPABASE_URL" build
 
   testflight:
     name: Archive and distribute UBER Test
@@ -64,6 +66,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
       - name: Archive
         env:
+          TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
@@ -71,7 +74,7 @@ jobs:
           set -euo pipefail
           AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
-          xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" DEVELOPMENT_TEAM=H9S3662NMB CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="UBER Test App Store Push" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" archive
+          xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" DEVELOPMENT_TEAM=H9S3662NMB CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="UBER Test App Store Push" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" archive
       - name: Export IPA
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}

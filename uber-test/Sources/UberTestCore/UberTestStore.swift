@@ -18,6 +18,7 @@ public final class UberTestStore: ObservableObject {
     private var deadline: Date?
     private var pendingResults: [UberTestResult] = []
     private let alertSound = UberTestAlertSound()
+    private var recoveryTask: Task<Void, Never>?
 
     public init(resultSink: (any UberTestResultSink)? = nil) {
         self.resultSink = resultSink
@@ -45,6 +46,16 @@ public final class UberTestStore: ObservableObject {
         guard queue.current == nil else { return }
         do { if let batch = try await client.loadPendingBatch() { receive(batch) } }
         catch { errorMessage = "No se pudo recuperar la tanda TEST." }
+    }
+    public func startForegroundRecovery(using client: UberTestBatchClient) async {
+        recoveryTask?.cancel()
+        recoveryTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.queue.current == nil { await self.recover(using: client) }
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
     }
     public func accept() { finish(.accepted) }
     public func discard() { finish(.discarded) }
@@ -78,5 +89,5 @@ public final class UberTestStore: ObservableObject {
             }
         }
     }
-    deinit { timer?.invalidate() }
+    deinit { timer?.invalidate(); recoveryTask?.cancel() }
 }

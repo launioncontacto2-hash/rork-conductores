@@ -9,7 +9,9 @@ private struct UberTestRuntimeConfiguration {
     let accessToken: @Sendable () async -> String?
 
     init() {
-        let base = UserDefaults.standard.string(forKey: "uber.test.supabase.url").flatMap(URL.init(string:))
+        let configuredURL = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String
+        let legacyURL = UserDefaults.standard.string(forKey: "uber.test.supabase.url")
+        let base = (configuredURL ?? legacyURL).flatMap(URL.init(string:))
         resultURL = base?.appendingPathComponent("functions/v1/uber-test-result")
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
         accessToken = {
@@ -69,6 +71,7 @@ struct UberTestApp: App {
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
                         await store.recover(using: UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken))
+                        await store.startForegroundRecovery(using: UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken))
                     }
                 }
         }
