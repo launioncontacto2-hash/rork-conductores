@@ -38,5 +38,5 @@ jobs:
       - run: bun run build
       - name: Confirm TEST artifact is ready for Cloudflare Git integration
         run: |
-          test -f web/dist/index.html
+          test -f dist/index.html
           echo "Cloudflare Pages TEST deployment is provided by the existing Git integration."
