@@ -19,7 +19,7 @@ export const DoriTestWorkbench = () => {
   const [destinationValue, setDestinationValue] = useState(0);
   const [batchStatus, setBatchStatus] = useState<"waiting" | "sent">("waiting");
   const updateOffer = (id: number, patch: Partial<Offer>) => setOffers((current) => current.map((offer) => offer.id === id ? { ...offer, ...patch } : offer));
-  const resultLabel = useMemo(() => batchStatus === "sent" ? "Tanda enviada a DORI COPILOTO" : "Esperando envío", [batchStatus]);
+  const resultLabel = useMemo(() => batchStatus === "sent" ? "Tanda preparada localmente" : "Esperando preparación", [batchStatus]);
 
   return (
     <section id="uber-test" className="grid gap-4 scroll-mt-4 lg:grid-cols-[1.35fr_1fr]">
@@ -43,7 +43,7 @@ export const DoriTestWorkbench = () => {
             <Button variant="outline" disabled={offers.length >= 10} onClick={() => setOffers((current) => [...current, initialOffer(current.length + 1)])}>Agregar oferta</Button>
             <Button onClick={() => setBatchStatus("sent")}>Enviar tanda TEST</Button>
           </div>
-          {batchStatus === "sent" && <p className="text-xs text-muted-foreground">La tanda está preparada localmente; el resultado operativo aparecerá cuando el backend TEST responda.</p>}
+          {batchStatus === "sent" && <p className="text-xs text-muted-foreground">La tanda está preparada localmente; no se despachó al backend. El resultado operativo aparecerá cuando exista el puente TEST.</p>}
         </CardContent>
       </Card>
 

@@ -28,7 +28,7 @@ export const resolveReleaseBuildMetadata = (inputs: ReleaseBuildInputs) => {
     || (sourceBranch === "integration/dori-test" && sourceSha !== RELEASE_FALLBACK ? sourceSha : RELEASE_FALLBACK);
   const branchAlias = deploymentFallback(inputs.branchAlias);
   const deployedAt = deploymentFallback(inputs.deployedAt);
-  return { sourceBranch, sourceSha, deploymentUrl, canonicalSha, branchAlias, deployedAt, build: inputs.build?.trim() || "1001" };
+  return { sourceBranch, sourceSha, deploymentUrl, canonicalSha, branchAlias, deployedAt };
 };
 
 const injected = {
