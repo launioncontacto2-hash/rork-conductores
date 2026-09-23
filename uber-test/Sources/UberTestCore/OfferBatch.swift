@@ -6,6 +6,7 @@ public struct UberTestOffer: Codable, Equatable, Identifiable, Sendable {
     public let fare: Decimal
     public let currency: String
     public let pickup: String
+    public let pickupMinutes: Double?
     public let pickupDistanceKm: Double
     public let tripDurationMinutes: Double
     public let tripDistanceKm: Double
@@ -13,10 +14,10 @@ public struct UberTestOffer: Codable, Equatable, Identifiable, Sendable {
     public let expiresAfterSeconds: Int
 
     public init(id: String, service: String, fare: Decimal, currency: String = "MXN", pickup: String,
-                pickupDistanceKm: Double, tripDurationMinutes: Double, tripDistanceKm: Double,
+                pickupMinutes: Double? = nil, pickupDistanceKm: Double, tripDurationMinutes: Double, tripDistanceKm: Double,
                 riderRating: Double? = nil, expiresAfterSeconds: Int = 15) {
         self.id = id; self.service = service; self.fare = fare; self.currency = currency
-        self.pickup = pickup; self.pickupDistanceKm = pickupDistanceKm
+        self.pickup = pickup; self.pickupMinutes = pickupMinutes; self.pickupDistanceKm = pickupDistanceKm
         self.tripDurationMinutes = tripDurationMinutes; self.tripDistanceKm = tripDistanceKm
         self.riderRating = riderRating; self.expiresAfterSeconds = expiresAfterSeconds
     }
