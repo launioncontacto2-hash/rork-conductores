@@ -20,9 +20,41 @@ final class UberTestAuth: ObservableObject {
         var request = URLRequest(url: baseURL.appendingPathComponent("auth/v1/token?grant_type=password")); request.httpMethod = "POST"
         request.setValue(publishableKey, forHTTPHeaderField: "apikey"); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email, "password": password])
-        do { let (data, response) = try await URLSession.shared.data(for: request); guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.userAuthenticationRequired) }; let payload = try JSONDecoder().decode(AuthPayload.self, from: data); Self.write(payload.accessToken, account: "access-token", service: service); Self.write(payload.refreshToken, account: "refresh-token", service: service); errorMessage = nil; isSignedIn = true } catch { errorMessage = "No se pudo iniciar sesión en TEST." }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw AuthFailure.network }
+            guard (200..<300).contains(http.statusCode) else {
+                let apiError = try? JSONDecoder().decode(AuthErrorPayload.self, from: data)
+                if apiError?.errorCode == "invalid_credentials" || http.statusCode == 400 {
+                    throw AuthFailure.invalidCredentials
+                }
+                throw AuthFailure.http(http.statusCode)
+            }
+            let payload = try JSONDecoder().decode(AuthPayload.self, from: data)
+            Self.write(payload.accessToken, account: "access-token", service: service)
+            Self.write(payload.refreshToken, account: "refresh-token", service: service)
+            errorMessage = nil
+            isSignedIn = true
+        } catch let failure as AuthFailure {
+            errorMessage = failure.message
+        } catch {
+            errorMessage = AuthFailure.network.message
+        }
+    }
+    private enum AuthFailure: Error {
+        case invalidCredentials
+        case http(Int)
+        case network
+        var message: String {
+            switch self {
+            case .invalidCredentials: return "Correo o contraseña TEST incorrectos."
+            case .http(let status): return "Supabase TEST respondió HTTP (status)."
+            case .network: return "No se pudo conectar con Supabase TEST."
+            }
+        }
     }
     private struct AuthPayload: Decodable { let accessToken: String; let refreshToken: String; enum CodingKeys: String, CodingKey { case accessToken = "access_token"; case refreshToken = "refresh_token" } }
+    private struct AuthErrorPayload: Decodable { let errorCode: String?; enum CodingKeys: String, CodingKey { case errorCode = "error_code" } }
     private static func read(account: String, service: String) -> String? { var item: CFTypeRef?; let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]; guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }; return String(data: data, encoding: .utf8) }
     private static func write(_ value: String, account: String, service: String) { let query: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:account]; SecItemDelete(query as CFDictionary); SecItemAdd(query.merging([kSecValueData as String:Data(value.utf8)]) { _, new in new } as CFDictionary, nil) }
 }
