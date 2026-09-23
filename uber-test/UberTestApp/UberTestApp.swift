@@ -75,7 +75,7 @@ private actor UberTestSession {
         if !force, let token = Self.read(account: "access-token"), let exp = Self.expiration(token), exp > Date().addingTimeInterval(60) { return token }
         guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else { return nil }
         if let refreshTask { return await refreshTask.value }
-        let task = Task { Self.refresh(baseURL: baseURL, key: publishableKey, token: refresh) }
+        let task = Task { await Self.refresh(baseURL: baseURL, key: publishableKey, token: refresh) }
         refreshTask = task
         let token = await task.value
         refreshTask = nil
@@ -91,8 +91,8 @@ private actor UberTestSession {
     }
     private struct Payload: Decodable { let accessToken: String; let refreshToken: String; enum CodingKeys: String, CodingKey { case accessToken = "access_token"; case refreshToken = "refresh_token" } }
     private static func expiration(_ token: String) -> Date? { let p = token.split(separator: "."); guard p.count == 3 else { return nil }; var s = String(p[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/"); s += String(repeating: "=", count: (4 - s.count % 4) % 4); guard let d = Data(base64Encoded: s), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], let e = o["exp"] as? TimeInterval else { return nil }; return Date(timeIntervalSince1970: e) }
-    private static func read(account: String) -> String? { UberTestAuth.read(account: account, service: "uber.test.auth") }
-    private static func write(_ value: String, account: String) { UberTestAuth.write(value, account: account, service: "uber.test.auth") }
+    private static func read(account: String) -> String? { var item: CFTypeRef?; let q: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"uber.test.auth",kSecAttrAccount as String:account,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]; guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }; return String(data: data, encoding: .utf8) }
+    private static func write(_ value: String, account: String) { let q: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"uber.test.auth",kSecAttrAccount as String:account]; SecItemDelete(q as CFDictionary); SecItemAdd(q.merging([kSecValueData as String:Data(value.utf8)]) { _, new in new } as CFDictionary, nil) }
     private static func clear(account: String) { let q: [String: Any] = [kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"uber.test.auth",kSecAttrAccount as String:account]; SecItemDelete(q as CFDictionary) }
 }
 
