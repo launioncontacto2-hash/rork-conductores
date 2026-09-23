@@ -60,3 +60,21 @@ jobs:
 
       - name: Run SQL tests
         run: supabase test db
+
+  uber-test-database:
+    name: UBER Test SQL contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v3
+        with:
+          version: 2.116.0
+      - name: Start local Supabase
+        run: supabase start
+      - name: Rebuild local database
+        run: supabase db reset --local
+      - name: Run UBER Test SQL contract only
+        run: supabase test db --local supabase/tests/uber_test_offer_batches.sql
