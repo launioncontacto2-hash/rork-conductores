@@ -435,15 +435,23 @@ struct BackendDriverFinanceView: View {
     private func operationalProductsCard(_ value: SupabaseFinancialService.DriverSnapshot) -> some View {
         let income = value.incomes.reduce(0) { $0 + $1.amount_mxn }
         let charges = value.cashCharges.reduce(0) { $0 + $1.amount_mxn }
+        let available = value.settlements.first(where: { $0.status == "available" })?.net_mxn
 
         return VStack(alignment: .leading, spacing: 10) {
-            SupSectionHeader(title: "Productos y periodos", subtitle: "Estado de contratos TEST")
-            DetailRow(label: "Resumen mes", value: "\(value.incomes.count) ingresos · \(Fmt.mxn(income))", tone: Palette.info)
-            DetailRow(label: "Resumen semana", value: "\(value.cashCharges.count) cargos · \(Fmt.mxn(charges))", tone: Palette.amber)
+            SupSectionHeader(title: "Cartera", subtitle: "Importes confirmados por Supabase TEST")
+            DetailRow(label: "Generado", value: Fmt.mxn(income), tone: Palette.volt)
+            DetailRow(label: "Bonos", value: "Consulta la pestaña Bonos", tone: Palette.info)
+            DetailRow(label: "Crédito", value: "No disponible en este contrato", tone: Palette.textMuted)
+            DetailRow(label: "Otros cargos", value: Fmt.mxn(charges), tone: Palette.amber)
+            DetailRow(label: "Efectivo recibido", value: value.cashCharges.isEmpty ? "No registrado" : Fmt.mxn(charges), tone: Palette.amber)
+            DetailRow(label: "Disponible final", value: available.map(Fmt.mxn) ?? "No disponible", tone: available == nil ? Palette.textMuted : Palette.volt)
+            Text("Lo que aparece como disponible es lo único que puedes retirar. La app no calcula ni inventa saldos.")
+                .font(.caption2)
+                .foregroundStyle(Palette.textMuted)
             productRow(title: "Transferir fondos a mi cuenta", message: "Disponible solo cuando exista una liquidación transferible en el contrato remoto", symbol: "arrow.up.right.square") { productNotice = .transfer }
-            productRow(title: "Bonos", message: "Se consultan desde Metas; cálculo financiero pendiente", symbol: "rosette") { productNotice = .bonuses }
-            productRow(title: "Crédito automotriz", message: "No disponible para esta sesión TEST", symbol: "car.side.and.exclamationmark") { productNotice = .credit }
-            productRow(title: "Efectivo / Depositar a DORI", message: "Contrato de depósito pendiente; no se simula", symbol: "banknote") { productNotice = .cash }
+            productRow(title: "Bonos y recuperación", message: "Ver evaluación operativa y recuperación en Bonos", symbol: "rosette") { productNotice = .bonuses }
+            productRow(title: "Crédito automotriz / abono", message: "Flujo TEST preparado; contrato remoto aún no habilitado", symbol: "car.side.and.exclamationmark") { productNotice = .credit }
+            productRow(title: "Efectivo / Depositar a DORI", message: "Flujo TEST preparado; requiere evidencia remota", symbol: "banknote") { productNotice = .cash }
         }
         .padding(16)
         .panel()
@@ -635,6 +643,7 @@ struct BackendDriverFinanceView: View {
 private struct FinanceProductDetailView: View {
     let notice: BackendDriverFinanceView.FinanceProductNotice
     @Environment(\.dismiss) private var dismiss
+    @State private var demoStatus: String?
 
     var body: some View {
         NavigationStack {
@@ -647,6 +656,12 @@ private struct FinanceProductDetailView: View {
                         .font(.system(.title2, weight: .black))
                     Text(notice.message)
                         .foregroundStyle(Palette.textMuted)
+                    NoticeBanner(
+                        symbol: "testtube.2",
+                        title: "Prototipo TEST",
+                        message: "Las acciones de esta pantalla solo recorren el flujo visual. No mueven dinero, no crean crédito y no escriben en Supabase.",
+                        tone: .info
+                    )
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(rows, id: \.title) { row in
                             HStack(alignment: .top, spacing: 10) {
@@ -664,6 +679,17 @@ private struct FinanceProductDetailView: View {
                             }
                             .padding(12)
                             .panelFlat(cornerRadius: 13)
+                        }
+                    }
+                    if let demoStatus {
+                        Text(demoStatus)
+                            .font(.caption)
+                            .foregroundStyle(Palette.volt)
+                            .padding(.horizontal, 12)
+                    }
+                    if let action = demoAction {
+                        BigButton(title: action.title, symbol: action.symbol) {
+                            demoStatus = action.confirmation
                         }
                     }
                     Button("Cerrar") { dismiss() }
@@ -725,6 +751,25 @@ private struct FinanceProductDetailView: View {
                 Row(title: "Evidencia", detail: "El depósito requiere comprobante y almacenamiento remoto.", symbol: "photo", isReady: false),
                 Row(title: "Depositar a DORI", detail: "Contrato pendiente; el botón de envío permanece deshabilitado.", symbol: "lock.circle", isReady: false)
             ]
+        }
+    }
+
+    private struct DemoAction {
+        let title: String
+        let symbol: String
+        let confirmation: String
+    }
+
+    private var demoAction: DemoAction? {
+        switch notice {
+        case .transfer:
+            return DemoAction(title: "Simular solicitud TEST", symbol: "arrow.up.right.square", confirmation: "Solicitud recorrida en TEST; no se envió ninguna transferencia.")
+        case .bonuses:
+            return DemoAction(title: "Abrir recuperación de bono", symbol: "arrow.counterclockwise.circle", confirmation: "Flujo de recuperación preparado; la regla real se valida en Bonos.")
+        case .credit:
+            return DemoAction(title: "Simular abono a capital", symbol: "plus.forwardslash.minus", confirmation: "Abono simulado localmente; no se registró pago ni contrato.")
+        case .cash:
+            return DemoAction(title: "Registrar evidencia TEST", symbol: "camera", confirmation: "Evidencia recorrida en TEST; no se cargó ningún archivo remoto.")
         }
     }
 }
