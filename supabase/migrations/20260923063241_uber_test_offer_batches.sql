@@ -159,7 +159,18 @@ begin
   where d.profile_id=(select auth.uid()) and b.environment='TEST' and b.status in ('queued','active')
   order by b.created_at asc limit 1;
   if v_batch.id is null then return null; end if;
-  select coalesce(jsonb_agg(to_jsonb(o) order by o.sequence_no),'[]'::jsonb) into v_offers from public.uber_test_offers o where o.batch_id=v_batch.id;
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', o.id,
+    'service', o.service,
+    'fare', o.fare_mxn,
+    'currency', 'MXN',
+    'pickup', o.pickup,
+    'pickupDistanceKm', o.pickup_distance_km,
+    'tripDurationMinutes', o.trip_duration_minutes,
+    'tripDistanceKm', o.trip_distance_km,
+    'riderRating', o.rider_rating,
+    'expiresAfterSeconds', o.expires_after_seconds
+  ) order by o.sequence_no),'[]'::jsonb) into v_offers from public.uber_test_offers o where o.batch_id=v_batch.id;
   return jsonb_build_object('id',v_batch.id,'environment',v_batch.environment,'createdAt',v_batch.created_at,'offers',v_offers);
 end;
 $$;
