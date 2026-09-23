@@ -117,11 +117,6 @@ final class DORICopilotStore {
             activeCaseId = simulationCase.id
             simulationCaseId = simulationCase.id
             let input = simulationCase.inputPayload
-            let offer = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
-                product: DORITripOfferParser.normalizeProduct(input.trip.service ?? input.trip.origin), offeredEarnings: input.trip.fare,
-                currency: "MXN", pickupDistanceKm: input.trip.pickupKm, pickupETAMinutes: input.trip.pickupMinutes,
-                tripDistanceKm: input.trip.tripKm, tripDurationMinutes: input.trip.tripMinutes,
-                riderRating: 5.0, confidence: ["product": 1, "fare": 1, "pickup": 1, "trip": 1, "rating": 1], destinationText: input.trip.destination)
             let visual = DORITripOffer(source: "simulation", sourceOfferId: simulationCase.testCaseId,
                 product: DORITripOfferParser.normalizeProduct(input.trip.service ?? input.trip.origin), offeredEarnings: input.trip.fare, currency: "MXN", pickupDistanceKm: input.trip.pickupKm,
                 pickupETAMinutes: input.trip.pickupMinutes, tripDistanceKm: input.trip.tripKm,
@@ -177,7 +172,7 @@ extension DORIDecisionInput {
         case .uberComfort: service = "Uber Comfort"
         case .unsupported: service = nil
         }
-        DORIDecisionInput(
+        return DORIDecisionInput(
             trip: .init(fare: offer.offeredEarnings ?? trip.fare, pickupMinutes: offer.pickupETAMinutes ?? trip.pickupMinutes,
                         pickupKm: offer.pickupDistanceKm ?? trip.pickupKm, tripMinutes: offer.tripDurationMinutes ?? trip.tripMinutes,
                         tripKm: offer.tripDistanceKm ?? trip.tripKm, origin: trip.origin, destination: trip.destination,
