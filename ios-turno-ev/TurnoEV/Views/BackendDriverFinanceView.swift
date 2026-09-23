@@ -375,7 +375,7 @@ struct BackendDriverFinanceView: View {
     private func incomeHistoryCard(_ value: SupabaseFinancialService.DriverSnapshot) -> some View {
         let cutoff = Calendar.current.date(byAdding: .day, value: -historyWindow.days, to: AppClock.now()) ?? .distantPast
         let visibleIncomes = value.incomes.filter { $0.reported_at >= cutoff }
-        VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 SupSectionHeader(title: "Historial", subtitle: "Movimientos append-only del servidor")
                 Spacer()
