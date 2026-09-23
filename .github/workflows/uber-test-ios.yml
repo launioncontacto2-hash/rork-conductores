@@ -66,10 +66,13 @@ jobs:
           echo "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/uber-test.mobileprovision"
           security cms -D -i "$RUNNER_TEMP/uber-test.mobileprovision" > "$RUNNER_TEMP/uber-test-profile.plist"
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' "$RUNNER_TEMP/uber-test-profile.plist")
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c 'Print:TeamIdentifier:0' "$RUNNER_TEMP/uber-test-profile.plist")
           cp "$RUNNER_TEMP/uber-test.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "DEVELOPMENT_TEAM=$TEAM_ID" >> "$GITHUB_ENV"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
       - name: Archive
-        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" archive
+        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" archive
       - name: Export IPA
         run: xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist uber-test/ExportOptions.plist -exportPath "$RUNNER_TEMP/export"
       - name: Upload to TestFlight
