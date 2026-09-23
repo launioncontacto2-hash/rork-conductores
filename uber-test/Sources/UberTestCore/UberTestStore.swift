@@ -13,14 +13,24 @@ public final class UberTestStore: ObservableObject {
     public var resultSink: (any UberTestResultSink)?
     private var timer: Timer?
     private let persistenceKey = "uber.test.pending.queue.v1"
+    private let deadlineKey = "uber.test.current.offer.deadline.v1"
+    private var deadline: Date?
     private let alertSound = UberTestAlertSound()
 
     public init(resultSink: (any UberTestResultSink)? = nil) {
         self.resultSink = resultSink
-        if let data = UserDefaults.standard.data(forKey: persistenceKey), let restored = try? UberTestQueue(snapshotData: data) { queue = restored; if queue.current != nil { startTimer() } }
+        if let data = UserDefaults.standard.data(forKey: persistenceKey), let restored = try? UberTestQueue(snapshotData: data) {
+            queue = restored
+            deadline = UserDefaults.standard.object(forKey: deadlineKey) as? Date
+            if queue.current != nil { startTimer(resetDeadline: deadline == nil) }
+        }
         NotificationCenter.default.addObserver(forName: UberTestPushCoordinator.batchNotification, object: nil, queue: .main) { [weak self] notification in
             guard let batch = notification.object as? UberTestOfferBatch else { return }
             self?.receive(batch)
+        }
+        NotificationCenter.default.addObserver(forName: Notification.Name("UIApplication.willEnterForegroundNotification"), object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.queue.current != nil else { return }
+            self.startTimer(resetDeadline: false)
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
@@ -40,14 +50,16 @@ public final class UberTestStore: ObservableObject {
         startTimer()
     }
     private func persist() { if let data = try? queue.snapshotData() { UserDefaults.standard.set(data, forKey: persistenceKey) } }
-    private func startTimer() {
-        timer?.invalidate(); remainingSeconds = queue.current?.expiresAfterSeconds ?? 0
-        guard queue.current != nil else { return }
+    private func startTimer(resetDeadline: Bool = true) {
+        timer?.invalidate()
+        guard let current = queue.current else { remainingSeconds = 0; deadline = nil; UserDefaults.standard.removeObject(forKey: deadlineKey); return }
+        if resetDeadline || deadline == nil { deadline = Date().addingTimeInterval(TimeInterval(current.expiresAfterSeconds)); UserDefaults.standard.set(deadline, forKey: deadlineKey) }
+        remainingSeconds = max(0, Int(ceil((deadline ?? .now).timeIntervalSinceNow)))
         alertSound.playOfferAlert()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.remainingSeconds <= 1 { self.timer?.invalidate(); self.finish(.expired) }
-            else { self.remainingSeconds -= 1 }
+            self.remainingSeconds = max(0, Int(ceil((self.deadline ?? .now).timeIntervalSinceNow)))
+            if self.remainingSeconds == 0 { self.timer?.invalidate(); self.finish(.expired) }
         }
     }
     deinit { timer?.invalidate() }
