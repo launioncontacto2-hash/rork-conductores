@@ -1,8 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
-
-const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Content-Type": "application/json" };
+const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers });
-
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers });
   if (request.method !== "POST") return reply(405, { error: "method_not_allowed" });
@@ -15,5 +13,8 @@ Deno.serve(async (request) => {
   if (authError || !user.user) return reply(401, { error: "invalid_access_token" });
   const { data, error } = await client.rpc("driver_get_uber_test_batch");
   if (error) return reply(error.code === "42501" ? 403 : 500, { error: error.message });
-  return reply(200, { batch: data });
+  if (!data) return reply(200, { batch: null });
+  const { data: presented, error: presentError } = await client.rpc("present_next_uber_test_offer", { p_batch_id: data.id });
+  if (presentError) return reply(presentError.code === "42501" ? 403 : 500, { error: presentError.message });
+  return reply(200, { batch: { ...data, presented: presented?.offer ?? null, presentationStatus: presented?.status ?? null } });
 });
