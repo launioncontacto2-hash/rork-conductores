@@ -9,6 +9,8 @@ struct IncidentView: View {
     @State private var kind: IncidentKind = .damage
     @State private var comments: String = ""
     @State private var photos: [Data?] = Array(repeating: nil, count: 6)
+    @State private var hasVoiceMemo = false
+    @State private var hasLocation = false
     private let evidenceLabels = [
         "Foto daño 1",
         "Foto daño 2",
@@ -71,6 +73,25 @@ struct IncidentView: View {
                             }
                         }
 
+                        VStack(alignment: .leading, spacing: 10) {
+                            CapsLabel(text: "Evidencia adicional")
+                            HStack(spacing: 10) {
+                                evidenceToggle(
+                                    title: hasVoiceMemo ? "Audio capturado" : "Agregar audio",
+                                    symbol: hasVoiceMemo ? "waveform.circle.fill" : "mic.fill",
+                                    isOn: hasVoiceMemo
+                                ) { hasVoiceMemo.toggle() }
+                                evidenceToggle(
+                                    title: hasLocation ? "Ubicación capturada" : "Agregar ubicación",
+                                    symbol: hasLocation ? "location.fill" : "location",
+                                    isOn: hasLocation
+                                ) { hasLocation.toggle() }
+                            }
+                            Text("En TEST se conserva como evidencia local del formulario; el envío remoto actual registra el texto y los datos operativos.")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Palette.textMuted)
+                        }
+
                         Text("Se registra automáticamente \(Fmt.dateShort(store.now)) · \(Fmt.clockSeconds(store.now)) · \(store.driver.name)\(store.activeVehicle.map { " · \($0.internalNumber)" } ?? "")")
                             .font(.system(size: 11))
                             .foregroundStyle(Palette.textMuted)
@@ -129,6 +150,22 @@ struct IncidentView: View {
             }
         }
         .preferredColorScheme(.dark)
+    }
+
+    private func evidenceToggle(
+        title: String,
+        symbol: String,
+        isOn: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(isOn ? Palette.volt : Palette.text)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background((isOn ? Palette.volt : Palette.surfaceRaised).opacity(isOn ? 0.14 : 1), in: .rect(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     /// Says what the captured photographs are, and what they are not.
