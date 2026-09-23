@@ -1,0 +1,57 @@
+name: UBER Test iOS
+
+on:
+  pull_request:
+    paths:
+      - "uber-test/**"
+      - ".github/workflows/uber-test-ios.yml"
+  push:
+    branches: ["codex/uber-test-console"]
+    paths:
+      - "uber-test/**"
+      - ".github/workflows/uber-test-ios.yml"
+  workflow_dispatch:
+
+jobs:
+  test-core:
+    name: UBER Test core and iOS build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Contract tests
+        run: node --test uber-test/scripts/contract.test.cjs
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+      - name: Swift package tests
+        run: swift test
+        working-directory: uber-test
+      - name: Validate project and entitlements
+        run: |
+          xcodebuild -project uber-test/UberTest.xcodeproj -list
+          plutil -lint uber-test/UberTestApp/UberTest.entitlements
+      - name: iOS simulator build
+        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+  testflight:
+    name: Archive and distribute UBER Test
+    if: github.event_name == 'workflow_dispatch'
+    needs: test-core
+    runs-on: macos-14
+    environment: testflight
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+      - name: Archive
+        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -archivePath "$RUNNER_TEMP/UberTest.xcarchive" archive
+      - name: Export IPA
+        run: xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist uber-test/ExportOptions.plist -exportPath "$RUNNER_TEMP/export"
+      - name: Upload to TestFlight
+        run: xcrun altool --upload-app -f "$RUNNER_TEMP/export/UberTest.ipa" -t ios -u "$APPSTORE_CONNECT_USERNAME" -p "$APPSTORE_CONNECT_PASSWORD"
+        env:
+          APPSTORE_CONNECT_USERNAME: ${{ secrets.APPSTORE_CONNECT_USERNAME }}
+          APPSTORE_CONNECT_PASSWORD: ${{ secrets.APPSTORE_CONNECT_PASSWORD }}

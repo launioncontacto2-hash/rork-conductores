@@ -1,0 +1,74 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000011 /* UberTestApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000021 /* UberTestApp.swift */; };
+		A10000000000000000000012 /* OfferBatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000022 /* OfferBatch.swift */; };
+		A10000000000000000000013 /* UberTestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000023 /* UberTestStore.swift */; };
+		A10000000000000000000014 /* UberTestOfferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000024 /* UberTestOfferView.swift */; };
+		A10000000000000000000015 /* PreviewData.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000025 /* PreviewData.swift */; };
+		A10000000000000000000016 /* UberTestPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000026 /* UberTestPush.swift */; };
+		A10000000000000000000017 /* UberTestHTTPResultSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000027 /* UberTestHTTPResultSink.swift */; };
+		A10000000000000000000018 /* UberTestAlertSound.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000029 /* UberTestAlertSound.swift */; };
+		A10000000000000000000019 /* UberTestBatchClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002A /* UberTestBatchClient.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000020 /* UberTest.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UberTest.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000021 /* UberTestApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000022 /* OfferBatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfferBatch.swift; sourceTree = "<group>"; };
+		A10000000000000000000023 /* UberTestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000024 /* UberTestOfferView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestOfferView.swift; sourceTree = "<group>"; };
+		A10000000000000000000025 /* PreviewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewData.swift; sourceTree = "<group>"; };
+		A10000000000000000000026 /* UberTestPush.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestPush.swift; sourceTree = "<group>"; };
+		A10000000000000000000027 /* UberTestHTTPResultSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestHTTPResultSink.swift; sourceTree = "<group>"; };
+		A10000000000000000000029 /* UberTestAlertSound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestAlertSound.swift; sourceTree = "<group>"; };
+		A1000000000000000000002A /* UberTestBatchClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestBatchClient.swift; sourceTree = "<group>"; };
+		A10000000000000000000028 /* UberTest.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UberTest.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000000000000000000031 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000000000000000000040 = {isa = PBXGroup; children = (A10000000000000000000041, A10000000000000000000042, A10000000000000000000043); sourceTree = "<group>"; };
+		A10000000000000000000041 /* UberTestApp */ = {isa = PBXGroup; children = (A10000000000000000000021, A10000000000000000000025, A10000000000000000000028); path = UberTestApp; sourceTree = "<group>"; };
+		A10000000000000000000042 /* UberTestCore */ = {isa = PBXGroup; children = (A10000000000000000000022, A10000000000000000000023, A10000000000000000000024, A10000000000000000000026, A10000000000000000000027, A10000000000000000000029, A1000000000000000000002A); path = Sources/UberTestCore; sourceTree = "<group>"; };
+		A10000000000000000000043 /* Products */ = {isa = PBXGroup; children = (A10000000000000000000020); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000000000000000000051 /* UberTest */ = {isa = PBXNativeTarget; buildConfigurationList = A10000000000000000000061; buildPhases = (A10000000000000000000030, A10000000000000000000031, A10000000000000000000032); buildRules = (); dependencies = (); name = UberTest; productName = UberTest; productReference = A10000000000000000000020; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000000000000000000052 /* Project object */ = {isa = PBXProject; attributes = { LastSwiftUpdateCheck = 1600; ORGANIZATIONNAME = "TEST"; }; buildConfigurationList = A10000000000000000000060; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, es); mainGroup = A10000000000000000000040; productRefGroup = A10000000000000000000043; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000051); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000000000000000000032 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000000000000000000030 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000011, A10000000000000000000012, A10000000000000000000013, A10000000000000000000014, A10000000000000000000015, A10000000000000000000016, A10000000000000000000017, A10000000000000000000018, A10000000000000000000019); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000000000000000000070 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_ENTITLEMENTS = UberTestApp/UberTest.entitlements; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "UBER Test"; PRODUCT_BUNDLE_IDENTIFIER = "com.test.ubertest"; PRODUCT_NAME = UberTest; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; }; name = Debug; };
+		A10000000000000000000071 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_ENTITLEMENTS = UberTestApp/UberTest.entitlements; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "UBER Test"; PRODUCT_BUNDLE_IDENTIFIER = "com.test.ubertest"; PRODUCT_NAME = UberTest; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; }; name = Release; };
+		A10000000000000000000072 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = { SWIFT_VERSION = 5.0; }; name = Debug; };
+		A10000000000000000000073 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = { SWIFT_VERSION = 5.0; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000000000000000000060 /* Project configurations */ = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000072, A10000000000000000000073); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A10000000000000000000061 /* Target configurations */ = {isa = XCConfigurationList; buildConfigurations = (A10000000000000000000070, A10000000000000000000071); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000000000000000000052;
+}
