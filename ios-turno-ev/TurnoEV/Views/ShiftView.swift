@@ -22,6 +22,7 @@ struct ShiftView: View {
         case incident
         case documents
         case finish
+        case hourRecovery
 
         var id: Self { self }
     }
@@ -120,6 +121,7 @@ struct ShiftView: View {
                         now: store.now
                     )
                 case .finish: FinishShiftView()
+                case .hourRecovery: HourRecoveryView()
                 }
             }
         }
@@ -359,12 +361,24 @@ struct ShiftView: View {
     /// cadence inside this banner and nowhere else.
     private var paybackNotice: some View {
         TimeScope(.minute) { now in
-            NoticeBanner(
-                symbol: "timer",
-                title: "Ventana de pago de atraso abierta (\(store.driver.slot.paybackWindowLabel))",
-                message: "Debes \(store.weeklyLateDebt(reference: now)) min esta semana. Regístralo en Historial.",
-                tone: .volt
-            )
+            VStack(alignment: .leading, spacing: 10) {
+                NoticeBanner(
+                    symbol: "timer",
+                    title: "Ventana de recuperación abierta (\(store.driver.slot.paybackWindowLabel))",
+                    message: "Debes \(store.weeklyLateDebt(reference: now)) min esta semana.",
+                    tone: .volt
+                )
+                NavigationLink {
+                    HourRecoveryView()
+                } label: {
+                    Label("Ver opciones de recuperación", systemImage: "arrow.right.circle.fill")
+                        .font(.system(.subheadline, weight: .bold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.volt)
+                .accessibilityLabel("Ver opciones de recuperación de horas")
+            }
         }
     }
 
