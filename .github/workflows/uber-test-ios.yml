@@ -36,7 +36,7 @@ jobs:
 
   testflight:
     name: Archive and distribute UBER Test
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/codex/uber-test-console')
     needs: test-core
     runs-on: macos-15
     environment: testflight
