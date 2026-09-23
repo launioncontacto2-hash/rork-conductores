@@ -14,6 +14,7 @@ struct BackendDriverFinanceView: View {
     @State private var isSavingAccount = false
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var historyWindow: HistoryWindow = .month
 
     @State private var source: IncomeSource = .uber
     @State private var amount = ""
@@ -372,14 +373,26 @@ struct BackendDriverFinanceView: View {
     }
 
     private func incomeHistoryCard(_ value: SupabaseFinancialService.DriverSnapshot) -> some View {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -historyWindow.days, to: AppClock.now()) ?? .distantPast
+        let visibleIncomes = value.incomes.filter { $0.reported_at >= cutoff }
         VStack(alignment: .leading, spacing: 10) {
-            SupSectionHeader(title: "Ingresos", subtitle: "Últimos movimientos append-only")
-            if value.incomes.isEmpty {
-                Text("No hay ingresos registrados para este conductor.")
+            HStack {
+                SupSectionHeader(title: "Historial", subtitle: "Movimientos append-only del servidor")
+                Spacer()
+                Picker("Periodo", selection: $historyWindow) {
+                    ForEach(HistoryWindow.allCases) { window in
+                        Text(window.label).tag(window)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 138)
+            }
+            if visibleIncomes.isEmpty {
+                Text("No hay ingresos registrados en este periodo.")
                     .font(.caption)
                     .foregroundStyle(Palette.textMuted)
             } else {
-                ForEach(value.incomes.prefix(20)) { income in
+                ForEach(visibleIncomes.prefix(20)) { income in
                     HStack(spacing: 10) {
                         Image(systemName: income.reversal_of == nil ? "plus.circle.fill" : "arrow.uturn.backward.circle.fill")
                             .foregroundStyle(income.amount_mxn >= 0 ? Palette.volt : Palette.danger)
@@ -402,6 +415,15 @@ struct BackendDriverFinanceView: View {
         }
         .padding(16)
         .panel()
+    }
+
+    private enum HistoryWindow: String, CaseIterable, Identifiable {
+        case month
+        case week
+
+        var id: String { rawValue }
+        var label: String { self == .month ? "Mes" : "Semana" }
+        var days: Int { self == .month ? 30 : 7 }
     }
 
     /// Makes the remaining financial product boundaries explicit without routing a
