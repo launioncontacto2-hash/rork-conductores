@@ -1,6 +1,7 @@
 export const RELEASE_FALLBACK = "Pendiente de despliegue";
 
 export interface ReleaseBuildInputs {
+  build?: string;
   sourceBranch?: string;
   sourceSha?: string;
   deploymentUrl?: string;
@@ -27,10 +28,11 @@ export const resolveReleaseBuildMetadata = (inputs: ReleaseBuildInputs) => {
     || (sourceBranch === "integration/dori-test" && sourceSha !== RELEASE_FALLBACK ? sourceSha : RELEASE_FALLBACK);
   const branchAlias = deploymentFallback(inputs.branchAlias);
   const deployedAt = deploymentFallback(inputs.deployedAt);
-  return { sourceBranch, sourceSha, deploymentUrl, canonicalSha, branchAlias, deployedAt };
+  return { sourceBranch, sourceSha, deploymentUrl, canonicalSha, branchAlias, deployedAt, build: inputs.build?.trim() || "1001" };
 };
 
 const injected = {
+  build: import.meta.env.VITE_DORI_CONSOLE_BUILD,
   sourceBranch: import.meta.env.VITE_DORI_CONSOLE_SOURCE_BRANCH,
   sourceSha: import.meta.env.VITE_DORI_CONSOLE_SOURCE_SHA,
   deploymentUrl: import.meta.env.VITE_DORI_CONSOLE_DEPLOYMENT_URL,
@@ -41,7 +43,7 @@ const injected = {
 
 export const CONSOLE_RELEASE = {
   version: "1.0.0",
-  build: "1001",
+  build: injected.build?.trim() || "1001",
   validationStatus: "CANDIDATE",
   lifecycle: "ACTIVE",
   environment: "TEST",

@@ -30,6 +30,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { ConsoleReleaseDialog } from "@/console/ConsoleReleaseDialog";
+import { ConsoleReleaseStatus } from "@/console/ConsoleReleaseStatus";
+import { DoriTestWorkbench } from "@/console/DoriTestWorkbench";
 
 interface StationLive {
   active_shifts: number;
@@ -445,6 +447,8 @@ const OperationsConsole = () => {
             <p className="mt-1 text-sm text-muted-foreground">
               {identity.station_name} · {identity.station_code} · {identity.display_name}
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">Usuario: {identity.display_name} · Entorno: TEST</p>
+            <ConsoleReleaseStatus />
             <ConsoleReleaseDialog />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -494,6 +498,8 @@ const OperationsConsole = () => {
             </Card>
           ))}
         </section>
+
+        <DoriTestWorkbench />
 
         <Card id="asignaciones" className="panel scroll-mt-4">
           <CardHeader>
