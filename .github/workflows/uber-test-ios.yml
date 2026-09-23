@@ -15,7 +15,7 @@ on:
 jobs:
   test-core:
     name: UBER Test core and iOS build
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Contract tests
@@ -38,7 +38,7 @@ jobs:
     name: Archive and distribute UBER Test
     if: github.event_name == 'workflow_dispatch'
     needs: test-core
-    runs-on: macos-14
+    runs-on: macos-15
     environment: testflight
     steps:
       - uses: actions/checkout@v4
