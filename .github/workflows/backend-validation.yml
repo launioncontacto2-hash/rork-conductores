@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - feat/copilot-cross-test-foundation
+      - stabilize/copilot-single-iphone-e2e
     paths:
       - "supabase/**"
       - "scripts/validate-backend.ps1"
