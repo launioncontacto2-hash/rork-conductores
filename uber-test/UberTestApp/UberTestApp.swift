@@ -119,6 +119,8 @@ private actor UberTestSession {
 }
 
 private struct UberTestRuntimeConfiguration {
+    let supabaseURL: URL?
+    let publishableKey: String?
     let resultURL: URL?
     let batchURL: URL?
     let accessToken: @Sendable () async -> String?
@@ -128,6 +130,8 @@ private struct UberTestRuntimeConfiguration {
         let configuredURL = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String
         let legacyURL = UserDefaults.standard.string(forKey: "uber.test.supabase.url")
         let base = (configuredURL ?? legacyURL).flatMap(URL.init(string:))
+        supabaseURL = base
+        publishableKey = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String)
         resultURL = base?.appendingPathComponent("functions/v1/uber-test-result")
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
         accessToken = { await UberTestSession.shared.validToken() }
@@ -164,11 +168,16 @@ struct UberTestApp: App {
     @StateObject private var auth = UberTestAuth()
     @StateObject private var receiver = UberTestReceiverState()
     private let runtime: UberTestRuntimeConfiguration
+    private let realtime: UberTestRealtimeReceiver?
 
     init() {
         let runtime = UberTestRuntimeConfiguration()
         let receiver = UberTestReceiverState()
         self.runtime = runtime
+        self.realtime = runtime.supabaseURL.flatMap { url in
+            guard let key = runtime.publishableKey, !key.isEmpty else { return nil }
+            return UberTestRealtimeReceiver(url: url, publishableKey: key)
+        }
         _receiver = StateObject(wrappedValue: receiver)
         let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID) }
         _store = StateObject(wrappedValue: UberTestStore(resultSink: sink))
@@ -190,6 +199,9 @@ struct UberTestApp: App {
                     if let batchURL = runtime.batchURL {
                         let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
                         await store.recover(using: client)
+                        if let realtime, let token = await runtime.accessToken() {
+                            await realtime.start(accessToken: token) { await store.recover(using: client) }
+                        }
                         await store.startForegroundRecovery(using: client)
                     }
                 }
@@ -202,12 +214,16 @@ struct UberTestApp: App {
                             if let batchURL = runtime.batchURL {
                                 let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
                                 await store.recover(using: client)
+                                if let realtime, let token = await runtime.accessToken() {
+                                    await realtime.start(accessToken: token) { await store.recover(using: client) }
+                                }
                                 await store.startForegroundRecovery(using: client)
                             }
                         }
                     } else if phase == .background {
                         receiver.stopHeartbeat()
                         store.stopForegroundRecovery()
+                        Task { await realtime?.stop() }
                     }
                 }
         }

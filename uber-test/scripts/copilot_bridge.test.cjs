@@ -18,6 +18,7 @@ const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV',
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
 const storeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestStore.swift'), 'utf8');
+const realtimeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestRealtimeReceiver.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
   assert.match(migration, /pickup_minutes/);
@@ -40,7 +41,7 @@ test('Uber Test evaluation executes canonical engine and links offer id', () => 
 test('DORI push dispatcher is isolated from Acquisition and deduplicates by offer', () => {
   assert.match(push, /claim_dori_copilot_notifications/);
   assert.match(push, /dori_copilot_push_devices/);
-  assert.match(push, /offerId:n\.offer_id/);
+  assert.match(push, /offerId:\s*n\.offer_id/);
   assert.match(push, /turno:\/\/copiloto/);
   assert.doesNotMatch(push, /acquisition_notifications/);
 });
@@ -97,4 +98,13 @@ test('result sink treats 429 and 5xx as retryable while preserving terminal 4xx'
   assert.match(sink, /statusCode >= 500/);
   assert.match(sink, /UberTestResultError\.retryable/);
   assert.match(sink, /UberTestResultError\.terminal/);
+});
+
+test('Realtime is the foreground wakeup and server recovery remains authoritative', () => {
+  assert.match(realtimeSwift, /postgresChange/);
+  assert.match(realtimeSwift, /table: "uber_test_offer_events"/);
+  assert.match(realtimeSwift, /await next\.subscribe\(\)/);
+  assert.match(realtimeSwift, /setAuth/);
+  assert.match(realtimeSwift, /onWakeup/);
+  assert.match(storeSwift, /startForegroundRecovery/);
 });

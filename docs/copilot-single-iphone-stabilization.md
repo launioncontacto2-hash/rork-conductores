@@ -23,3 +23,7 @@ El despliegue remoto TEST no se ejecutó porque el environment `test` carece de 
 4. Ejecutar la regresión física en el único iPhone usando el baseline aprobado.
 
 No se modifican el motor económico, OCR, tarjeta, producción ni los módulos congelados.
+
+## Estado de estabilización actualizado
+
+HEAD publicado: `100cc2411ae968af8b3f3f7c8fb960daebc00ee5`. Las migraciones de hardening y el typecheck de las cuatro Edge Functions pasan en CI. El transporte foreground incorpora Realtime Postgres Changes sobre `uber_test_offer_events`; la recuperación continúa siendo server-authoritative y el polling queda como fallback.
