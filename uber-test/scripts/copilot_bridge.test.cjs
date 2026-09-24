@@ -15,6 +15,8 @@ const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations'
 const stabilizationMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924110000_uber_test_stabilization_contract.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
+const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
+const storeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestStore.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
   assert.match(migration, /pickup_minutes/);
@@ -77,4 +79,6 @@ test('stabilization prevents duplicate evaluation, push and legacy receiver bypa
   assert.match(edge, /select\("id,status"\)/);
   assert.doesNotMatch(edge, /upsert\(/);
   assert.match(nextEdge, /presented\?\.status === "presented"/);
+  assert.match(offerBatchSwift, /maxRememberedIDs = 1000/);
+  assert.match(storeSwift, /maxRememberedOfferIDs = 100/);
 });

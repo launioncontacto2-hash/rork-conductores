@@ -46,8 +46,9 @@ public struct UberTestQueue: Codable, Sendable {
     public private(set) var batch: UberTestOfferBatch?
     public private(set) var currentIndex = 0
     public private(set) var results: [UberTestResult] = []
-    private var seenBatchIDs = Set<String>()
-    private var seenOfferIDs = Set<String>()
+    private var seenBatchIDs = [String]()
+    private var seenOfferIDs = [String]()
+    private let maxRememberedIDs = 1000
 
     public init() {}
     private enum CodingKeys: String, CodingKey { case batch, currentIndex, results, seenBatchIDs, seenOfferIDs }
@@ -77,7 +78,9 @@ public struct UberTestQueue: Codable, Sendable {
             return
         }
         guard incoming.offers.allSatisfy({ !seenOfferIDs.contains($0.id) }) else { throw UberTestError.duplicateOffer }
-        seenBatchIDs.insert(incoming.id); incoming.offers.forEach { seenOfferIDs.insert($0.id) }
+        seenBatchIDs.append(incoming.id); seenOfferIDs.append(contentsOf: incoming.offers.map(\.id))
+        if seenBatchIDs.count > maxRememberedIDs { seenBatchIDs.removeFirst(seenBatchIDs.count - maxRememberedIDs) }
+        if seenOfferIDs.count > maxRememberedIDs { seenOfferIDs.removeFirst(seenOfferIDs.count - maxRememberedIDs) }
         batch = incoming; currentIndex = 0; results = []
     }
 
