@@ -25,7 +25,7 @@ jobs:
         with:
           xcode-version: "26.0"
       - name: Swift package tests
-        run: swift test
+        run: swift test -v
         working-directory: uber-test
       - name: Validate project and entitlements
         run: |
