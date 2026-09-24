@@ -17,6 +17,9 @@ declare
   v_iso text;
   v_shift_start text;
   v_shift_end text;
+  v_local_ts timestamp;
+  v_offset_minutes integer;
+  v_offset_sign text;
   battery numeric;
   input jsonb;
 begin
@@ -43,9 +46,32 @@ begin
     return jsonb_build_object('status','context_missing','reason','offer_metadata');
   end if;
   v_now := app.env_now(d.environment_id);
-  v_iso := to_char(v_now, 'YYYY-MM-DD"T"HH24:MI:SS.MS OF');
-  v_shift_start := to_char(sh.started_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS OF');
-  v_shift_end := to_char(sh.scheduled_end_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS OF');
+  -- Format the local wall-clock and its offset explicitly.  Do not rely on
+  -- the database connection timezone or on to_char(... OF), which inserts a
+  -- space and can produce a non-canonical offset for the engine contract.
+  v_local_ts := v_now at time zone coalesce(tz,'America/Mexico_City');
+  v_offset_minutes := round(extract(epoch from
+    (v_local_ts - (v_now at time zone 'UTC')))/60)::integer;
+  v_offset_sign := case when v_offset_minutes < 0 then '-' else '+' end;
+  v_iso := to_char(v_local_ts, 'YYYY-MM-DD"T"HH24:MI:SS.MS') || v_offset_sign ||
+    lpad((abs(v_offset_minutes)/60)::text, 2, '0') || ':' ||
+    lpad((abs(v_offset_minutes)%60)::text, 2, '0');
+
+  v_local_ts := sh.started_at at time zone coalesce(tz,'America/Mexico_City');
+  v_offset_minutes := round(extract(epoch from
+    (v_local_ts - (sh.started_at at time zone 'UTC')))/60)::integer;
+  v_offset_sign := case when v_offset_minutes < 0 then '-' else '+' end;
+  v_shift_start := to_char(v_local_ts, 'YYYY-MM-DD"T"HH24:MI:SS.MS') || v_offset_sign ||
+    lpad((abs(v_offset_minutes)/60)::text, 2, '0') || ':' ||
+    lpad((abs(v_offset_minutes)%60)::text, 2, '0');
+
+  v_local_ts := sh.scheduled_end_at at time zone coalesce(tz,'America/Mexico_City');
+  v_offset_minutes := round(extract(epoch from
+    (v_local_ts - (sh.scheduled_end_at at time zone 'UTC')))/60)::integer;
+  v_offset_sign := case when v_offset_minutes < 0 then '-' else '+' end;
+  v_shift_end := to_char(v_local_ts, 'YYYY-MM-DD"T"HH24:MI:SS.MS') || v_offset_sign ||
+    lpad((abs(v_offset_minutes)/60)::text, 2, '0') || ':' ||
+    lpad((abs(v_offset_minutes)%60)::text, 2, '0');
   input := jsonb_build_object(
     'trip', jsonb_build_object('fare',o.fare_mxn,'pickupMinutes',o.pickup_minutes,'pickupKm',o.pickup_distance_km,'tripMinutes',o.trip_duration_minutes,'tripKm',o.trip_distance_km,'origin',o.pickup,'destination','TEST','timestamp',v_iso,'service',o.service),
     'market', jsonb_build_object('now',v_iso,'hour',extract(hour from (v_now at time zone coalesce(tz,'America/Mexico_City')))::int,'weekday',extract(isodow from (v_now at time zone coalesce(tz,'America/Mexico_City')))::int,'originZone',o.pickup,'destinationZone','TEST','demand','automatic','historicalDemand',null,'forecastDemand',null,'nextWaitMinutes',0,'destinationValue',o.destination_value,'repositionKm',0,'repositionMinutes',0,'traffic',jsonb_build_object(),'events',jsonb_build_object(),'weather',jsonb_build_object()),
