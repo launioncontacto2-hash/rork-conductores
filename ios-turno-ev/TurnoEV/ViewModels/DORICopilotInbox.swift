@@ -8,11 +8,19 @@ import UIKit
 final class DORICopilotPushCoordinator {
     static let shared = DORICopilotPushCoordinator()
     private var deviceToken: String?
+    private var isShiftActive = false
     private let bundleID = Bundle.main.bundleIdentifier ?? "com.turnoev.mobility"
 
     func receivedDeviceToken(_ data: Data) {
         deviceToken = data.map { String(format: "%02x", $0) }.joined()
         Task { await registerIfReady() }
+    }
+
+    func setShiftActive(_ active: Bool) {
+        guard active != isShiftActive else { return }
+        isShiftActive = active
+        if active { Task { await registerIfReady() } }
+        else { revokeCurrentDevice() }
     }
 
     func receivedNotification(_ userInfo: [AnyHashable: Any]) {
@@ -21,13 +29,19 @@ final class DORICopilotPushCoordinator {
     }
 
     private func registerIfReady() async {
-        guard let token = deviceToken, let client = SupabaseBridge.client else { return }
+        guard isShiftActive, let token = deviceToken, let client = SupabaseBridge.client else { return }
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         do {
             try await client.rpc("register_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute()
         } catch {
             // Registration is best-effort while the TEST session is being restored.
         }
+    }
+
+    func revokeCurrentDevice() {
+        guard let token = deviceToken, let client = SupabaseBridge.client else { return }
+        struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
+        Task { try? await client.rpc("revoke_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute() }
     }
 }
 

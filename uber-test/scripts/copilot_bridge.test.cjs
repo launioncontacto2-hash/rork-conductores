@@ -71,6 +71,12 @@ test('DORI app receives the shared APNs token without a competing app delegate',
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
 });
 
+test('DORI Copilot push registration follows the active-shift gate', () => {
+  assert.match(doriPushSwift, /setShiftActive/);
+  assert.match(doriPushSwift, /guard isShiftActive, let token/);
+  assert.match(doriPushSwift, /revoke_dori_copilot_push_device/);
+});
+
 test('Copilot TEST lifecycle is gated by an active shift', () => {
   assert.match(contentViewSwift, /store\.activeShift\s*!=\s*nil/);
   assert.match(contentViewSwift, /store\.activeShift\?\.id/);

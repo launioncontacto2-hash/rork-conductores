@@ -209,8 +209,10 @@ struct RootTabView: View {
                   let environment = store.currentPrincipal?.environmentId,
                   let environmentID = UUID(uuidString: environment) else {
                 copilotInbox.stop()
+                DORICopilotPushCoordinator.shared.setShiftActive(false)
                 return
             }
+            DORICopilotPushCoordinator.shared.setShiftActive(true)
             copilotInbox.start(environmentID: environmentID)
         }
         .onChange(of: scenePhase) { _, phase in
