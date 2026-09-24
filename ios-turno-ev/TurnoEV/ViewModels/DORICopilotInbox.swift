@@ -45,6 +45,9 @@ final class DORICopilotPushCoordinator {
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         Task { try? await client.rpc("revoke_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute() }
     }
+    func sessionDidBecomeAuthenticated() {
+        Task { await registerIfReady() }
+    }
 }
 
 extension Notification.Name {
@@ -52,7 +55,6 @@ extension Notification.Name {
 }
 
 @MainActor
->>>>>>> 0a5310a (feat(copilot): add push device liveness lifecycle)
 @Observable
 final class DORICopilotInbox {
     let store: DORICopilotStore

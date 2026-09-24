@@ -14,6 +14,9 @@ struct ContentView: View {
             .animation(.smooth(duration: 0.35), value: store.session?.accountId)
             .task(id: store.session?.accountId) {
                 EnvironmentControl.observe(principal: store.currentPrincipal)
+                if store.currentPrincipal?.role == .driver {
+                    DORICopilotPushCoordinator.shared.sessionDidBecomeAuthenticated()
+                }
 
                 SharedClockSync.shared.update(isTest: store.isBackendTestSession)
                 if store.isBackendTestSession {

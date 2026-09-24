@@ -654,6 +654,9 @@ struct LoginView: View {
                             principal: principal,
                             method: .credentials
                         )
+                        if role == .driver {
+                            DORICopilotPushCoordinator.shared.sessionDidBecomeAuthenticated()
+                        }
 
                         // A TEST backend identity follows the shared logical clock without
                         // entering the local simulation. Its assignments and shifts remain
