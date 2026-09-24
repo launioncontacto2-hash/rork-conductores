@@ -144,7 +144,7 @@ test("shows every final operational area from one Supabase snapshot", async () =
   await expect.element(screen.getByRole("heading", { name: "Historial de turnos" })).toBeInTheDocument();
   await expect.element(screen.getByRole("heading", { name: "Auditoría operativa" })).toBeInTheDocument();
   await expect.element(screen.getByText("Unidad asignada")).toBeInTheDocument();
-  await expect.element(screen.getByRole("button", { name: /Versión 1.0.0 · Build 1002/ })).toBeInTheDocument();
+  await expect.element(screen.getByRole("button", { name: /Versión 1.0.0 · Build 1003/ })).toBeInTheDocument();
   await expect.element(screen.getByRole("button", { name: "Nueva unidad TEST" })).toBeDisabled();
 });
 
@@ -180,7 +180,7 @@ test("opens the candidate release information without secrets", async () => {
     </QueryClientProvider>,
   );
 
-  await screen.getByRole("button", { name: /Versión 1.0.0 · Build 1002/ }).click();
+  await screen.getByRole("button", { name: /Versión 1.0.0 · Build 1003/ }).click();
   await expect.element(screen.getByRole("heading", { name: "Información de versión" })).toBeInTheDocument();
   await expect.element(screen.getByText("CANDIDATE")).toBeInTheDocument();
   await expect.element(screen.getByText("ACTIVE")).toBeInTheDocument();

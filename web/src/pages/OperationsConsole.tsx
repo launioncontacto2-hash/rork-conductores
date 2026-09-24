@@ -195,8 +195,11 @@ interface UberTestDraftOffer {
   fare: string;
   pickup: string;
   pickupDistanceKm: string;
+  pickupMinutes: string;
   tripDurationMinutes: string;
   tripDistanceKm: string;
+  destinationToStationKm: string;
+  destinationValue: string;
   riderRating: string;
   expiresAfterSeconds: string;
 }
@@ -215,7 +218,20 @@ interface UberTestResultRow {
   occurred_at: string;
 }
 
-const emptyUberOffer = (): UberTestDraftOffer => ({ service: "UberX", fare: "240", pickup: "Centro", pickupDistanceKm: "1.2", tripDurationMinutes: "35", tripDistanceKm: "18", riderRating: "4.90", expiresAfterSeconds: "15" });
+const emptyUberOffer = (): UberTestDraftOffer => ({ service: "UberX", fare: "240", pickup: "Centro", pickupDistanceKm: "1.2", pickupMinutes: "4", tripDurationMinutes: "35", tripDistanceKm: "18", destinationToStationKm: "8", destinationValue: "85", riderRating: "4.90", expiresAfterSeconds: "15" });
+
+const uberTestOfferFields = [
+  ["fare", "Tarifa MXN", 0, 10000],
+  ["pickup", "Recogida", undefined, undefined],
+  ["pickupDistanceKm", "Distancia a recogida (km)", 0, 500],
+  ["pickupMinutes", "Tiempo a recogida (min)", 0.1, 180],
+  ["tripDurationMinutes", "Duración del viaje (min)", 0.1, 600],
+  ["tripDistanceKm", "Distancia del viaje (km)", 0.1, 1000],
+  ["destinationToStationKm", "Distancia destino → estación (km)", 0, 500],
+  ["destinationValue", "Valor del destino", 0, 100],
+  ["riderRating", "Calificación", 1, 5],
+  ["expiresAfterSeconds", "Expiración (segundos)", 1, 120],
+] as const;
 
 const requireData = <T,>(result: { data: T | null; error: { message: string } | null }): T => {
   if (result.error) throw new Error(result.error.message);
@@ -526,16 +542,21 @@ const OperationsConsole = () => {
     try {
       const offers = uberTestOffers.map((offer) => ({
         service: offer.service, fare: Number(offer.fare), currency: "MXN", pickup: offer.pickup,
-        pickupDistanceKm: Number(offer.pickupDistanceKm), tripDurationMinutes: Number(offer.tripDurationMinutes),
-        tripDistanceKm: Number(offer.tripDistanceKm), riderRating: offer.riderRating ? Number(offer.riderRating) : null,
+        pickupDistanceKm: Number(offer.pickupDistanceKm), pickupMinutes: Number(offer.pickupMinutes),
+        tripDurationMinutes: Number(offer.tripDurationMinutes), tripDistanceKm: Number(offer.tripDistanceKm),
+        destinationToStationKm: Number(offer.destinationToStationKm), destinationValue: Number(offer.destinationValue),
+        riderRating: offer.riderRating ? Number(offer.riderRating) : null,
         expiresAfterSeconds: Number(offer.expiresAfterSeconds),
       }));
-      if (offers.some((offer) => !Number.isFinite(offer.fare) || !offer.pickup || !Number.isFinite(offer.pickupDistanceKm) || !Number.isFinite(offer.tripDurationMinutes) || !Number.isFinite(offer.tripDistanceKm))) throw new Error("Completa los datos obligatorios de cada oferta.");
+      if (offers.some((offer) => !Number.isFinite(offer.fare) || offer.fare < 0 || !offer.pickup.trim() || !Number.isFinite(offer.pickupDistanceKm) || offer.pickupDistanceKm < 0 || !Number.isFinite(offer.pickupMinutes) || offer.pickupMinutes <= 0 || offer.pickupMinutes > 180 || !Number.isFinite(offer.tripDurationMinutes) || offer.tripDurationMinutes <= 0 || offer.tripDurationMinutes > 600 || !Number.isFinite(offer.tripDistanceKm) || offer.tripDistanceKm <= 0 || offer.tripDistanceKm > 1000 || !Number.isFinite(offer.destinationToStationKm) || offer.destinationToStationKm < 0 || offer.destinationToStationKm > 500 || !Number.isFinite(offer.destinationValue) || offer.destinationValue < 0 || offer.destinationValue > 100 || (offer.riderRating !== null && (!Number.isFinite(offer.riderRating) || offer.riderRating < 1 || offer.riderRating > 5)) || !Number.isFinite(offer.expiresAfterSeconds) || offer.expiresAfterSeconds < 1 || offer.expiresAfterSeconds > 120)) throw new Error("Completa todos los campos de metadata de cada oferta con valores válidos.");
       const { data: response, error } = await supabase.rpc("console_send_uber_test_batch", { p_driver_profile_id: uberTestDriverId, p_offers: offers, p_idempotency_key: `console-uber-test-${crypto.randomUUID()}` });
       if (error) throw error;
       const result = (response ?? {}) as Record<string, unknown>;
       setUberTestResult(result);
-    } catch (error) { setUberTestError(error instanceof Error ? error.message : "No se pudo mandar la tanda TEST."); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo mandar la tanda TEST.";
+      setUberTestError(message.includes("invalid_uber_test_copilot_metadata") ? "La oferta requiere tiempo a recogida, distancia destino → estación y valor del destino válidos." : message);
+    }
     finally { setUberTestLoading(false); }
   };
 
@@ -545,6 +566,13 @@ const OperationsConsole = () => {
     { label: "Unidades disponibles", value: data?.live?.available_units ?? "—", icon: Car, tone: "text-emerald-300" },
     { label: "Unidades en taller", value: data?.live?.units_in_shop ?? "—", icon: Wrench, tone: "text-amber-300" },
   ];
+
+  const uberTestOffersValid = uberTestOffers.length >= 1 && uberTestOffers.length <= 10 && uberTestOffers.every((offer) => {
+    const values = [offer.fare, offer.pickupDistanceKm, offer.pickupMinutes, offer.tripDurationMinutes, offer.tripDistanceKm, offer.destinationToStationKm, offer.destinationValue, offer.expiresAfterSeconds].map(Number);
+    const [fare, pickupDistanceKm, pickupMinutes, tripDurationMinutes, tripDistanceKm, destinationToStationKm, destinationValue, expiresAfterSeconds] = values;
+    const riderRating = offer.riderRating === "" ? null : Number(offer.riderRating);
+    return offer.pickup.trim() !== "" && Number.isFinite(fare) && fare >= 0 && Number.isFinite(pickupDistanceKm) && pickupDistanceKm >= 0 && Number.isFinite(pickupMinutes) && pickupMinutes > 0 && pickupMinutes <= 180 && Number.isFinite(tripDurationMinutes) && tripDurationMinutes > 0 && tripDurationMinutes <= 600 && Number.isFinite(tripDistanceKm) && tripDistanceKm > 0 && tripDistanceKm <= 1000 && Number.isFinite(destinationToStationKm) && destinationToStationKm >= 0 && destinationToStationKm <= 500 && Number.isFinite(destinationValue) && destinationValue >= 0 && destinationValue <= 100 && Number.isFinite(expiresAfterSeconds) && expiresAfterSeconds >= 1 && expiresAfterSeconds <= 120 && (riderRating === null || (Number.isFinite(riderRating) && riderRating >= 1 && riderRating <= 5));
+  });
 
   return (
     <main className="station-bg min-h-dvh px-4 py-5 md:px-8 md:py-7">
@@ -613,9 +641,9 @@ const OperationsConsole = () => {
             {uberTestOffers.map((offer, index) => <div key={index} className="grid gap-3 rounded-xl border border-border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="flex items-center justify-between sm:col-span-2 lg:col-span-4"><Badge variant="outline">#{index + 1} · orden FIFO</Badge><Button size="sm" variant="ghost" onClick={() => setUberTestOffers((current) => current.length === 1 ? current : current.filter((_, itemIndex) => itemIndex !== index))} disabled={uberTestOffers.length === 1}><Trash2 className="size-4" /> Quitar</Button></div>
               <label className="grid gap-2 text-sm font-semibold">Servicio<select className="h-10 rounded-md border border-border bg-background px-3 font-normal" value={offer.service} onChange={(event) => setUberTestOffers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, service: event.target.value as UberTestDraftOffer["service"] } : item))}><option>UberX</option><option>Uber Comfort</option></select></label>
-              {(["fare", "pickup", "pickupDistanceKm", "tripDurationMinutes", "tripDistanceKm", "riderRating", "expiresAfterSeconds"] as const).map((field) => <label key={field} className="grid gap-2 text-sm font-semibold">{({ fare: "Tarifa MXN", pickup: "Recogida", pickupDistanceKm: "Recogida km", tripDurationMinutes: "Viaje min", tripDistanceKm: "Viaje km", riderRating: "Rating", expiresAfterSeconds: "Expira segundos" } as Record<string, string>)[field]}<input className="h-10 rounded-md border border-border bg-background px-3 font-normal" type={field === "pickup" ? "text" : "number"} step="any" value={offer[field]} onChange={(event) => setUberTestOffers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: event.target.value } : item))} /></label>)}
+              {uberTestOfferFields.map(([field, label, min, max]) => <label key={field} className="grid gap-2 text-sm font-semibold">{label}<input className="h-10 rounded-md border border-border bg-background px-3 font-normal" type={field === "pickup" ? "text" : "number"} step="any" min={min} max={max} value={offer[field]} onChange={(event) => setUberTestOffers((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: event.target.value } : item))} /></label>)}
             </div>)}
-            <div className="flex flex-wrap items-center gap-3"><Button variant="outline" onClick={() => setUberTestOffers((current) => current.length < 10 ? [...current, emptyUberOffer()] : current)} disabled={uberTestOffers.length >= 10}><Plus className="size-4" /> Agregar oferta</Button><Button onClick={() => void sendUberTestBatch()} disabled={uberTestLoading || !uberTestDriverId}>{uberTestLoading ? "Mandando…" : "MANDAR TANDA DE VIAJES"}</Button><Badge variant="outline">{uberTestOffers.length}/10 TEST</Badge></div>
+            <div className="flex flex-wrap items-center gap-3"><Button variant="outline" onClick={() => setUberTestOffers((current) => current.length < 10 ? [...current, emptyUberOffer()] : current)} disabled={uberTestOffers.length >= 10}><Plus className="size-4" /> Agregar oferta</Button><Button onClick={() => void sendUberTestBatch()} disabled={uberTestLoading || !uberTestDriverId || !uberTestOffersValid}>{uberTestLoading ? "Mandando…" : "MANDAR TANDA DE VIAJES"}</Button><Badge variant="outline">{uberTestOffers.length}/10 TEST</Badge></div>
             {uberTestError && <p className="text-sm text-destructive">{uberTestError}</p>}
             {uberTestResult && <div className="rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 text-sm"><strong>Tanda enviada:</strong> {String(uberTestResult.batch_id ?? "—")} · {String(uberTestResult.offer_count ?? uberTestOffers.length)} ofertas · estado {String(uberTestResult.status ?? "sent")}</div>}
             {uberTestBatchId && <div className="grid gap-3 rounded-xl border border-border bg-background/40 p-4">

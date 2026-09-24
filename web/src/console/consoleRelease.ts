@@ -43,7 +43,7 @@ const injected = {
 
 export const CONSOLE_RELEASE = {
   version: "1.0.0",
-  build: injected.build?.trim() || "1002",
+  build: injected.build?.trim() || "1003",
   validationStatus: "CANDIDATE",
   lifecycle: "ACTIVE",
   environment: "TEST",

@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(15);
 select has_table('public','uber_test_offer_batches','existe tabla TEST de tandas');
 select has_table('public','uber_test_offers','existe tabla TEST de ofertas');
 select has_table('public','uber_test_offer_results','existe tabla TEST de resultados');
@@ -10,6 +10,9 @@ select has_function('public','console_send_uber_test_batch',array['uuid','jsonb'
 select has_function('public','record_uber_test_result',array['uuid','text','text'],'RPC resultado disponible');
 select has_function('public','driver_get_uber_test_batch',array[]::text[],'RPC recuperacion disponible');
 select has_table('public','uber_test_offer_events','existe evento fuente TEST para integracion futura');
+select has_column('public','uber_test_offers','pickup_minutes','metadata pickup_minutes disponible');
+select has_column('public','uber_test_offers','destination_to_station_km','metadata destination_to_station_km disponible');
+select has_column('public','uber_test_offers','destination_value','metadata destination_value disponible');
 select ok(not has_table_privilege('anon','public.uber_test_offer_batches','SELECT'),'anon no lee tandas');
 select ok(not has_table_privilege('anon','public.uber_test_offer_results','INSERT'),'anon no inserta resultados');
 select * from finish();
