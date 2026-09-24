@@ -63,10 +63,11 @@ public final class UberTestStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 if self.queue.current == nil { await self.recover(using: client) }
-                try? await Task.sleep(for: .seconds(5))
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
     }
+    public func stopForegroundRecovery() { recoveryTask?.cancel(); recoveryTask = nil }
     public func accept() { finish(.accepted) }
     public func discard() { finish(.discarded) }
     private func finish(_ outcome: UberTestOutcome) {

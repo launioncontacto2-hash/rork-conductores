@@ -142,6 +142,7 @@ final class UberTestAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifica
 
 @main
 struct UberTestApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(UberTestAppDelegate.self) private var appDelegate
     @StateObject private var store: UberTestStore
     @StateObject private var auth = UberTestAuth()
@@ -170,6 +171,23 @@ struct UberTestApp: App {
                         let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
                         await store.recover(using: client)
                         await store.startForegroundRecovery(using: client)
+                    }
+                }
+                .onChange(of: scenePhase) { _, phase in
+                    guard auth.isSignedIn else { return }
+                    if phase == .active {
+                        Task {
+                            await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
+                            receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
+                            if let batchURL = runtime.batchURL {
+                                let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
+                                await store.recover(using: client)
+                                await store.startForegroundRecovery(using: client)
+                            }
+                        }
+                    } else if phase == .background {
+                        receiver.stopHeartbeat()
+                        store.stopForegroundRecovery()
                     }
                 }
         }

@@ -11,7 +11,7 @@ public struct UberTestOfferView: View {
             if let offer = store.queue.current {
                 VStack(spacing: 18) {
                     HStack { Text("UBER TEST").font(.caption.weight(.bold)).tracking(2); Spacer(); Text(receiver.isActive ? "● ESTE IPHONE ACTIVO" : "ESTE IPHONE ESTÁ INACTIVO").font(.caption2.weight(.bold)).foregroundStyle(receiver.isActive ? .green : .red) }.foregroundStyle(.white.opacity(0.8))
-                    VStack(alignment: .leading, spacing: 3) { Text("Conductor: \(receiver.displayName)"); Text("Identificador: \(receiver.employeeNumber)"); Text(receiver.linkState).font(.caption.weight(.bold)).foregroundStyle(receiver.linkState == "DORI ENLAZADO" ? .green : .orange) }.frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(.white.opacity(0.85))
+                    VStack(alignment: .leading, spacing: 3) { Text("Conductor: \(receiver.displayName)"); Text("Identificador: \(receiver.employeeNumber)"); Text(receiver.receiverState).font(.caption.weight(.bold)); Text(receiver.linkState).font(.caption.weight(.bold)).foregroundStyle(receiver.linkState == "DORI ENLAZADO" ? .green : .orange) }.frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(.white.opacity(0.85))
                     Text("Nueva solicitud").font(.title2.weight(.semibold)).foregroundStyle(.white)
                     Text(offer.service).font(.system(size: 40, weight: .bold, design: .rounded)).foregroundStyle(.white)
                     Text("$\(offer.fare.description) \(offer.currency)").font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(.green)
