@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import Security
+import UberTestCore
 
 @MainActor
 final class UberTestAuth: ObservableObject {
@@ -10,11 +11,17 @@ final class UberTestAuth: ObservableObject {
     private let service = "uber.test.auth"
     private let baseURL: URL?
     private let publishableKey: String?
+    private var sessionObserver: NSObjectProtocol?
     init() {
         baseURL = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_URL") as? String).flatMap(URL.init(string:))
         publishableKey = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String
         isSignedIn = false
+        sessionObserver = NotificationCenter.default.addObserver(forName: .uberTestSessionTerminated, object: nil, queue: .main) { [weak self] _ in
+            self?.isSignedIn = false
+            self?.errorMessage = "La sesión TEST terminó. Inicia sesión nuevamente."
+        }
     }
+    deinit { if let sessionObserver { NotificationCenter.default.removeObserver(sessionObserver) } }
     func restoreSession() async { isSignedIn = await UberTestSession.shared.validToken() != nil }
     func signOut() async {
         await UberTestSession.shared.clearTokens()
@@ -79,14 +86,20 @@ private actor UberTestSession {
     func clearTokens() { Self.clear(account: "access-token"); Self.clear(account: "refresh-token") }
     func validToken(force: Bool = false) async -> String? {
         if !force, let token = Self.read(account: "access-token"), let exp = Self.expiration(token), exp > Date().addingTimeInterval(60) { return token }
-        guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else { return nil }
+        guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else {
+            Self.clear(account: "access-token"); Self.clear(account: "refresh-token")
+            uberTestNotifySessionTerminated()
+            return nil
+        }
         if let refreshTask { return await refreshTask.value }
         let task = Task { await Self.refresh(baseURL: baseURL, key: publishableKey, token: refresh) }
         refreshTask = task
         let token = await task.value
         refreshTask = nil
         if let token { return token }
-        Self.clear(account: "access-token"); Self.clear(account: "refresh-token"); return nil
+        Self.clear(account: "access-token"); Self.clear(account: "refresh-token")
+        uberTestNotifySessionTerminated()
+        return nil
     }
     private static func refresh(baseURL: URL, key: String, token: String) async -> String? {
         var c = URLComponents(url: baseURL.appendingPathComponent("auth/v1/token"), resolvingAgainstBaseURL: false); c?.queryItems = [URLQueryItem(name: "grant_type", value: "refresh_token")]
@@ -160,7 +173,11 @@ struct UberTestApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { receiver.stopHeartbeat(); await receiver.release(using: runtime.accessToken, refresh: runtime.refreshAccessToken); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
+        Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { receiver.stopHeartbeat(); store.stopForegroundRecovery(); await receiver.release(using: runtime.accessToken, refresh: runtime.refreshAccessToken); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
+                .onReceive(NotificationCenter.default.publisher(for: .uberTestSessionTerminated)) { _ in
+                    receiver.reset()
+                    store.stopForegroundRecovery()
+                }
                 .task(id: auth.isSignedIn) {
                     if !auth.isSignedIn { await auth.restoreSession() }
                     guard auth.isSignedIn else { return }

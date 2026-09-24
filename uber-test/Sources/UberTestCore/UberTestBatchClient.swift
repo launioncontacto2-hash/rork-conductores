@@ -12,14 +12,25 @@ public struct UberTestBatchClient: Sendable {
     }
 
     public func loadPendingBatch() async throws -> UberTestOfferBatch? {
-        guard let token = await accessToken() else { return nil }
+        guard let token = await accessToken() else {
+            uberTestNotifySessionTerminated()
+            throw UberTestSessionError.terminated
+        }
         var request = URLRequest(url: functionURL); request.httpMethod = "POST"; request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(installationID, forHTTPHeaderField: "x-uber-test-installation-id")
         var (data, response) = try await session.data(for: request)
-        if (response as? HTTPURLResponse)?.statusCode == 401, let refreshAccessToken, let refreshed = await refreshAccessToken() {
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            guard let refreshAccessToken, let refreshed = await refreshAccessToken() else {
+                uberTestNotifySessionTerminated()
+                throw UberTestSessionError.terminated
+            }
             request.setValue("Bearer \(refreshed)", forHTTPHeaderField: "Authorization")
             request.setValue(installationID, forHTTPHeaderField: "x-uber-test-installation-id")
             (data, response) = try await session.data(for: request)
+            if (response as? HTTPURLResponse)?.statusCode == 401 {
+                uberTestNotifySessionTerminated()
+                throw UberTestSessionError.terminated
+            }
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
         struct Envelope: Decodable { let batch: UberTestOfferBatch? }

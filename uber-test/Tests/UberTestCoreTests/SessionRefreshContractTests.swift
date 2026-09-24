@@ -90,4 +90,24 @@ final class SessionRefreshContractTests: XCTestCase {
         _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { "old" }, refreshAccessToken: { "new" }, session: session()).loadPendingBatch()
         XCTAssertEqual(ProtocolStub.authorization, ["Bearer old", "Bearer new"])
     }
+
+    func testMissingAccessTokenIsTerminalAndNotNoBatch() async {
+        do {
+            _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { nil }, session: session()).loadPendingBatch()
+            XCTFail("expected terminal session")
+        } catch let error as UberTestSessionError {
+            XCTAssertEqual(error, .terminated)
+        } catch { XCTFail("unexpected error: \(error)") }
+    }
+
+    func testSecond401IsTerminalAfterExactlyOneRetry() async {
+        ProtocolStub.statuses = [401, 401]
+        do {
+            _ = try await UberTestBatchClient(functionURL: URL(string: "https://test.invalid/next")!, accessToken: { "expired" }, refreshAccessToken: { "refreshed" }, session: session()).loadPendingBatch()
+            XCTFail("expected terminal session")
+        } catch let error as UberTestSessionError {
+            XCTAssertEqual(error, .terminated)
+        } catch { XCTFail("unexpected error: \(error)") }
+        XCTAssertEqual(ProtocolStub.authorization, ["Bearer expired", "Bearer refreshed"])
+    }
 }

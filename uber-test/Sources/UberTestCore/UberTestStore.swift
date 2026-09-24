@@ -55,6 +55,7 @@ public final class UberTestStore: ObservableObject {
         await flushPendingResults()
         guard queue.current == nil else { return }
         do { if let batch = try await client.loadPendingBatch() { receive(batch) } }
+        catch UberTestSessionError.terminated { stopForegroundRecovery() }
         catch { errorMessage = "No se pudo recuperar la tanda TEST." }
     }
     public func startForegroundRecovery(using client: UberTestBatchClient) async {
