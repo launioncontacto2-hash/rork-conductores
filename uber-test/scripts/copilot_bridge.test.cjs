@@ -72,6 +72,6 @@ test('DORI app receives the shared APNs token without a competing app delegate',
 });
 
 test('Copilot TEST lifecycle is gated by an active shift', () => {
-  assert.match(contentViewSwift, /store\.activeShift\s*!==\s*nil/);
+  assert.match(contentViewSwift, /store\.activeShift\s*!=\s*nil/);
   assert.match(contentViewSwift, /store\.activeShift\?\.id/);
 });
