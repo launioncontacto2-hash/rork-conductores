@@ -203,20 +203,17 @@ struct RootTabView: View {
                 AccessDeniedView()
             }
         }
-        .task(id: "\(store.currentPrincipal?.environmentId ?? ""):\(store.activeShift?.id ?? "")") {
+        .task(id: store.currentPrincipal?.environmentId) {
             guard store.currentPrincipal?.role == .driver, store.isBackendTestSession,
-                  store.activeShift != nil,
                   let environment = store.currentPrincipal?.environmentId,
                   let environmentID = UUID(uuidString: environment) else {
                 copilotInbox.stop()
-                DORICopilotPushCoordinator.shared.setShiftActive(false)
                 return
             }
-            DORICopilotPushCoordinator.shared.setShiftActive(true)
             copilotInbox.start(environmentID: environmentID)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, store.activeShift != nil { Task { await copilotInbox.receiveAndAnnounce() } }
+            if phase == .active { Task { await copilotInbox.receiveAndAnnounce() } }
         }
     }
 }
