@@ -67,7 +67,7 @@ public final class UberTestReceiverState: ObservableObject {
         linkState = status.label
     }
 
-    public static func decodeLinkStatus(_ data: Data) -> LinkStatus? {
+    nonisolated public static func decodeLinkStatus(_ data: Data) -> LinkStatus? {
         guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
         if let value = object as? String { return LinkStatus(rawValue: value.lowercased()) }
         if let value = object as? [String: Any], let status = value["status"] as? String { return LinkStatus(rawValue: status.lowercased()) }
