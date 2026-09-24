@@ -9,10 +9,12 @@ final class DORICopilotPushCoordinator {
     static let shared = DORICopilotPushCoordinator()
     private var deviceToken: String?
     private var heartbeatTask: Task<Void, Never>?
+    private(set) var isShiftActive = false
     private let bundleID = Bundle.main.bundleIdentifier ?? "com.turnoev.mobility"
 
     func receivedDeviceToken(_ data: Data) {
         deviceToken = data.map { String(format: "%02x", $0) }.joined()
+        guard isShiftActive else { return }
         Task { await registerIfReady() }
     }
 
@@ -22,7 +24,7 @@ final class DORICopilotPushCoordinator {
     }
 
     private func registerIfReady() async {
-        guard let token = deviceToken, let client = SupabaseBridge.client else { return }
+        guard isShiftActive, let token = deviceToken, let client = SupabaseBridge.client else { return }
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         do {
             try await client.rpc("register_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute()
@@ -30,7 +32,7 @@ final class DORICopilotPushCoordinator {
             heartbeatTask = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(60))
-                    guard let self, let token = self.deviceToken, let client = SupabaseBridge.client else { continue }
+                    guard let self, self.isShiftActive, let token = self.deviceToken, let client = SupabaseBridge.client else { continue }
                     try? await client.rpc("heartbeat_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: self.bundleID)).execute()
                 }
             }
@@ -45,7 +47,20 @@ final class DORICopilotPushCoordinator {
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         Task { try? await client.rpc("revoke_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute() }
     }
+    func setShiftActive(_ active: Bool) {
+        guard isShiftActive != active else {
+            if active { Task { await registerIfReady() } }
+            return
+        }
+        isShiftActive = active
+        if active {
+            Task { await registerIfReady() }
+        } else {
+            revokeCurrentDevice()
+        }
+    }
     func sessionDidBecomeAuthenticated() {
+        guard isShiftActive else { return }
         Task { await registerIfReady() }
     }
 }

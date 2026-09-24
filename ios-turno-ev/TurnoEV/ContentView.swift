@@ -207,6 +207,7 @@ struct RootTabView: View {
             }
         }
         .task(id: "\(store.currentPrincipal?.environmentId ?? "none"):\(store.activeShift?.id ?? "none")") {
+            DORICopilotPushCoordinator.shared.setShiftActive(store.activeShift != nil)
             guard store.currentPrincipal?.role == .driver, store.isBackendTestSession,
                   store.activeShift != nil,
                   let environment = store.currentPrincipal?.environmentId,
@@ -217,7 +218,10 @@ struct RootTabView: View {
             copilotInbox.start(environmentID: environmentID)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, store.activeShift != nil { Task { await copilotInbox.receiveAndAnnounce() } }
+            if phase == .active {
+                DORICopilotPushCoordinator.shared.setShiftActive(store.activeShift != nil)
+                if store.activeShift != nil { Task { await copilotInbox.receiveAndAnnounce() } }
+            }
         }
     }
 }
