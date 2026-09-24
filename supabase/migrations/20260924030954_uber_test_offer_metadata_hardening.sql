@@ -54,9 +54,9 @@ begin
     if v_offer->>'service' not in ('UberX', 'Uber Comfort') then
       raise exception 'unsupported_uber_test_service';
     end if;
-    if jsonb_typeof(v_offer->'pickupMinutes') <> 'number'
-       or jsonb_typeof(v_offer->'destinationToStationKm') <> 'number'
-       or jsonb_typeof(v_offer->'destinationValue') <> 'number' then
+    if coalesce(jsonb_typeof(v_offer->'pickupMinutes'), 'null') <> 'number'
+       or coalesce(jsonb_typeof(v_offer->'destinationToStationKm'), 'null') <> 'number'
+       or coalesce(jsonb_typeof(v_offer->'destinationValue'), 'null') <> 'number' then
       raise exception 'invalid_uber_test_copilot_metadata' using errcode = '22023';
     end if;
     begin
