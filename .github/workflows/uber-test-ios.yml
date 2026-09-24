@@ -16,6 +16,8 @@ jobs:
   test-core:
     name: UBER Test core and iOS build
     runs-on: macos-15
+    env:
+      SWIFT_BACKTRACE: enable
     steps:
       - uses: actions/checkout@v4
       - name: Contract tests
