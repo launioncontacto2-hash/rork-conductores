@@ -6,7 +6,7 @@ on:
       - "uber-test/**"
       - ".github/workflows/uber-test-ios.yml"
   push:
-    branches: ["codex/uber-test-console", "feat/copilot-uber-test-bridge", "codex/uber-test-identity-link-reconciliation"]
+    branches: ["codex/uber-test-console", "feat/copilot-uber-test-bridge", "codex/uber-test-identity-link-reconciliation", "codex/uber-test-single-iphone-e2e"]
     paths:
       - "uber-test/**"
       - ".github/workflows/uber-test-ios.yml"
@@ -39,7 +39,7 @@ jobs:
 
   testflight:
     name: Archive and distribute UBER Test
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/codex/uber-test-identity-link-reconciliation')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/codex/uber-test-identity-link-reconciliation' || github.ref == 'refs/heads/codex/uber-test-single-iphone-e2e'))
     needs: test-core
     runs-on: macos-15
     environment: testflight
