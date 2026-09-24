@@ -21,7 +21,8 @@ public final class UberTestStore: ObservableObject {
     private let deadlineKey = "uber.test.current.offer.deadline.v1"
     private let pendingResultsKey = "uber.test.pending.results.v1"
     private let copilotEvaluatedOfferIDsKey = "uber.test.copilot.evaluated-offers.v1"
-    private var copilotEvaluatedOfferIDs: Set<String> = []
+    private var copilotEvaluatedOfferIDs: [String] = []
+    private let maxRememberedOfferIDs = 100
     private var deadline: Date?
     private var pendingResults: [UberTestResult] = []
     private let alertSound = UberTestAlertSound()
@@ -36,7 +37,7 @@ public final class UberTestStore: ObservableObject {
             if queue.current != nil { startTimer(resetDeadline: deadline == nil) }
         }
         if let data = UserDefaults.standard.data(forKey: pendingResultsKey), let restored = try? JSONDecoder().decode([UberTestResult].self, from: data) { pendingResults = restored }
-        copilotEvaluatedOfferIDs = Set(UserDefaults.standard.stringArray(forKey: copilotEvaluatedOfferIDsKey) ?? [])
+        copilotEvaluatedOfferIDs = UserDefaults.standard.stringArray(forKey: copilotEvaluatedOfferIDsKey) ?? []
         NotificationCenter.default.addObserver(forName: UberTestPushCoordinator.batchNotification, object: nil, queue: .main) { [weak self] notification in
             guard let batch = notification.object as? UberTestOfferBatch else { return }
             self?.receive(batch)
@@ -82,8 +83,9 @@ public final class UberTestStore: ObservableObject {
     private func evaluateCurrentOfferIfNeeded() {
         guard let offer = queue.current, let batchId = queue.batch?.id, let copilotSink,
               !copilotEvaluatedOfferIDs.contains(offer.id) else { return }
-        copilotEvaluatedOfferIDs.insert(offer.id)
-        UserDefaults.standard.set(Array(copilotEvaluatedOfferIDs), forKey: copilotEvaluatedOfferIDsKey)
+        copilotEvaluatedOfferIDs.append(offer.id)
+        if copilotEvaluatedOfferIDs.count > maxRememberedOfferIDs { copilotEvaluatedOfferIDs.removeFirst(copilotEvaluatedOfferIDs.count - maxRememberedOfferIDs) }
+        UserDefaults.standard.set(copilotEvaluatedOfferIDs, forKey: copilotEvaluatedOfferIDsKey)
         Task { [weak self] in
             do { try await copilotSink.evaluate(offer, batchId: batchId) }
             catch { await MainActor.run { self?.errorMessage = "No se pudo preparar la evaluación DORI." } }
@@ -93,9 +95,15 @@ public final class UberTestStore: ObservableObject {
     private func persistPendingResults() { if let data = try? JSONEncoder().encode(pendingResults) { UserDefaults.standard.set(data, forKey: pendingResultsKey) } }
     private func flushPendingResults() async {
         guard let resultSink else { return }
+        var attempts = 0
         while let result = pendingResults.first {
-            do { try await resultSink.record(result); pendingResults.removeFirst(); persistPendingResults() }
-            catch { errorMessage = "Resultado pendiente de sincronización TEST."; return }
+            do { try await resultSink.record(result); pendingResults.removeFirst(); persistPendingResults(); attempts = 0 }
+            catch UberTestResultError.terminal { pendingResults.removeFirst(); persistPendingResults(); attempts = 0 }
+            catch {
+                attempts += 1
+                if attempts >= 3 { errorMessage = "Resultado pendiente de sincronización TEST."; return }
+                try? await Task.sleep(for: .milliseconds(250 * attempts))
+            }
         }
     }
     private func startTimer(resetDeadline: Bool = true) {

@@ -1,5 +1,7 @@
 import Foundation
 
+public enum UberTestResultError: Error, Equatable { case terminal }
+
 public struct UberTestHTTPResultSink: UberTestResultSink {
     public let functionURL: URL
     public let accessToken: @Sendable () async -> String?
@@ -19,7 +21,7 @@ public struct UberTestHTTPResultSink: UberTestResultSink {
         request.httpMethod = "POST"; request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization"); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(installationID, forHTTPHeaderField: "x-uber-test-installation-id")
         request.httpBody = try? JSONEncoder.uberTest.encode(["offerId": result.offerId, "outcome": result.outcome.rawValue, "idempotencyKey": "uber-test-\(result.batchId)-\(result.offerId)-\(result.outcome.rawValue)"])
-        var (_, response) = try await session.data(for: request)
+        var (data, response) = try await session.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 {
             guard let refreshAccessToken, let refreshed = await refreshAccessToken() else {
                 uberTestNotifySessionTerminated()
@@ -27,13 +29,16 @@ public struct UberTestHTTPResultSink: UberTestResultSink {
             }
             request.setValue("Bearer \(refreshed)", forHTTPHeaderField: "Authorization")
             request.setValue(installationID, forHTTPHeaderField: "x-uber-test-installation-id")
-            (_, response) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request)
             if (response as? HTTPURLResponse)?.statusCode == 401 {
                 uberTestNotifySessionTerminated()
                 throw UberTestSessionError.terminated
             }
         }
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if (200..<300).contains(http.statusCode) { return }
+        if (400..<500).contains(http.statusCode) { throw UberTestResultError.terminal }
+        throw URLError(.badServerResponse)
     }
 }
 
