@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: backend-validation-${{ github.workflow }}-${{ github.ref }}
