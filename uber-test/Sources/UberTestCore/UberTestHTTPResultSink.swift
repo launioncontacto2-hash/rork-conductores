@@ -1,6 +1,6 @@
 import Foundation
 
-public enum UberTestResultError: Error, Equatable { case terminal }
+public enum UberTestResultError: Error, Equatable { case terminal, retryable }
 
 public struct UberTestHTTPResultSink: UberTestResultSink {
     public let functionURL: URL
@@ -37,6 +37,7 @@ public struct UberTestHTTPResultSink: UberTestResultSink {
         }
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         if (200..<300).contains(http.statusCode) { return }
+        if http.statusCode == 429 || http.statusCode >= 500 { throw UberTestResultError.retryable }
         if (400..<500).contains(http.statusCode) { throw UberTestResultError.terminal }
         throw URLError(.badServerResponse)
     }

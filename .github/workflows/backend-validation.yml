@@ -40,6 +40,19 @@ jobs:
         with:
           version: 2.116.0
 
+      - name: Set up Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Typecheck Copilot and Uber Test Edge Functions
+        shell: bash
+        run: |
+          deno check supabase/functions/uber-test-copilot-evaluate/index.ts
+          deno check supabase/functions/uber-test-next/index.ts
+          deno check supabase/functions/uber-test-result/index.ts
+          deno check supabase/functions/dori-copilot-push/index.ts
+
       - name: Check Git diff formatting
         shell: bash
         run: |

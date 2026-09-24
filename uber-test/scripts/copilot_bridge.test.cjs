@@ -13,6 +13,7 @@ const resultEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'ube
 const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-test-uber-dori-parameters.sql'), 'utf8');
 const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260923170000_uber_test_dori_evaluation_bridge.sql'), 'utf8');
 const stabilizationMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924110000_uber_test_stabilization_contract.sql'), 'utf8');
+const hardeningMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924120000_uber_test_stabilization_hardening.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
@@ -81,4 +82,19 @@ test('stabilization prevents duplicate evaluation, push and legacy receiver bypa
   assert.match(nextEdge, /presented\?\.status === "presented"/);
   assert.match(offerBatchSwift, /maxRememberedIDs = 1000/);
   assert.match(storeSwift, /maxRememberedOfferIDs = 100/);
+});
+
+test('hardening keeps recovery server-authoritative and outcomes idempotent by offer', () => {
+  assert.match(hardeningMigration, /not exists \(select 1 from public\.uber_test_offer_results/);
+  assert.match(hardeningMigration, /status','idempotent/);
+  assert.match(hardeningMigration, /offer_already_resolved/);
+  assert.match(hardeningMigration, /claimed_at/);
+});
+
+test('result sink treats 429 and 5xx as retryable while preserving terminal 4xx', () => {
+  const sink = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestHTTPResultSink.swift'), 'utf8');
+  assert.match(sink, /statusCode == 429/);
+  assert.match(sink, /statusCode >= 500/);
+  assert.match(sink, /UberTestResultError\.retryable/);
+  assert.match(sink, /UberTestResultError\.terminal/);
 });

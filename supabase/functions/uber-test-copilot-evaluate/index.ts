@@ -45,7 +45,14 @@ Deno.serve(async (request) => {
   const effectivePerKm = trip.fare / (trip.pickupKm + trip.tripKm);
   const effectivePerHour = trip.fare / ((trip.pickupMinutes + trip.tripMinutes) / 60);
   const bodyText = `${recommendation === "RECOMENDADO" ? "TOMAR" : "NO TOMAR"} · $${effectivePerKm.toFixed(2)}/km · $${effectivePerHour.toFixed(0)}/h`;
-  const { data: existingNotification, error: existingNotificationError } = await admin.from("dori_copilot_notifications").select("id,status").eq("offer_id", body.offerId).maybeSingle();\n  if (existingNotificationError) return json(500, { error: "notification_lookup_failed" });\n  let notificationStatus = existingNotification?.status ?? "pending";\n  let notificationError = null;\n  if (!existingNotification) {\n    const inserted = await admin.from("dori_copilot_notifications").insert({ environment_id: context.environment_id, profile_id: input.driver.driverId, offer_id: body.offerId, recommendation, body: bodyText, payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour }, status: "pending" });\n    notificationError = inserted.error;\n  }
+  const { data: existingNotification, error: existingNotificationError } = await admin.from("dori_copilot_notifications").select("id,status").eq("offer_id", body.offerId).maybeSingle();
+  if (existingNotificationError) return json(500, { error: "notification_lookup_failed" });
+  let notificationStatus = existingNotification?.status ?? "pending";
+  let notificationError = null;
+  if (!existingNotification) {
+    const inserted = await admin.from("dori_copilot_notifications").insert({ environment_id: context.environment_id, profile_id: input.driver.driverId, offer_id: body.offerId, recommendation, body: bodyText, payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour }, status: "pending" });
+    notificationError = inserted.error;
+  }
   if (notificationError) return json(500, { error: "notification_enqueue_failed" });
   let notificationDispatch = "pending";
   const dispatchSecret = Deno.env.get("PUSH_DISPATCH_SECRET");

@@ -1,7 +1,7 @@
 # DORI COPILOTO — CANÓNICO DE DOMINIO
 
 **Estado:** ACTIVO  
-**Versión:** 1.5
+**Versión:** 1.6
 **Fecha de adopción:** 2026-09-21  
 **Propietario de gobierno:** DORI Analista  
 **Repositorio objetivo:** `launioncontacto2-hash/rork-conductores`  

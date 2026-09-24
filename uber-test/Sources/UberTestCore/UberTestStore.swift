@@ -65,7 +65,9 @@ public final class UberTestStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 if self.queue.current == nil { await self.recover(using: client) }
-                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                // Realtime/push is the primary transport; this bounded loop is
+                // recovery only when the app resumes without a delivered event.
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
             }
         }
     }
