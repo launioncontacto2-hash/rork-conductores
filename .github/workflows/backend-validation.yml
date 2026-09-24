@@ -59,6 +59,7 @@ jobs:
         run: supabase db lint --local
 
       - name: Run SQL tests
+        id: sql_tests
         shell: bash
         run: |
           set +e
@@ -73,3 +74,16 @@ jobs:
           name: copilot-sql-test-diagnostics
           path: sql-tests.log
           if-no-files-found: ignore
+
+      - name: Publish sanitized SQL test status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          SQL_TEST_LOG: sql-tests.log
+        with:
+          script: |
+            const fs = require('fs');
+            const text = fs.existsSync(process.env.SQL_TEST_LOG) ? fs.readFileSync(process.env.SQL_TEST_LOG, 'utf8') : 'No se generó log SQL';
+            const lines = text.split(/\r?\n/).filter(line => /not ok|error|failed|exception/i.test(line)).slice(-3);
+            const description = (lines.join(' | ') || 'SQL tests completed').replace(/\s+/g, ' ').slice(0, 140);
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: '${{ steps.sql_tests.outcome }}' === 'success' ? 'success' : 'failure', context: 'copilot/sql-tests-diagnostic', description });
