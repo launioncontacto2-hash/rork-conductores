@@ -21,7 +21,23 @@ Deno.serve(async (request) => {
         if(d.bundle_id !== bundle) continue;
         let response: Response | undefined;
         for (let attempt=0; attempt<3; attempt++) {
-          response=await fetch(`https://api.push.apple.com/3/device/${d.device_token}`,{method:"POST",headers:{authorization:`bearer ${token}`,"apns-topic":bundle,"apns-push-type":"alert","apns-priority":"10","apns-collapse-id":n.offer_id.slice(0,64)},body:JSON.stringify({aps:{alert:{title:"DORI Copiloto",body:n.body},sound:"default"},dori:{offerId:n.offer_id,deepLink:"turno://copiloto"})});
+          response = await fetch(
+            `https://api.push.apple.com/3/device/${d.device_token}`,
+            {
+              method: "POST",
+              headers: {
+                authorization: `bearer ${token}`,
+                "apns-topic": bundle,
+                "apns-push-type": "alert",
+                "apns-priority": "10",
+                "apns-collapse-id": n.offer_id.slice(0, 64),
+              },
+              body: JSON.stringify({
+                aps: { alert: { title: "DORI Copiloto", body: n.body }, sound: "default" },
+                dori: { offerId: n.offer_id, deepLink: "turno://copiloto" },
+              }),
+            },
+          );
           if(response.ok || (response.status<500 && response.status!==429)) break;
           await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));
         }
