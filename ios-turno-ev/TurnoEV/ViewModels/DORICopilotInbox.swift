@@ -29,7 +29,6 @@ final class DORICopilotPushCoordinator {
             // Registration is best-effort while the TEST session is being restored.
         }
     }
-
 }
 
 extension Notification.Name {
