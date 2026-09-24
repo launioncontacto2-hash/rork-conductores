@@ -1147,6 +1147,7 @@ final class FleetStore {
     /// back so another role can be identified instead of re-entering the same one.
     @MainActor
     func signOut() {
+        DORICopilotPushCoordinator.shared.revokeCurrentDevice()
         let wasBackendSession = isBackendSession
         // Saved under the key of the identity that is leaving, before it stops being the
         // current one.
@@ -1168,6 +1169,7 @@ final class FleetStore {
     /// Removes the biometric link so the next access requires full credentials.
     @MainActor
     func forgetDevice() {
+        DORICopilotPushCoordinator.shared.revokeCurrentDevice()
         let wasBackendSession = isBackendSession
         persist()
         enrolledAccountId = nil
