@@ -3,6 +3,7 @@ import Observation
 import Supabase
 import AudioToolbox
 import UIKit
+import UserNotifications
 
 @MainActor
 final class DORICopilotPushCoordinator {
@@ -11,6 +12,7 @@ final class DORICopilotPushCoordinator {
     private var heartbeatTask: Task<Void, Never>?
     private(set) var isShiftActive = false
     private let bundleID = Bundle.main.bundleIdentifier ?? "com.turnoev.mobility"
+    private var lastRegistrationError: String?
 
     func receivedDeviceToken(_ data: Data) {
         deviceToken = data.map { String(format: "%02x", $0) }.joined()
@@ -47,6 +49,10 @@ final class DORICopilotPushCoordinator {
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         Task { try? await client.rpc("revoke_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute() }
     }
+
+    func receivedRegistrationError(_ error: Error) {
+        lastRegistrationError = error.localizedDescription
+    }
     func setShiftActive(_ active: Bool) {
         guard isShiftActive != active else {
             if active { Task { await registerIfReady() } }
@@ -54,10 +60,29 @@ final class DORICopilotPushCoordinator {
         }
         isShiftActive = active
         if active {
-            Task { await registerIfReady() }
+            Task { await requestAuthorizationAndRegister() }
         } else {
             revokeCurrentDevice()
         }
+    }
+
+    private func requestAuthorizationAndRegister() async {
+        guard isShiftActive else { return }
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            guard (try? await center.requestAuthorization(options: [.alert, .badge, .sound])) == true else { return }
+            guard isShiftActive else { return }
+            UIApplication.shared.registerForRemoteNotifications()
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+        case .denied:
+            lastRegistrationError = "notification_permission_denied"
+        @unknown default:
+            lastRegistrationError = "notification_permission_unknown"
+        }
+        await registerIfReady()
     }
     func sessionDidBecomeAuthenticated() {
         guard isShiftActive else { return }
