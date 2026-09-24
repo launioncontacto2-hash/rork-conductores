@@ -24,9 +24,21 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"
-      - name: Swift package tests - OfferBatch
+      - name: Swift package tests - OfferBatch FIFO
         working-directory: uber-test
-        run: swift test --filter OfferBatchTests -v
+        run: swift test --filter OfferBatchTests/testReceivesBatchFIFOAndAdvancesAfterAcceptDiscardExpire -v
+      - name: Swift package tests - OfferBatch validation
+        working-directory: uber-test
+        run: swift test --filter OfferBatchTests/testRejectsMoreThanTenAndProduction -v
+      - name: Swift package tests - OfferBatch dedupe
+        working-directory: uber-test
+        run: swift test --filter OfferBatchTests/testDeduplicatesBatchAndOffers -v
+      - name: Swift package tests - OfferBatch recovery
+        working-directory: uber-test
+        run: swift test --filter OfferBatchTests/testRecoveryResumesSameBatchAfterPersistedResult -v
+      - name: Swift package tests - OfferBatch ten
+        working-directory: uber-test
+        run: swift test --filter OfferBatchTests/testTenConsecutiveOffers -v
       - name: Swift package tests - SessionRefresh
         working-directory: uber-test
         run: swift test --filter SessionRefreshContractTests -v
