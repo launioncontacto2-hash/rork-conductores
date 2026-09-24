@@ -173,7 +173,7 @@ struct UberTestApp: App {
                         await store.startForegroundRecovery(using: client)
                     }
                 }
-                .onChange(of: scenePhase) { _, phase in
+                .onChange(of: scenePhase) { phase in
                     guard auth.isSignedIn else { return }
                     if phase == .active {
                         Task {
