@@ -59,4 +59,17 @@ jobs:
         run: supabase db lint --local
 
       - name: Run SQL tests
-        run: supabase test db
+        shell: bash
+        run: |
+          set +e
+          supabase test db 2>&1 | tee sql-tests.log
+          status=${PIPESTATUS[0]}
+          exit "$status"
+
+      - name: Upload SQL test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-sql-test-diagnostics
+          path: sql-tests.log
+          if-no-files-found: ignore
