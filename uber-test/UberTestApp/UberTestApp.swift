@@ -85,7 +85,11 @@ private actor UberTestSession {
     func clearTokens() { Self.clear(account: "access-token"); Self.clear(account: "refresh-token") }
     func validToken(force: Bool = false) async -> String? {
         if !force, let token = Self.read(account: "access-token"), let exp = Self.expiration(token), exp > Date().addingTimeInterval(60) { return token }
-        guard let refresh = Self.read(account: "refresh-token"), let baseURL, let publishableKey, !publishableKey.isEmpty else {
+        guard let refresh = Self.read(account: "refresh-token") else {
+            Self.clear(account: "access-token"); Self.clear(account: "refresh-token")
+            return nil
+        }
+        guard let baseURL, let publishableKey, !publishableKey.isEmpty else {
             Self.clear(account: "access-token"); Self.clear(account: "refresh-token")
             uberTestNotifySessionTerminated()
             return nil
