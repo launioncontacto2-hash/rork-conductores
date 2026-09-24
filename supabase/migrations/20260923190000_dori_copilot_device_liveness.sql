@@ -26,11 +26,13 @@ grant execute on function public.revoke_dori_copilot_push_device(text,text) to a
 
 create or replace function public.get_dori_copilot_link_status()
 returns jsonb language plpgsql security definer set search_path = pg_catalog, public, app, auth, pg_temp as $$
-declare v_environment uuid := app.current_environment_id(); v_profile uuid := app.auth_profile_id(); v_active boolean;
+declare v_environment uuid := app.current_environment_id(); v_profile uuid := app.auth_profile_id(); v_exists boolean; v_active boolean;
 begin
   if v_environment is null or v_profile is null then return jsonb_build_object('status','waiting'); end if;
-  select exists(select 1 from public.dori_copilot_push_devices d where d.environment_id=v_environment and d.profile_id=v_profile and d.status='active' and d.updated_at > now() - interval '2 minutes') into v_active;
-  return jsonb_build_object('status',case when v_active then 'linked' else 'interrupted' end,'environment_id',v_environment,'profile_id',v_profile);
+  select exists(select 1 from public.dori_copilot_push_devices d where d.environment_id=v_environment and d.profile_id=v_profile),
+         exists(select 1 from public.dori_copilot_push_devices d where d.environment_id=v_environment and d.profile_id=v_profile and d.status='active' and d.updated_at > now() - interval '2 minutes')
+    into v_exists, v_active;
+  return jsonb_build_object('status',case when not v_exists then 'waiting' when v_active then 'linked' else 'interrupted' end,'environment_id',v_environment,'profile_id',v_profile);
 end; $$;
 revoke all on function public.get_dori_copilot_link_status() from public, anon;
 grant execute on function public.get_dori_copilot_link_status() to authenticated;
