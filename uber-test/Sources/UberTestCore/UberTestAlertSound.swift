@@ -2,6 +2,7 @@ import AVFoundation
 
 @MainActor
 public final class UberTestAlertSound {
+#if os(iOS)
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private var format: AVAudioFormat?
@@ -12,8 +13,12 @@ public final class UberTestAlertSound {
         engine.attach(player); engine.connect(player, to: engine.mainMixerNode, format: format)
         try? engine.start()
     }
+#else
+    public init() {}
+#endif
 
     public func playOfferAlert() {
+#if os(iOS)
         guard let format else { return }
         let sampleRate = format.sampleRate
         let toneDuration = 0.18
@@ -32,5 +37,6 @@ public final class UberTestAlertSound {
             } else { channel[frame] = 0 }
         }
         player.stop(); player.scheduleBuffer(buffer); if !player.isPlaying { player.play() }
+#endif
     }
 }
