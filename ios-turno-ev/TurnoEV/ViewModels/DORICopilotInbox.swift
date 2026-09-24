@@ -8,6 +8,7 @@ import UIKit
 final class DORICopilotPushCoordinator {
     static let shared = DORICopilotPushCoordinator()
     private var deviceToken: String?
+    private var heartbeatTask: Task<Void, Never>?
     private let bundleID = Bundle.main.bundleIdentifier ?? "com.turnoev.mobility"
 
     func receivedDeviceToken(_ data: Data) {
@@ -25,9 +26,24 @@ final class DORICopilotPushCoordinator {
         struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
         do {
             try await client.rpc("register_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute()
+            heartbeatTask?.cancel()
+            heartbeatTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(60))
+                    guard let self, let token = self.deviceToken, let client = SupabaseBridge.client else { continue }
+                    try? await client.rpc("heartbeat_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: self.bundleID)).execute()
+                }
+            }
         } catch {
             // Registration is best-effort while the TEST session is being restored.
         }
+    }
+
+    func revokeCurrentDevice() {
+        heartbeatTask?.cancel(); heartbeatTask = nil
+        guard let token = deviceToken, let client = SupabaseBridge.client else { return }
+        struct Parameters: Encodable { let p_device_token: String; let p_bundle_id: String }
+        Task { try? await client.rpc("revoke_dori_copilot_push_device", params: Parameters(p_device_token: token, p_bundle_id: bundleID)).execute() }
     }
 }
 
