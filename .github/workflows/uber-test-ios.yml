@@ -39,7 +39,7 @@ jobs:
       - name: Swift package tests - Store
         working-directory: uber-test
         run: swift test --filter UberTestStoreTests -v
-- name: Validate project and entitlements
+      - name: Validate project and entitlements
         run: |
           xcodebuild -project uber-test/UberTest.xcodeproj -list
           plutil -lint uber-test/UberTestApp/UberTest.entitlements
