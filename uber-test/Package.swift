@@ -10,7 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "UberTestCore", dependencies: [
-            .product(name: "Supabase", package: "supabase-swift")
+            .product(name: "Supabase", package: "supabase-swift", condition: .when(platforms: [.iOS]))
         ]),
         .testTarget(name: "UberTestCoreTests", dependencies: ["UberTestCore"])
     ]
