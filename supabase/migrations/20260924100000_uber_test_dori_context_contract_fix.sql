@@ -23,11 +23,11 @@ declare
   battery numeric;
   input jsonb;
 begin
-  select o.* into strict o
-    from public.uber_test_offers o
-    join public.uber_test_offer_batches b0 on b0.id=o.batch_id
+  select offer_row.* into strict o
+    from public.uber_test_offers offer_row
+    join public.uber_test_offer_batches b0 on b0.id=offer_row.batch_id
     join public.driver_profiles d0 on d0.id=b0.driver_profile_id
-   where o.id=p_offer_id and b0.environment='TEST' and d0.profile_id=app.auth_profile_id();
+   where offer_row.id=p_offer_id and b0.environment='TEST' and d0.profile_id=app.auth_profile_id();
   select * into strict b from public.uber_test_offer_batches where id=o.batch_id;
   select * into strict d from public.driver_profiles where id=b.driver_profile_id;
   select * into sh from public.shifts
