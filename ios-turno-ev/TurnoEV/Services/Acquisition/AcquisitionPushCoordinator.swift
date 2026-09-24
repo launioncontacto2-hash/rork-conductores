@@ -186,7 +186,7 @@ final class AcquisitionAppDelegate: NSObject, UIApplicationDelegate, UNUserNotif
         await MainActor.run {
             DORICopilotPushCoordinator.shared.receivedNotification(userInfo)
         }
-        [.banner, .sound, .badge, .list]
+        return [.banner, .sound, .badge, .list]
     }
 
     func userNotificationCenter(
