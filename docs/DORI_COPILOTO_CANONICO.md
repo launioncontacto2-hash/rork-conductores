@@ -1017,3 +1017,17 @@ Los únicos servicios soportados por el vehículo de laboratorio son UberX y Ube
 - La misma oferta se deduplica por `case_id` y se procesa una sola vez.
 - Una nueva oferta activa un aviso global visual, háptico y sonoro sin mostrar identificadores ni detalles técnicos.
 - En background o pantalla bloqueada se requiere, para operación real, una notificación remota compatible con iOS/APNs; el gate TEST foreground no se considera operación completa mientras ese camino no esté implementado.
+
+---
+
+## Registro v1.6 — transporte físico estabilizado
+
+La línea TEST de un solo iPhone conserva la evidencia física aprobada del transporte estructurado:
+
+- turno abierto activa Copiloto;
+- UBER Test permanece en primer plano;
+- el receptor autenticado y enlazado obtiene la oferta;
+- la evaluación canónica se vincula al `offer_id`;
+- APNs entrega la recomendación TOMAR/NO TOMAR.
+
+Este registro significa **Transport/Evaluation/APNs E2E PASS**. No declara completado el circuito visual completo. La validación pendiente sigue siendo `pixels → Vision/OCR → TripOffer → DecisionInput` y EXPECTED vs ACTUAL.
