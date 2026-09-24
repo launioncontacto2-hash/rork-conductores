@@ -8,6 +8,7 @@ on:
     paths:
       - "supabase/migrations/20260921170000_dori_copilot_events_reconcile.sql"
       - "supabase/migrations/20260922103000_dori_copilot_simulation_contract.sql"
+      - "supabase/migrations/20260924100000_uber_test_dori_context_contract_fix.sql"
       - "supabase/functions/dori-copilot-simulation/**"
       - ".github/workflows/copilot-test-reconcile.yml"
 
