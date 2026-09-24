@@ -9,7 +9,7 @@ select ok((select relrowsecurity from pg_class where oid='public.uber_test_offer
 select has_function('public','console_send_uber_test_batch',array['uuid','jsonb','text'],'RPC Consola disponible');
 select has_function('public','record_uber_test_result',array['uuid','text','text'],'RPC resultado disponible');
 select has_function('public','driver_get_uber_test_batch',ARRAY['text']::text[],'RPC recuperacion exige installation_id');
-select ok(not has_function('public','driver_get_uber_test_batch',array[]::text[]),'RPC legacy sin installation_id eliminado');
+select ok(not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='driver_get_uber_test_batch' and p.pronargs=0),'RPC legacy sin installation_id eliminado');
 select has_function('public','present_next_uber_test_offer',array['uuid'],'RPC presentacion secuencial disponible');
 select has_table('public','uber_test_offer_events','existe evento fuente TEST para integracion');
 select ok((select count(*) from information_schema.columns where table_schema='public' and table_name='uber_test_offer_events' and column_name in ('presented_offer_id','presented_at','copilot_status'))=3,'evento expone estado de presentacion Copiloto');
