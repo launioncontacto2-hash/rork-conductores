@@ -77,7 +77,7 @@ begin
     'market', jsonb_build_object('now',v_iso,'hour',extract(hour from (v_now at time zone coalesce(tz,'America/Mexico_City')))::int,'weekday',extract(isodow from (v_now at time zone coalesce(tz,'America/Mexico_City')))::int,'originZone',o.pickup,'destinationZone','TEST','demand','automatic','historicalDemand',null,'forecastDemand',null,'nextWaitMinutes',0,'destinationValue',o.destination_value,'repositionKm',0,'repositionMinutes',0,'traffic',jsonb_build_object(),'events',jsonb_build_object(),'weather',jsonb_build_object()),
     'vehicle', jsonb_build_object('vehicleId',v.id,'batteryPercent',battery,'rangeKm',p.full_charge_range_km*battery/100,'consumptionKwhPerKm',p.consumption_kwh_per_km,'energyCostPerKm',p.energy_cost_per_km,'odometerKm',coalesce(r.odometer_km,v.odometer_km,sh.start_odometer_km),'distanceToStationKm',p.distance_to_station_km,'destinationToStationKm',o.destination_to_station_km,'requiredReturnAt',v_shift_end),
     'driver', jsonb_build_object('driverId',d.profile_id,'shiftStart',v_shift_start,'shiftEnd',v_shift_end,'remainingMinutes',greatest(0,extract(epoch from (sh.scheduled_end_at-v_now))/60),'connectedMinutes',greatest(0,extract(epoch from (v_now-sh.started_at))/60),'accumulatedIncome',coalesce((select sum(i.amount_mxn) from public.incomes i where i.shift_id=sh.id),0),'completedTrips',coalesce((select sum(i.trips) from public.incomes i where i.shift_id=sh.id),0)),
-    'source','historical');
+    'source','simulated');
   return jsonb_build_object('status','ready','offer_id',o.id,'batch_id',o.batch_id,'driver_profile_id',d.id,'environment_id',d.environment_id,'station_id',d.station_id,'parameter_version',p.parameter_version,'input',input);
 end;
 $$;
