@@ -14,6 +14,7 @@ const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-tes
 const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260923170000_uber_test_dori_evaluation_bridge.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
+const contentViewSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ContentView.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
   assert.match(migration, /pickup_minutes/);
@@ -68,4 +69,9 @@ test('DORI app receives the shared APNs token without a competing app delegate',
   assert.match(doriPushSwift, /register_dori_copilot_push_device/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedDeviceToken/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
+});
+
+test('Copilot TEST lifecycle is gated by an active shift', () => {
+  assert.match(contentViewSwift, /store\.activeShift\s*!==\s*nil/);
+  assert.match(contentViewSwift, /store\.activeShift\?\.id/);
 });
