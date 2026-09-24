@@ -2,7 +2,6 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import Security
-import UberTestCore
 
 @MainActor
 final class UberTestAuth: ObservableObject {
