@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.115.0";
 type Notification = { id: string; environment_id: string; profile_id: string; offer_id: string; body: string; payload: Record<string, unknown>; status: string };
-type Device = { id: string; device_token: string; bundle_id: string };
+type Device = { id: string; device_token: string; bundle_id: string; updated_at: string };
 let cached: { token: string; at: number } | null = null;
 const b64 = (v: Uint8Array | string) => { const bytes = typeof v === "string" ? new TextEncoder().encode(v) : v; let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); };
 const pemBytes = (pem: string) => Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s/g, "")), c => c.charCodeAt(0));
@@ -15,9 +15,19 @@ Deno.serve(async (request) => {
     const {data: claimed,error} = await admin.rpc("claim_dori_copilot_notifications",{p_limit:25}); if(error) throw error;
     const token = await providerToken(required("APNS_TEAM_ID"),required("APNS_KEY_ID"),required("APNS_PRIVATE_KEY").replaceAll("\\n","\n")); let sent=0, failed=0;
     for (const n of (claimed ?? []) as Notification[]) {
-      const {data: devices,error: de} = await admin.from("dori_copilot_push_devices").select("id,device_token,bundle_id").eq("environment_id",n.environment_id).eq("profile_id",n.profile_id).eq("status","active"); if(de) throw de;
+      const {data: devices,error: de} = await admin.from("dori_copilot_push_devices").select("id,device_token,bundle_id,updated_at").eq("environment_id",n.environment_id).eq("profile_id",n.profile_id).eq("status","active").gte("updated_at",new Date(Date.now()-10*60*1000).toISOString()); if(de) throw de;
       let delivered=false;
-      for (const d of (devices ?? []) as Device[]) { if(d.bundle_id !== bundle) continue; const response=await fetch(`https://api.push.apple.com/3/device/${d.device_token}`,{method:"POST",headers:{authorization:`bearer ${token}`,"apns-topic":bundle,"apns-push-type":"alert","apns-priority":"10","apns-collapse-id":n.offer_id.slice(0,64)},body:JSON.stringify({aps:{alert:{title:"DORI Copiloto",body:n.body},sound:"default"},dori:{offerId:n.offer_id,deepLink:"turno://copiloto"}})}); if(response.ok){delivered=true;break;} }
+      for (const d of (devices ?? []) as Device[]) {
+        if(d.bundle_id !== bundle) continue;
+        let response: Response | undefined;
+        for (let attempt=0; attempt<3; attempt++) {
+          response=await fetch(`https://api.push.apple.com/3/device/${d.device_token}`,{method:"POST",headers:{authorization:`bearer ${token}`,"apns-topic":bundle,"apns-push-type":"alert","apns-priority":"10","apns-collapse-id":n.offer_id.slice(0,64)},body:JSON.stringify({aps:{alert:{title:"DORI Copiloto",body:n.body},sound:"default"},dori:{offerId:n.offer_id,deepLink:"turno://copiloto"})});
+          if(response.ok || (response.status<500 && response.status!==429)) break;
+          await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));
+        }
+        if(response?.ok){delivered=true;break;}
+        if(response?.status===400 || response?.status===404 || response?.status===410){ await admin.from("dori_copilot_push_devices").update({status:"revoked"}).eq("id",d.id); }
+      }
       await admin.from("dori_copilot_notifications").update({status:delivered?"sent":"failed",sent_at:delivered?new Date().toISOString():null}).eq("id",n.id); if(delivered) sent++; else failed++;
     }
     return Response.json({claimed:claimed?.length ?? 0,sent,failed});

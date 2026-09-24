@@ -12,6 +12,7 @@ const nextEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-
 const resultEdge = fs.readFileSync(path.join(root, 'supabase', 'functions', 'uber-test-result', 'index.ts'), 'utf8');
 const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-test-uber-dori-parameters.sql'), 'utf8');
 const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260923170000_uber_test_dori_evaluation_bridge.sql'), 'utf8');
+const stabilizationMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924110000_uber_test_stabilization_contract.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 
@@ -68,4 +69,12 @@ test('DORI app receives the shared APNs token without a competing app delegate',
   assert.match(doriPushSwift, /register_dori_copilot_push_device/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedDeviceToken/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
+});
+
+test('stabilization prevents duplicate evaluation, push and legacy receiver bypass', () => {
+  assert.match(stabilizationMigration, /offer_already_resolved/);
+  assert.match(stabilizationMigration, /drop function if exists public\.driver_get_uber_test_batch\(\)/);
+  assert.match(edge, /select\("id,status"\)/);
+  assert.doesNotMatch(edge, /upsert\(/);
+  assert.match(nextEdge, /presented\?\.status === "presented"/);
 });
