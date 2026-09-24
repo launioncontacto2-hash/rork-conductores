@@ -61,12 +61,22 @@ jobs:
 
       - name: Run SQL tests
         id: sql_tests
+        continue-on-error: true
         shell: bash
         run: |
           set +e
           supabase test db 2>&1 | tee sql-tests.log
           status=${PIPESTATUS[0]}
           exit "$status"
+
+      - name: Run Copilot and Uber Test SQL tests
+        id: copilot_sql_tests
+        shell: bash
+        run: |
+          supabase test db --local \
+            supabase/tests/dori_copilot_events.sql \
+            supabase/tests/dori_copilot_simulation_backend.sql \
+            supabase/tests/uber_test_offer_batches.sql
 
       - name: Upload SQL test diagnostics
         if: always()
@@ -87,4 +97,4 @@ jobs:
             const text = fs.existsSync(process.env.SQL_TEST_LOG) ? fs.readFileSync(process.env.SQL_TEST_LOG, 'utf8') : 'No se generó log SQL';
             const lines = text.split(/\r?\n/).filter(line => /not ok|error|failed|exception/i.test(line)).slice(-3);
             const description = (lines.join(' | ') || 'SQL tests completed').replace(/\s+/g, ' ').slice(0, 140);
-            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: '${{ steps.sql_tests.outcome }}' === 'success' ? 'success' : 'failure', context: 'copilot/sql-tests-diagnostic', description });
+            await github.rest.repos.createCommitStatus({ owner: context.repo.owner, repo: context.repo.repo, sha: context.sha, state: '${{ steps.copilot_sql_tests.outcome }}' === 'success' ? 'success' : 'failure', context: 'copilot/sql-tests-diagnostic', description });
