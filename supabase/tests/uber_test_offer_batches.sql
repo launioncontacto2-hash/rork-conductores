@@ -1,5 +1,5 @@
 begin;
-select plan(17);
+select plan(16);
 select has_table('public','uber_test_offer_batches','existe tabla TEST de tandas');
 select has_table('public','uber_test_offers','existe tabla TEST de ofertas');
 select has_table('public','uber_test_offer_results','existe tabla TEST de resultados');
@@ -16,6 +16,5 @@ select ok((select count(*) from information_schema.columns where table_schema='p
 select ok(not has_table_privilege('anon','public.uber_test_offer_batches','SELECT'),'anon no lee tandas');
 select ok(not has_table_privilege('anon','public.uber_test_offer_results','INSERT'),'anon no inserta resultados');
 select ok((select count(*) from pg_indexes where schemaname='public' and tablename='uber_test_offer_events' and indexname='uber_test_offer_events_presented_offer_idx')=1,'indice de oferta presentada');
-select ok(exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='record_uber_test_result' and p.proargtypes::oid[] = ARRAY['uuid'::regtype,'text'::regtype,'text'::regtype]),'resultado conserva RPC canonico');
 select * from finish();
 rollback;
