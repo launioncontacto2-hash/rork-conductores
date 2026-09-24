@@ -57,8 +57,8 @@ public struct UberTestQueue: Codable, Sendable {
         batch = try values.decodeIfPresent(UberTestOfferBatch.self, forKey: .batch)
         currentIndex = try values.decode(Int.self, forKey: .currentIndex)
         results = try values.decode([UberTestResult].self, forKey: .results)
-        seenBatchIDs = try values.decode(Set<String>.self, forKey: .seenBatchIDs)
-        seenOfferIDs = try values.decode(Set<String>.self, forKey: .seenOfferIDs)
+        seenBatchIDs = try values.decode([String].self, forKey: .seenBatchIDs)
+        seenOfferIDs = try values.decode([String].self, forKey: .seenOfferIDs)
     }
     public func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
