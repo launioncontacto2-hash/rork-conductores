@@ -206,8 +206,9 @@ struct RootTabView: View {
                 AccessDeniedView()
             }
         }
-        .task(id: store.currentPrincipal?.environmentId) {
+        .task(id: "\(store.currentPrincipal?.environmentId ?? "none"):\(store.activeShift?.id ?? "none")") {
             guard store.currentPrincipal?.role == .driver, store.isBackendTestSession,
+                  store.activeShift != nil,
                   let environment = store.currentPrincipal?.environmentId,
                   let environmentID = UUID(uuidString: environment) else {
                 copilotInbox.stop()
@@ -216,7 +217,7 @@ struct RootTabView: View {
             copilotInbox.start(environmentID: environmentID)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await copilotInbox.receiveAndAnnounce() } }
+            if phase == .active, store.activeShift != nil { Task { await copilotInbox.receiveAndAnnounce() } }
         }
     }
 }
