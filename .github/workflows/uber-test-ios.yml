@@ -25,8 +25,14 @@ jobs:
         with:
           xcode-version: "26.0"
       - name: Swift package tests
-        run: swift test -v
         working-directory: uber-test
+        run: |
+          set -o pipefail
+          for filter in OfferBatchTests SessionRefreshContractTests UberTestLinkStatusTests UberTestPushTests UberTestStoreTests; do
+            echo "=== Swift test filter: $filter ==="
+            swift test --filter "$filter" -v
+          done
+
       - name: Validate project and entitlements
         run: |
           xcodebuild -project uber-test/UberTest.xcodeproj -list
