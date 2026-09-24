@@ -24,16 +24,22 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.0"
-      - name: Swift package tests
+      - name: Swift package tests - OfferBatch
         working-directory: uber-test
-        run: |
-          set -o pipefail
-          for filter in OfferBatchTests SessionRefreshContractTests UberTestLinkStatusTests UberTestPushTests UberTestStoreTests; do
-            echo "=== Swift test filter: $filter ==="
-            swift test --filter "$filter" -v
-          done
-
-      - name: Validate project and entitlements
+        run: swift test --filter OfferBatchTests -v
+      - name: Swift package tests - SessionRefresh
+        working-directory: uber-test
+        run: swift test --filter SessionRefreshContractTests -v
+      - name: Swift package tests - LinkStatus
+        working-directory: uber-test
+        run: swift test --filter UberTestLinkStatusTests -v
+      - name: Swift package tests - Push
+        working-directory: uber-test
+        run: swift test --filter UberTestPushTests -v
+      - name: Swift package tests - Store
+        working-directory: uber-test
+        run: swift test --filter UberTestStoreTests -v
+- name: Validate project and entitlements
         run: |
           xcodebuild -project uber-test/UberTest.xcodeproj -list
           plutil -lint uber-test/UberTestApp/UberTest.entitlements
