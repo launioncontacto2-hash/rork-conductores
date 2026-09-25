@@ -111,11 +111,12 @@ final class UberTestStoreTests: XCTestCase {
 
     func testConcurrentFlushesAreSingleFlightAndExactlyOnce() async throws {
         let sink = SlowRecordingSink()
-        let store = UberTestStore(resultSink: sink)
+        let store = UberTestStore()
         store.receive(try UberTestOfferBatch(id: "single-flight-batch", offers: [
             UberTestOffer(id: "single-flight-offer", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4)
         ]))
         store.accept()
+        store.resultSink = sink
 
         async let first: Void = store.flushPendingResultsForTesting()
         async let second: Void = store.flushPendingResultsForTesting()
