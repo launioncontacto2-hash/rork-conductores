@@ -110,6 +110,9 @@ final class UberTestStoreTests: XCTestCase {
     }
 
     func testConcurrentFlushesAreSingleFlightAndExactlyOnce() async throws {
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
+        UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
         let sink = SlowRecordingSink()
         let store = UberTestStore()
         store.receive(try UberTestOfferBatch(id: "single-flight-batch", offers: [
