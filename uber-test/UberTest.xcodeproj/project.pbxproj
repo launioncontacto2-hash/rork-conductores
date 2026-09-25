@@ -18,7 +18,7 @@
 		A1000000000000000000001A /* UberTestReceiverState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002E /* UberTestReceiverState.swift */; };
 		A1000000000000000000002C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002B /* Assets.xcassets */; };
 		A1000000000000000000001B /* UberTestRealtimeReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000002F /* UberTestRealtimeReceiver.swift */; };
-		A1000000000000000000001D /* UberTestTelemetryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000030 /* UberTestTelemetryClient.swift */; };
+		A1000000000000000000001D /* UberTestTelemetryClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000033 /* UberTestTelemetryClient.swift */; };
 		A1000000000000000000001C /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000081 /* Supabase */; };
 /* End PBXBuildFile section */
 
@@ -38,7 +38,7 @@
 		A10000000000000000000028 /* UberTest.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UberTest.entitlements; sourceTree = "<group>"; };
 		A1000000000000000000002B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000002F /* UberTestRealtimeReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestRealtimeReceiver.swift; sourceTree = "<group>"; };
-		A10000000000000000000030 /* UberTestTelemetryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestTelemetryClient.swift; sourceTree = "<group>"; };
+		A10000000000000000000033 /* UberTestTelemetryClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UberTestTelemetryClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,7 +48,7 @@
 /* Begin PBXGroup section */
 		A10000000000000000000040 = {isa = PBXGroup; children = (A10000000000000000000041, A10000000000000000000042, A10000000000000000000043); sourceTree = "<group>"; };
 		A10000000000000000000041 /* UberTestApp */ = {isa = PBXGroup; children = (A10000000000000000000021, A10000000000000000000025, A10000000000000000000028, A1000000000000000000002B, A1000000000000000000002D); path = UberTestApp; sourceTree = "<group>"; };
-		A10000000000000000000042 /* UberTestCore */ = {isa = PBXGroup; children = (A10000000000000000000022, A10000000000000000000023, A10000000000000000000024, A10000000000000000000026, A10000000000000000000027, A10000000000000000000029, A1000000000000000000002A, A1000000000000000000002E, A1000000000000000000002F, A10000000000000000000030); path = Sources/UberTestCore; sourceTree = "<group>"; };
+		A10000000000000000000042 /* UberTestCore */ = {isa = PBXGroup; children = (A10000000000000000000022, A10000000000000000000023, A10000000000000000000024, A10000000000000000000026, A10000000000000000000027, A10000000000000000000029, A1000000000000000000002A, A1000000000000000000002E, A1000000000000000000002F, A10000000000000000000033); path = Sources/UberTestCore; sourceTree = "<group>"; };
 		A10000000000000000000043 /* Products */ = {isa = PBXGroup; children = (A10000000000000000000020); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
