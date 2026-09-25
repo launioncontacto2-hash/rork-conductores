@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>method</key><string>app-store-connect</string>
-<key>signingStyle</key><string>automatic</string>
+<key>signingStyle</key><string>manual</string>
 <key>teamID</key><string>H9S3662NMB</string>
+<key>provisioningProfiles</key><dict>
+<key>com.test.ubertest</key><string>UBER Test App Store Push v2</string>
+</dict>
 <key>stripSwiftSymbols</key><true/>
 <key>uploadSymbols</key><true/>
 </dict></plist>
