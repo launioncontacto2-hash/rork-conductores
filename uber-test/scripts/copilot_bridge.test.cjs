@@ -105,6 +105,9 @@ test('result sink treats 429 and 5xx as retryable while preserving terminal 4xx'
 });
 
 test('Realtime is the foreground wakeup and server recovery remains authoritative', () => {
+  assert.match(realtimeSwift, /public actor UberTestRealtimeReceiver/);
+  assert.match(realtimeSwift, /private var startTask/);
+  assert.match(realtimeSwift, /await client\.removeChannel\(oldChannel\)/);
   assert.match(realtimeSwift, /postgresChange/);
   assert.match(realtimeSwift, /table: "uber_test_offer_events"/);
   assert.match(realtimeSwift, /await next\.subscribe\(\)/);
@@ -116,4 +119,6 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(storeSwift, /transport_used=/);
   assert.match(storeSwift, /presented_at/);
   assert.match(storeSwift, /startForegroundRecovery/);
+  assert.match(storeSwift, /private var resultFlushTask/);
+  assert.match(storeSwift, /flushPendingResultsForTesting/);
 });
