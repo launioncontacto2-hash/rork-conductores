@@ -55,7 +55,7 @@
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A10000000000000000000052 /* Project object */ = {isa = PBXProject; attributes = { LastSwiftUpdateCheck = 1600; ORGANIZATIONNAME = "TEST"; }; buildConfigurationList = A10000000000000000000060; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, es); mainGroup = A10000000000000000000040; productRefGroup = A10000000000000000000043; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000051); };
+		A10000000000000000000052 /* Project object */ = {isa = PBXProject; attributes = { LastSwiftUpdateCheck = 1600; ORGANIZATIONNAME = "TEST"; }; buildConfigurationList = A10000000000000000000060; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, es); mainGroup = A10000000000000000000040; packageReferences = (A10000000000000000000080 /* XCRemoteSwiftPackageReference \"supabase-swift\" */); productRefGroup = A10000000000000000000043; projectDirPath = ""; projectRoot = ""; targets = (A10000000000000000000051); };
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
