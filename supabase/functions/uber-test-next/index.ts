@@ -18,13 +18,16 @@ Deno.serve(async (request) => {
   const { data, error } = await client.rpc("driver_get_uber_test_batch", { p_installation_id: installationId });
   if (error) return reply(error.code === "42501" ? 403 : 500, { error: error.message });
   if (!data) return reply(200, { batch: null });
-  const { data: presented, error: presentError } = await client.rpc("present_next_uber_test_offer", { p_batch_id: data.id });
-  if (presentError) return reply(presentError.code === "42501" ? 403 : 500, { error: presentError.message });
+  // driver_get_uber_test_batch is the single presentation authority. It may
+  // present the next offer while loading the batch; calling the presentation
+  // RPC again here turns a valid recovery into `already_presented` and skips
+  // Copilot evaluation. Reuse the presentation returned by that RPC.
+  const presented = data.presented ?? null;
   let evaluation: unknown = null;
-  if (presented?.status === "presented" && presented?.offer?.id) {
+  if (presented?.id) {
     const evaluator = `${url}/functions/v1/uber-test-copilot-evaluate`;
-    const response = await fetch(evaluator, { method: "POST", headers: { Authorization: authorization, apikey: anon, "Content-Type": "application/json" }, body: JSON.stringify({ offerId: presented.offer.id, idempotencyKey: `uber-test-offer-${presented.offer.id}` }) });
+    const response = await fetch(evaluator, { method: "POST", headers: { Authorization: authorization, apikey: anon, "Content-Type": "application/json" }, body: JSON.stringify({ offerId: presented.id, idempotencyKey: `uber-test-offer-${presented.id}` }) });
     evaluation = await response.json().catch(() => null);
   }
-  return reply(200, { batch: { ...data, presented: presented?.offer ?? null, presentationStatus: presented?.status ?? null, evaluation } });
+  return reply(200, { batch: { ...data, presented, evaluation } });
 });

@@ -42,6 +42,27 @@ final class UberTestStoreTests: XCTestCase {
         XCTAssertGreaterThan(store.remainingSeconds, 0)
     }
 
+    func testSingleOfferExpirationReturnsToWaitingAndAcceptsNextBatch() async throws {
+        let store = UberTestStore()
+        let first = try UberTestOfferBatch(id: "single-expired-batch", offers: [
+            UberTestOffer(id: "single-expired", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4, expiresAfterSeconds: 1)
+        ])
+        store.receive(first)
+        try await Task.sleep(for: .seconds(2))
+
+        XCTAssertEqual(store.queue.results.map(\.outcome), [.expired])
+        XCTAssertNil(store.queue.current)
+        XCTAssertTrue(store.queue.isWaiting)
+        XCTAssertEqual(store.remainingSeconds, 0)
+
+        let next = try UberTestOfferBatch(id: "after-expired-batch", offers: [
+            UberTestOffer(id: "after-expired", service: "Uber Comfort", fare: 120, pickup: "B", pickupDistanceKm: 1, tripDurationMinutes: 12, tripDistanceKm: 5, expiresAfterSeconds: 10)
+        ])
+        store.receive(next)
+        XCTAssertEqual(store.queue.current?.id, "after-expired")
+        XCTAssertGreaterThan(store.remainingSeconds, 0)
+    }
+
     func testResultIsDeliveredToConfiguredSink() async throws {
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
