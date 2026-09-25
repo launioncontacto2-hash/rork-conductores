@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import Security
+import os
 
 @MainActor
 final class UberTestAuth: ObservableObject {
@@ -180,7 +181,12 @@ struct UberTestApp: App {
         }
         _receiver = StateObject(wrappedValue: receiver)
         let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID) }
-        _store = StateObject(wrappedValue: UberTestStore(resultSink: sink))
+        let store = UberTestStore(resultSink: sink)
+        store.transportTelemetry = { label, timestamp in
+            Logger(subsystem: "com.test.ubertest", category: "transport")
+                .notice("\(label, privacy: .public) timestamp=\(timestamp.timeIntervalSince1970, privacy: .public)")
+        }
+        _store = StateObject(wrappedValue: store)
     }
 
     var body: some Scene {
