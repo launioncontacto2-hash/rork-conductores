@@ -19,6 +19,7 @@ const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoE
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
 const storeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestStore.swift'), 'utf8');
 const realtimeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestRealtimeReceiver.swift'), 'utf8');
+const appSwift = fs.readFileSync(path.join(root, 'uber-test', 'UberTestApp', 'UberTestApp.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
   assert.match(migration, /pickup_minutes/);
@@ -109,5 +110,10 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(realtimeSwift, /await next\.subscribe\(\)/);
   assert.match(realtimeSwift, /setAuth/);
   assert.match(realtimeSwift, /onWakeup/);
+  assert.match(realtimeSwift, /statusChange/);
+  assert.match(appSwift, /realtime_received_at/);
+  assert.match(storeSwift, /recover_started_at/);
+  assert.match(storeSwift, /transport_used=/);
+  assert.match(storeSwift, /presented_at/);
   assert.match(storeSwift, /startForegroundRecovery/);
 });

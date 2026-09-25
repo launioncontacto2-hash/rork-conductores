@@ -198,9 +198,12 @@ struct UberTestApp: App {
                     await UberTestPushCoordinator.registerForNotifications()
                     if let batchURL = runtime.batchURL {
                         let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
-                        await store.recover(using: client)
+                        await store.recover(using: client, transport: "fallback")
                         if let realtime, let token = await runtime.accessToken() {
-                            await realtime.start(accessToken: token) { await store.recover(using: client) }
+                            await realtime.start(accessToken: token) {
+                                await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
+                                await store.recover(using: client, transport: "realtime")
+                            }
                         }
                         await store.startForegroundRecovery(using: client)
                     }
@@ -213,9 +216,12 @@ struct UberTestApp: App {
                             receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
                             if let batchURL = runtime.batchURL {
                                 let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
-                                await store.recover(using: client)
+                                await store.recover(using: client, transport: "fallback")
                                 if let realtime, let token = await runtime.accessToken() {
-                                    await realtime.start(accessToken: token) { await store.recover(using: client) }
+                                    await realtime.start(accessToken: token) {
+                                        await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
+                                        await store.recover(using: client, transport: "realtime")
+                                    }
                                 }
                                 await store.startForegroundRecovery(using: client)
                             }

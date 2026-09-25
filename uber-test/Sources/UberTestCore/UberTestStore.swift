@@ -28,6 +28,8 @@ public final class UberTestStore: ObservableObject {
     private let alertSound = UberTestAlertSound()
     private var recoveryTask: Task<Void, Never>?
     private var isFinishing = false
+    /// TEST-only transport telemetry. It records timing labels without payloads or secrets.
+    public var transportTelemetry: (@Sendable (String, Date) -> Void)?
 
     public init(resultSink: (any UberTestResultSink)? = nil, copilotSink: (any UberTestCopilotSink)? = nil) {
         self.copilotSink = copilotSink
@@ -50,13 +52,23 @@ public final class UberTestStore: ObservableObject {
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
-        do { try queue.receive(batch); persist(); startTimer(); evaluateCurrentOfferIfNeeded() }
+        do {
+            try queue.receive(batch)
+            transportTelemetry?("presented_at", .now)
+            persist(); startTimer(); evaluateCurrentOfferIfNeeded()
+        }
         catch { errorMessage = String(describing: error) }
     }
-    public func recover(using client: UberTestBatchClient) async {
+    public func recover(using client: UberTestBatchClient, transport: String = "fallback") async {
+        transportTelemetry?("recover_started_at", .now)
         await flushPendingResults()
         guard queue.current == nil else { return }
-        do { if let batch = try await client.loadPendingBatch() { receive(batch) } }
+        do {
+            if let batch = try await client.loadPendingBatch() {
+                transportTelemetry?("transport_used=\(transport)", .now)
+                receive(batch)
+            }
+        }
         catch UberTestSessionError.terminated { stopForegroundRecovery() }
         catch { errorMessage = "No se pudo recuperar la tanda TEST." }
     }
@@ -65,7 +77,7 @@ public final class UberTestStore: ObservableObject {
         recoveryTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if self.queue.current == nil { await self.recover(using: client) }
+                if self.queue.current == nil { await self.recover(using: client, transport: "fallback") }
                 // Realtime/push is the primary transport; this bounded loop is
                 // recovery only when the app resumes without a delivered event.
                 do { try await Task.sleep(for: .seconds(15)) } catch { return }
