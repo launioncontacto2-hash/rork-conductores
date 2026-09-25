@@ -21,7 +21,8 @@ public actor UberTestRealtimeReceiver {
         if subscribed { return }
         if let startTask { await startTask.value; return }
         let task = Task { [weak self] in
-            await self?.performStart(accessToken: accessToken, onWakeup: onWakeup)
+            guard let self else { return }
+            await self.performStart(accessToken: accessToken, onWakeup: onWakeup)
         }
         startTask = task
         await task.value
