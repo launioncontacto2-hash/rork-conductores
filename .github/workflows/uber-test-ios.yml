@@ -94,7 +94,8 @@ jobs:
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/uber-test.mobileprovision"
-          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(security cms -D -i \"$RUNNER_TEMP/uber-test.mobileprovision\")")
+          security cms -D -i "$RUNNER_TEMP/uber-test.mobileprovision" > "$RUNNER_TEMP/uber-test-profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/uber-test-profile.plist")
           cp "$RUNNER_TEMP/uber-test.mobileprovision" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
       - name: Validate UBER TEST embedded configuration inputs
         env:
