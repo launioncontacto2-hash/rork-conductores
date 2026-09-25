@@ -25,6 +25,7 @@ public final class UberTestStore: ObservableObject {
     private let maxRememberedOfferIDs = 100
     private var deadline: Date?
     private var pendingResults: [UberTestResult] = []
+    private var resultFlushTask: Task<Void, Never>?
     private let alertSound = UberTestAlertSound()
     private var recoveryTask: Task<Void, Never>?
     private var isFinishing = false
@@ -115,17 +116,49 @@ public final class UberTestStore: ObservableObject {
     private func persist() { if let data = try? queue.snapshotData() { UserDefaults.standard.set(data, forKey: persistenceKey) } }
     private func persistPendingResults() { if let data = try? JSONEncoder().encode(pendingResults) { UserDefaults.standard.set(data, forKey: pendingResultsKey) } }
     private func flushPendingResults() async {
+        if let resultFlushTask { await resultFlushTask.value; return }
+        guard resultSink != nil else { return }
+        let task = Task { @MainActor [weak self] in
+            await self?.drainPendingResults()
+            self?.resultFlushTask = nil
+        }
+        resultFlushTask = task
+        await task.value
+    }
+
+    /// The single-flight boundary is intentionally internal so concurrency tests
+    /// can exercise the same path used by expiry, recovery, and foreground wakeup.
+    internal func flushPendingResultsForTesting() async { await flushPendingResults() }
+
+    private func drainPendingResults() async {
         guard let resultSink else { return }
         var attempts = 0
         while let result = pendingResults.first {
-            do { try await resultSink.record(result); pendingResults.removeFirst(); persistPendingResults(); attempts = 0 }
-            catch UberTestResultError.terminal { pendingResults.removeFirst(); persistPendingResults(); attempts = 0 }
+            do {
+                try await resultSink.record(result)
+                removePendingResultIfStillCurrent(result)
+                attempts = 0
+            }
+            catch UberTestResultError.terminal {
+                removePendingResultIfStillCurrent(result)
+                attempts = 0
+            }
             catch {
                 attempts += 1
                 if attempts >= 3 { errorMessage = "Resultado pendiente de sincronización TEST."; return }
                 try? await Task.sleep(for: .milliseconds(250 * attempts))
             }
         }
+    }
+
+    private func removePendingResultIfStillCurrent(_ result: UberTestResult) {
+        guard let first = pendingResults.first,
+              first.batchId == result.batchId,
+              first.offerId == result.offerId,
+              first.outcome == result.outcome,
+              first.occurredAt == result.occurredAt else { return }
+        pendingResults.removeFirst()
+        persistPendingResults()
     }
     private func startTimer(resetDeadline: Bool = true) {
         timer?.invalidate()

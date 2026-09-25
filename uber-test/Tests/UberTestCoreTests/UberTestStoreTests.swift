@@ -13,6 +13,15 @@ private actor SlowResultSink: UberTestResultSink {
     }
 }
 
+private actor SlowRecordingSink: UberTestResultSink {
+    private(set) var recorded: [UberTestResult] = []
+    func record(_ result: UberTestResult) async throws {
+        try await Task.sleep(for: .milliseconds(250))
+        recorded.append(result)
+    }
+    func count() -> Int { recorded.count }
+}
+
 private actor CopilotSink: UberTestCopilotSink {
     private(set) var evaluated: [(String, String)] = []
     func evaluate(_ offer: UberTestOffer, batchId: String) async throws { evaluated.append((offer.id, batchId)) }
@@ -98,6 +107,22 @@ final class UberTestStoreTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.queue.v1")
         UserDefaults.standard.removeObject(forKey: "uber.test.pending.results.v1")
         UserDefaults.standard.removeObject(forKey: "uber.test.current.offer.deadline.v1")
+    }
+
+    func testConcurrentFlushesAreSingleFlightAndExactlyOnce() async throws {
+        let sink = SlowRecordingSink()
+        let store = UberTestStore(resultSink: sink)
+        store.receive(try UberTestOfferBatch(id: "single-flight-batch", offers: [
+            UberTestOffer(id: "single-flight-offer", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4)
+        ]))
+        store.accept()
+
+        async let first: Void = store.flushPendingResultsForTesting()
+        async let second: Void = store.flushPendingResultsForTesting()
+        _ = await (first, second)
+
+        XCTAssertEqual(await sink.count(), 1)
+        XCTAssertTrue(store.queue.isWaiting)
     }
 
     func testCopilotSinkEvaluatesPresentedOfferOnlyOnce() async throws {
