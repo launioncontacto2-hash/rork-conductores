@@ -33,6 +33,8 @@ jobs:
         run: |
           xcodebuild -project uber-test/UberTest.xcodeproj -list
           plutil -lint uber-test/UberTestApp/UberTest.entitlements
+      - name: Resolve Swift packages for Xcode project
+        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -resolvePackageDependencies
       - name: iOS simulator build
         env:
           UBER_TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
