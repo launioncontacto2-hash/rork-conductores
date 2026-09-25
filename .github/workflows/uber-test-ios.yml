@@ -96,7 +96,9 @@ jobs:
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/uber-test.mobileprovision"
           security cms -D -i "$RUNNER_TEMP/uber-test.mobileprovision" > "$RUNNER_TEMP/uber-test-profile.plist"
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/uber-test-profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/uber-test-profile.plist")
           cp "$RUNNER_TEMP/uber-test.mobileprovision" "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+          echo "UBER_TEST_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
       - name: Validate UBER TEST embedded configuration inputs
         env:
           TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
@@ -175,7 +177,10 @@ jobs:
           set -euo pipefail
           AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
-          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist uber-test/ExportOptions.plist -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID"
+          EXPORT_OPTIONS_PATH="$RUNNER_TEMP/ExportOptions.plist"
+          cp uber-test/ExportOptions.plist "$EXPORT_OPTIONS_PATH"
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.test.ubertest $UBER_TEST_PROFILE_NAME" "$EXPORT_OPTIONS_PATH"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/UberTest.xcarchive" -exportOptionsPlist "$EXPORT_OPTIONS_PATH" -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID"
       - name: Upload to TestFlight
         run: |
           set -euo pipefail
