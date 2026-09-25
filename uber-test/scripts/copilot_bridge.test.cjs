@@ -55,7 +55,9 @@ test('TEST deployment workflow includes the evaluation and push functions', () =
 
 test('presentation and outcomes invoke the evaluator with offer-scoped idempotency', () => {
   assert.match(nextEdge, /uber-test-copilot-evaluate/);
-  assert.match(nextEdge, /uber-test-offer-\$\{presented\.offer\.id\}/);
+  assert.match(nextEdge, /uber-test-offer-\$\{presented\.id\}/);
+  assert.match(nextEdge, /const presented = data\.presented/);
+  assert.doesNotMatch(nextEdge, /present_next_uber_test_offer/);
   assert.match(resultEdge, /next_offer_id/);
   assert.match(resultEdge, /uber-test-offer-\$\{nextOfferId\}/);
   assert.match(bridgeMigration, /next_offer_id/);
@@ -80,7 +82,8 @@ test('stabilization prevents duplicate evaluation, push and legacy receiver bypa
   assert.match(stabilizationMigration, /drop function if exists public\.driver_get_uber_test_batch\(\)/);
   assert.match(edge, /select\("id,status"\)/);
   assert.doesNotMatch(edge, /upsert\(/);
-  assert.match(nextEdge, /presented\?\.status === "presented"/);
+  assert.match(nextEdge, /presented\?\.id/);
+  assert.doesNotMatch(nextEdge, /presented\?\.status === "presented"/);
   assert.match(offerBatchSwift, /maxRememberedIDs = 1000/);
   assert.match(storeSwift, /maxRememberedOfferIDs = 100/);
 });
