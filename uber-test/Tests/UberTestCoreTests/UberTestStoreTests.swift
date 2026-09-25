@@ -121,7 +121,8 @@ final class UberTestStoreTests: XCTestCase {
         async let second: Void = store.flushPendingResultsForTesting()
         _ = await (first, second)
 
-        XCTAssertEqual(await sink.count(), 1)
+        let delivered = await sink.count()
+        XCTAssertEqual(delivered, 1)
         XCTAssertTrue(store.queue.isWaiting)
     }
 
