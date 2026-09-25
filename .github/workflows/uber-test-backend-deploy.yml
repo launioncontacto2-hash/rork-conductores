@@ -15,10 +15,13 @@ on:
       - "supabase/migrations/20260924090000_uber_test_continuous_receiver.sql"
       - "supabase/migrations/20260924100000_uber_test_dori_context_contract_fix.sql"
       - "supabase/migrations/20260924110000_uber_test_stabilization_contract.sql"
+      - "supabase/migrations/20260925190000_uber_test_receiver_assertion_reconcile.sql"
+      - "supabase/migrations/20260925210000_uber_test_transport_telemetry.sql"
       - "supabase/functions/uber-test-next/**"
       - "supabase/functions/uber-test-result/**"
       - "supabase/functions/uber-test-copilot-evaluate/**"
       - "supabase/functions/dori-copilot-push/**"
+      - "supabase/functions/uber-test-telemetry/**"
       - ".github/workflows/uber-test-backend-deploy.yml"
 
 permissions:
@@ -67,3 +70,4 @@ jobs:
           supabase functions deploy uber-test-result --project-ref yyxzuiantrmoyozetswv
           supabase functions deploy uber-test-copilot-evaluate --project-ref yyxzuiantrmoyozetswv
           supabase functions deploy dori-copilot-push --project-ref yyxzuiantrmoyozetswv
+          supabase functions deploy uber-test-telemetry --project-ref yyxzuiantrmoyozetswv
