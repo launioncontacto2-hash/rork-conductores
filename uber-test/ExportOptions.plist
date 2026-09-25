@@ -3,6 +3,7 @@
 <plist version="1.0"><dict>
 <key>method</key><string>app-store-connect</string>
 <key>signingStyle</key><string>manual</string>
+<key>teamID</key><string>H9S3662NMB</string>
 <key>provisioningProfiles</key><dict>
 <key>com.test.ubertest</key><string>UBER Test App Store Push v2</string>
 </dict>
