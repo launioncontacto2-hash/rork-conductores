@@ -124,6 +124,7 @@ private struct UberTestRuntimeConfiguration {
     let publishableKey: String?
     let resultURL: URL?
     let batchURL: URL?
+    let telemetryURL: URL?
     let accessToken: @Sendable () async -> String?
     let refreshAccessToken: @Sendable () async -> String?
 
@@ -135,6 +136,7 @@ private struct UberTestRuntimeConfiguration {
         publishableKey = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String)
         resultURL = base?.appendingPathComponent("functions/v1/uber-test-result")
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
+        telemetryURL = base?.appendingPathComponent("functions/v1/uber-test-telemetry")
         accessToken = { await UberTestSession.shared.validToken() }
         refreshAccessToken = { await UberTestSession.shared.validToken(force: true) }
     }
@@ -183,9 +185,15 @@ struct UberTestApp: App {
         _receiver = StateObject(wrappedValue: receiver)
         let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID) }
         let store = UberTestStore(resultSink: sink)
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        let telemetry = runtime.telemetryURL.map { UberTestTelemetryClient(functionURL: $0, accessToken: runtime.accessToken, installationID: receiver.installationID, appBuild: build) }
         store.transportTelemetry = { label, timestamp in
             Logger(subsystem: "com.test.ubertest", category: "transport")
                 .notice("\(label, privacy: .public) timestamp=\(timestamp.timeIntervalSince1970, privacy: .public)")
+            let pieces = label.split(separator: "=", maxSplits: 1).map(String.init)
+            let event = pieces.first ?? label
+            let transport = pieces.count == 2 ? pieces[1] : nil
+            Task { await telemetry?.record(event: event, at: timestamp, transport: transport) }
         }
         _store = StateObject(wrappedValue: store)
     }
