@@ -1,5 +1,5 @@
 begin;
-select plan(16);
+select plan(17);
 select has_table('public','uber_test_offer_batches','existe tabla TEST de tandas');
 select has_table('public','uber_test_offers','existe tabla TEST de ofertas');
 select has_table('public','uber_test_offer_results','existe tabla TEST de resultados');
@@ -9,6 +9,7 @@ select ok((select relrowsecurity from pg_class where oid='public.uber_test_offer
 select has_function('public','console_send_uber_test_batch',ARRAY['uuid','jsonb','text']::text[],'RPC Consola disponible');
 select has_function('public','record_uber_test_result',ARRAY['uuid','text','text']::text[],'RPC resultado disponible');
 select has_function('public','driver_get_uber_test_batch',ARRAY['text']::text[],'RPC recuperacion exige installation_id');
+select has_function('public','uber_test_assert_active_receiver',ARRAY['text']::text[],'assertion de receptor activo disponible');
 select ok(not exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='driver_get_uber_test_batch' and p.pronargs=0),'RPC legacy sin installation_id eliminado');
 select has_function('public','present_next_uber_test_offer',ARRAY['uuid']::text[],'RPC presentacion secuencial disponible');
 select has_table('public','uber_test_offer_events','existe evento fuente TEST para integracion');
