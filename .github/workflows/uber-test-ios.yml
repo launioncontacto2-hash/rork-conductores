@@ -34,12 +34,33 @@ jobs:
           xcodebuild -project uber-test/UberTest.xcodeproj -list
           plutil -lint uber-test/UberTestApp/UberTest.entitlements
       - name: Resolve Swift packages for Xcode project
-        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -resolvePackageDependencies
+        env:
+          SOURCE_PACKAGES_PATH: ${{ runner.temp }}/uber-test-source-packages
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project uber-test/UberTest.xcodeproj \
+            -scheme UberTest \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH"
       - name: iOS simulator build
         env:
           UBER_TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           UBER_TEST_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.TEST_SUPABASE_PUBLISHABLE_KEY }}
-        run: xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -sdk iphonesimulator -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO UBER_TEST_SUPABASE_URL="$UBER_TEST_SUPABASE_URL" UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$UBER_TEST_SUPABASE_PUBLISHABLE_KEY" INFOPLIST_KEY_UBER_TEST_SUPABASE_URL="$UBER_TEST_SUPABASE_URL" INFOPLIST_KEY_UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$UBER_TEST_SUPABASE_PUBLISHABLE_KEY" build
+          SOURCE_PACKAGES_PATH: ${{ runner.temp }}/uber-test-source-packages
+        run: |
+          set -euo pipefail
+          xcodebuild -project uber-test/UberTest.xcodeproj \
+            -scheme UberTest \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            UBER_TEST_SUPABASE_URL="$UBER_TEST_SUPABASE_URL" \
+            UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$UBER_TEST_SUPABASE_PUBLISHABLE_KEY" \
+            INFOPLIST_KEY_UBER_TEST_SUPABASE_URL="$UBER_TEST_SUPABASE_URL" \
+            INFOPLIST_KEY_UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$UBER_TEST_SUPABASE_PUBLISHABLE_KEY" \
+            build
 
   testflight:
     name: Archive and distribute UBER Test
