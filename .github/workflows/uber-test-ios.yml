@@ -130,7 +130,20 @@ jobs:
           set -euo pipefail
           AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_API_KEY_ID.p8"
           echo "$APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64" | base64 --decode > "$AUTH_KEY_PATH"
-          xcodebuild -project uber-test/UberTest.xcodeproj -scheme UberTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/UberTest.xcarchive" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" INFOPLIST_KEY_UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" INFOPLIST_KEY_UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" DEVELOPMENT_TEAM=H9S3662NMB CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="UBER Test App Store Push v2" -allowProvisioningUpdates -authenticationKeyPath "$AUTH_KEY_PATH" -authenticationKeyID "$APP_STORE_CONNECT_API_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_API_ISSUER_ID" archive
+          xcodebuild -project uber-test/UberTest.xcodeproj \
+            -scheme UberTest \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/UberTest.xcarchive" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" \
+            UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" \
+            INFOPLIST_KEY_UBER_TEST_SUPABASE_URL="$TEST_SUPABASE_URL" \
+            INFOPLIST_KEY_UBER_TEST_SUPABASE_PUBLISHABLE_KEY="$TEST_SUPABASE_PUBLISHABLE_KEY" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            archive
       - name: Inspect archived embedded configuration
         env:
           TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
