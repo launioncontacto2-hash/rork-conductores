@@ -168,6 +168,7 @@ struct UberTestApp: App {
     @StateObject private var store: UberTestStore
     @StateObject private var auth = UberTestAuth()
     @StateObject private var receiver = UberTestReceiverState()
+    @State private var transportActive = false
     private let runtime: UberTestRuntimeConfiguration
     private let realtime: UberTestRealtimeReceiver?
 
@@ -189,50 +190,44 @@ struct UberTestApp: App {
         _store = StateObject(wrappedValue: store)
     }
 
+    private func activateTransportIfNeeded() {
+        guard auth.isSignedIn, !transportActive else { return }
+        transportActive = true
+        guard let batchURL = runtime.batchURL else { transportActive = false; return }
+        let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
+        Task {
+            await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
+            receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
+            await UberTestPushCoordinator.registerForNotifications()
+            await store.recover(using: client, transport: "fallback")
+            if let realtime, let token = await runtime.accessToken() {
+                await realtime.start(accessToken: token) {
+                    await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
+                    await store.recover(using: client, transport: "realtime")
+                }
+            }
+            await store.startForegroundRecovery(using: client)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
-        Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { Task { receiver.stopHeartbeat(); store.stopForegroundRecovery(); await receiver.release(using: runtime.accessToken, refresh: runtime.refreshAccessToken); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
+        Group { if auth.isSignedIn { UberTestOfferView(store: store, receiver: receiver, signOut: { transportActive = false; Task { receiver.stopHeartbeat(); store.stopForegroundRecovery(); await receiver.release(using: runtime.accessToken, refresh: runtime.refreshAccessToken); await realtime?.stop(); await auth.signOut() } }) } else { UberTestLoginView(auth: auth) } }
                 .onReceive(NotificationCenter.default.publisher(for: .uberTestSessionTerminated)) { _ in
                     receiver.reset()
+                    transportActive = false
                     store.stopForegroundRecovery()
                 }
                 .task(id: auth.isSignedIn) {
                     if !auth.isSignedIn { await auth.restoreSession() }
-                    guard auth.isSignedIn else { return }
-                    await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
-                    receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
-                    await UberTestPushCoordinator.registerForNotifications()
-                    if let batchURL = runtime.batchURL {
-                        let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
-                        await store.recover(using: client, transport: "fallback")
-                        if let realtime, let token = await runtime.accessToken() {
-                            await realtime.start(accessToken: token) {
-                                await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
-                                await store.recover(using: client, transport: "realtime")
-                            }
-                        }
-                        await store.startForegroundRecovery(using: client)
-                    }
+                    activateTransportIfNeeded()
                 }
                 .onChange(of: scenePhase) { phase in
                     guard auth.isSignedIn else { return }
                     if phase == .active {
-                        Task {
-                            await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
-                            receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
-                            if let batchURL = runtime.batchURL {
-                                let client = UberTestBatchClient(functionURL: batchURL, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID)
-                                await store.recover(using: client, transport: "fallback")
-                                if let realtime, let token = await runtime.accessToken() {
-                                    await realtime.start(accessToken: token) {
-                                        await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
-                                        await store.recover(using: client, transport: "realtime")
-                                    }
-                                }
-                                await store.startForegroundRecovery(using: client)
-                            }
-                        }
+                        activateTransportIfNeeded()
                     } else if phase == .background {
+                        transportActive = false
                         receiver.stopHeartbeat()
                         store.stopForegroundRecovery()
                         Task { await realtime?.stop() }
