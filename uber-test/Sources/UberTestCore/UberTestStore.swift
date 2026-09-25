@@ -27,6 +27,7 @@ public final class UberTestStore: ObservableObject {
     private var pendingResults: [UberTestResult] = []
     private let alertSound = UberTestAlertSound()
     private var recoveryTask: Task<Void, Never>?
+    private var isFinishing = false
 
     public init(resultSink: (any UberTestResultSink)? = nil, copilotSink: (any UberTestCopilotSink)? = nil) {
         self.copilotSink = copilotSink
@@ -75,12 +76,18 @@ public final class UberTestStore: ObservableObject {
     public func accept() { finish(.accepted) }
     public func discard() { finish(.discarded) }
     private func finish(_ outcome: UberTestOutcome) {
-        guard let result = queue.finishCurrent(as: outcome) else { return }
+        guard !isFinishing else { return }
+        guard queue.current != nil else { return }
+        isFinishing = true
+        timer?.invalidate()
+        timer = nil
+        guard let result = queue.finishCurrent(as: outcome) else { isFinishing = false; return }
         pendingResults.append(result); persistPendingResults()
         if resultSink != nil { Task { [weak self] in await self?.flushPendingResults() } }
         persist()
         startTimer()
         evaluateCurrentOfferIfNeeded()
+        isFinishing = false
     }
     private func evaluateCurrentOfferIfNeeded() {
         guard let offer = queue.current, let batchId = queue.batch?.id, let copilotSink,
@@ -118,7 +125,7 @@ public final class UberTestStore: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.remainingSeconds = max(0, Int(ceil((self.deadline ?? .now).timeIntervalSinceNow)))
-                if self.remainingSeconds == 0 { self.timer?.invalidate(); self.finish(.expired) }
+                if self.remainingSeconds == 0 { self.finish(.expired) }
             }
         }
     }

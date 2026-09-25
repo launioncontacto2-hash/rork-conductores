@@ -9,6 +9,7 @@ public final class UberTestRealtimeReceiver: @unchecked Sendable {
     private let client: SupabaseClient
     private var channel: RealtimeChannelV2?
     private var consumer: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
 
     public init(url: URL, publishableKey: String) {
         client = SupabaseClient(supabaseURL: url, supabaseKey: publishableKey)
@@ -23,15 +24,26 @@ public final class UberTestRealtimeReceiver: @unchecked Sendable {
             table: "uber_test_offer_events"
         )
         channel = next
-        await next.subscribe()
         consumer?.cancel()
+        statusTask?.cancel()
+        // Start both streams before subscribe so the first INSERT and the
+        // SUBSCRIBED transition cannot be lost during the handshake.
+        statusTask = Task { [weak self] in
+            for await status in next.statusChange {
+                guard !Task.isCancelled else { return }
+                if case .subscribed = status { await onWakeup() }
+                _ = self
+            }
+        }
         consumer = Task {
             for await _ in changes { await onWakeup() }
         }
+        await next.subscribe()
     }
 
     public func stop() async {
         consumer?.cancel(); consumer = nil
+        statusTask?.cancel(); statusTask = nil
         if let channel { await client.removeChannel(channel); self.channel = nil }
     }
 }

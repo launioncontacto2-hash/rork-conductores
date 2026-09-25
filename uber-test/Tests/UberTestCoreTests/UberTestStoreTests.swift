@@ -7,6 +7,12 @@ private actor RecordingSink: UberTestResultSink {
     func count() -> Int { recorded.count }
 }
 
+private actor SlowResultSink: UberTestResultSink {
+    func record(_ result: UberTestResult) async throws {
+        try await Task.sleep(for: .seconds(2))
+    }
+}
+
 private actor CopilotSink: UberTestCopilotSink {
     private(set) var evaluated: [(String, String)] = []
     func evaluate(_ offer: UberTestOffer, batchId: String) async throws { evaluated.append((offer.id, batchId)) }
@@ -61,6 +67,19 @@ final class UberTestStoreTests: XCTestCase {
         store.receive(next)
         XCTAssertEqual(store.queue.current?.id, "after-expired")
         XCTAssertGreaterThan(store.remainingSeconds, 0)
+    }
+
+    func testExpiryWithSlowResultSinkKeepsQueueWaiting() async throws {
+        let sink = SlowResultSink()
+        let store = UberTestStore(resultSink: sink)
+        let batch = try UberTestOfferBatch(id: "slow-expiry-batch", offers: [
+            UberTestOffer(id: "slow-expiry", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4, expiresAfterSeconds: 1)
+        ])
+        store.receive(batch)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertNil(store.queue.current)
+        XCTAssertTrue(store.queue.isWaiting)
+        XCTAssertEqual(store.queue.results.map(\.outcome), [.expired])
     }
 
     func testResultIsDeliveredToConfiguredSink() async throws {
