@@ -76,6 +76,12 @@ jobs:
             --username postgres.yyxzuiantrmoyozetswv \
             --dbname postgres \
             --file supabase/migrations/20260926100000_uber_test_dori_context_shift_window_guard.sql
+          PGPASSWORD="$SUPABASE_DB_PASSWORD" PGSSLMODE=require psql \
+            --host "aws-0-${PROJECT_REGION}.pooler.supabase.com" \
+            --port 5432 \
+            --username postgres.yyxzuiantrmoyozetswv \
+            --dbname postgres \
+            --file supabase/migrations/20260926120000_uber_test_link_realtime_authority.sql
       - name: Deploy UBER Test Edge Functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
