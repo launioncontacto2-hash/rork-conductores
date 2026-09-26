@@ -45,6 +45,8 @@ public actor UberTestRealtimeReceiver {
             table: "uber_test_offer_events"
         )
         channel = next
+        // Install callbacks before subscribe so Realtime is the primary
+        // wake-up and recovery remains the authoritative read path.
         // Start both streams before subscribe so the first INSERT and the
         // SUBSCRIBED transition cannot be lost during the handshake.
         statusTask = Task { [weak self] in

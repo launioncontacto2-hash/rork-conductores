@@ -14,6 +14,7 @@ const vehicleFixture = fs.readFileSync(path.join(root, 'scripts', 'provision-tes
 const bridgeMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260923170000_uber_test_dori_evaluation_bridge.sql'), 'utf8');
 const stabilizationMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924110000_uber_test_stabilization_contract.sql'), 'utf8');
 const hardeningMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260924120000_uber_test_stabilization_hardening.sql'), 'utf8');
+const shiftGuardMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260926100000_uber_test_dori_context_shift_window_guard.sql'), 'utf8');
 const doriPushSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'ViewModels', 'DORICopilotInbox.swift'), 'utf8');
 const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoEV', 'Services', 'Acquisition', 'AcquisitionPushCoordinator.swift'), 'utf8');
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
@@ -78,6 +79,15 @@ test('DORI app receives the shared APNs token without a competing app delegate',
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
 });
 
+test('stale open shifts are not treated as valid DORI context', () => {
+  assert.match(shiftGuardMigration, /status','shift_not_current'/);
+  assert.match(shiftGuardMigration, /reason','shift_not_started'/);
+  assert.match(shiftGuardMigration, /reason','shift_expired'/);
+  assert.match(shiftGuardMigration, /app\.env_now\(d\.environment_id\)/);
+  assert.match(edge, /context\?\.status/);
+  assert.match(edge, /context\?\.reason/);
+});
+
 test('stabilization prevents duplicate evaluation, push and legacy receiver bypass', () => {
   assert.match(stabilizationMigration, /offer_already_resolved/);
   assert.match(stabilizationMigration, /drop function if exists public\.driver_get_uber_test_batch\(\)/);
@@ -117,6 +127,8 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(appSwift, /realtime_received_at/);
   assert.match(appSwift, /transportActive/);
   assert.match(appSwift, /activateTransportIfNeeded/);
+  assert.match(appSwift, /realtime_start_requested/);
+  assert.match(appSwift, /await realtime\.start[\s\S]*await store\.recover\(using: client, transport: "fallback"\)/);
   assert.doesNotMatch(appSwift, /\.onChange\(of: scenePhase\)[\s\S]*realtime\.start/);
   assert.match(storeSwift, /recover_started_at/);
   assert.match(storeSwift, /transport_used=/);

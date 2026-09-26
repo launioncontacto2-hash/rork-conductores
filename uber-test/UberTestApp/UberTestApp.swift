@@ -207,13 +207,16 @@ struct UberTestApp: App {
             await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             await UberTestPushCoordinator.registerForNotifications()
-            await store.recover(using: client, transport: "fallback")
             if let realtime, let token = await runtime.accessToken() {
+                store.transportTelemetry?("realtime_start_requested", .now)
                 await realtime.start(accessToken: token) {
                     await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
                     await store.recover(using: client, transport: "realtime")
                 }
             }
+            // Realtime is established before initial recovery so a batch
+            // created during startup cannot be consumed only by fallback.
+            await store.recover(using: client, transport: "fallback")
             await store.startForegroundRecovery(using: client)
         }
     }
