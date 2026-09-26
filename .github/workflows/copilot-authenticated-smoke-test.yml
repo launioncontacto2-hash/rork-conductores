@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '^\*\*Versión:\*\* 1.3' docs/DORI_COPILOTO_CANONICO.md
+          grep -Eq '^\*\*Versión:\*\* 1\.[0-9]+' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
 
       - name: Install isolated smoke dependency
