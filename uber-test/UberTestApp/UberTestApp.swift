@@ -244,6 +244,7 @@ struct UberTestApp: App {
                     await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
                     await store.recover(using: client, transport: "realtime")
                 }
+                await realtime.waitUntilSubscribed()
             }
             // Realtime is established before initial recovery so a batch
             // created during startup cannot be consumed only by fallback.

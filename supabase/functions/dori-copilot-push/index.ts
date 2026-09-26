@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.115.0";
 type Notification = { id: string; environment_id: string; profile_id: string; offer_id: string; body: string; payload: Record<string, unknown>; status: string };
-type Device = { id: string; device_token: string; bundle_id: string; updated_at: string };
+type Device = { id: string; device_token: string; bundle_id: string };
 let cached: { token: string; at: number } | null = null;
 const b64 = (v: Uint8Array | string) => { const bytes = typeof v === "string" ? new TextEncoder().encode(v) : v; let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", ""); };
 const pemBytes = (pem: string) => Uint8Array.from(atob(pem.replace(/-----[^-]+-----/g, "").replace(/\s/g, "")), c => c.charCodeAt(0));
@@ -15,7 +15,7 @@ Deno.serve(async (request) => {
     const {data: claimed,error} = await admin.rpc("claim_dori_copilot_notifications",{p_limit:25}); if(error) throw error;
     const token = await providerToken(required("APNS_TEAM_ID"),required("APNS_KEY_ID"),required("APNS_PRIVATE_KEY").replaceAll("\\n","\n")); let sent=0, failed=0;
     for (const n of (claimed ?? []) as Notification[]) {
-      const {data: devices,error: de} = await admin.from("dori_copilot_push_devices").select("id,device_token,bundle_id,updated_at").eq("environment_id",n.environment_id).eq("profile_id",n.profile_id).eq("status","active").gte("updated_at",new Date(Date.now()-10*60*1000).toISOString()); if(de) throw de;
+      const {data: devices,error: de} = await admin.from("dori_copilot_push_devices").select("id,device_token,bundle_id").eq("environment_id",n.environment_id).eq("profile_id",n.profile_id).eq("status","active"); if(de) throw de;
       let delivered=false;
       for (const d of (devices ?? []) as Device[]) {
         if(d.bundle_id !== bundle) continue;

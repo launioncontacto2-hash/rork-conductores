@@ -66,6 +66,15 @@ public actor UberTestRealtimeReceiver {
 
     private func markSubscribed() { subscribed = true }
 
+    /// Gives the primary transport a bounded window to complete its handshake
+    /// before recovery polling is allowed to run.
+    public func waitUntilSubscribed(timeoutNanoseconds: UInt64 = 2_000_000_000) async {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while !subscribed && DispatchTime.now().uptimeNanoseconds < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     public func stop() async {
         consumer?.cancel(); consumer = nil
         statusTask?.cancel(); statusTask = nil

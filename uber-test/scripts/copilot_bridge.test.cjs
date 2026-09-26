@@ -132,6 +132,7 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(realtimeSwift, /setAuth/);
   assert.match(realtimeSwift, /onWakeup/);
   assert.match(realtimeSwift, /statusChange/);
+  assert.match(realtimeSwift, /waitUntilSubscribed/);
   assert.match(appSwift, /realtime_received_at/);
   assert.match(appSwift, /transportActive/);
   assert.match(appSwift, /activateTransportIfNeeded/);
@@ -144,4 +145,12 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(storeSwift, /startForegroundRecovery/);
   assert.match(storeSwift, /private var resultFlushTask/);
   assert.match(storeSwift, /flushPendingResultsForTesting/);
+});
+
+test('link and push dispatch do not use heartbeat freshness as authority', () => {
+  const linkMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260926120000_uber_test_link_realtime_authority.sql'), 'utf8');
+  assert.match(linkMigration, /s\.started_at <= v_now/);
+  assert.match(linkMigration, /s\.scheduled_end_at > v_now/);
+  assert.doesNotMatch(linkMigration, /updated_at\s*>/);
+  assert.doesNotMatch(push, /gte\("updated_at"/);
 });
