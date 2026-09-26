@@ -49,7 +49,7 @@ jobs:
           const anonClient = createClient(url, anon, { auth: { persistSession: false } });
           const run = Date.now().toString(36);
           const identities = Object.fromEntries(['console','driver','driverB','supervisor'].map((name) => [name, { email: `copilot-smoke-${name}-${run}@local.test`, password: crypto.randomUUID() + crypto.randomUUID() }]));
-          const created = { users: [], profiles: [], memberships: [], drivers: [], vehicles: [], assignments: [], evidence: [] };
+          const created = { users: [], profiles: [], memberships: [], drivers: [], vehicles: [], assignments: [], evidence: [], uberBatches: [], uberOffers: [] };
           const clients = {};
           const assert = (name, condition, detail = '') => {
             if (!condition) throw new Error(`${name}: ${detail}`);
@@ -79,7 +79,7 @@ jobs:
             identities.driver.assignmentId = assignmentId; identities.driver.vehicleId = vehicleId; identities.driver.environmentId = env.id; identities.driver.stationId = station.id;
             identities.console.profileId = ids.console; identities.driver.profileId = ids.driver; identities.driver.driverProfileId = ids.dp; identities.driverB.profileId = ids.driverB; identities.driverB.driverProfileId = ids.dpB; identities.supervisor.profileId = ids.supervisor;
           }
-          async function cleanup() { try { if (created.evidence.length) await admin.storage.from('shift-evidence').remove(created.evidence); await admin.from('shifts').delete().in('driver_profile_id', created.drivers); await admin.from('assignments').delete().in('id', created.assignments); await admin.from('vehicles').delete().in('id', created.vehicles); await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
+          async function cleanup() { try { if (created.evidence.length) await admin.storage.from('shift-evidence').remove(created.evidence); if (created.uberOffers.length) { await admin.from('dori_copilot_notifications').delete().in('offer_id', created.uberOffers); await admin.from('uber_test_offer_results').delete().in('offer_id', created.uberOffers); await admin.from('uber_test_offer_events').delete().in('batch_id', created.uberBatches); await admin.from('uber_test_offers').delete().in('id', created.uberOffers); } if (created.uberBatches.length) await admin.from('uber_test_offer_batches').delete().in('id', created.uberBatches); await admin.from('shifts').delete().in('driver_profile_id', created.drivers); await admin.from('assignments').delete().in('id', created.assignments); await admin.from('vehicles').delete().in('id', created.vehicles); await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
           async function login(name) {
             const { email, password, userId } = identities[name];
             const client = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -92,10 +92,10 @@ jobs:
             if (error) throw new Error(`${table}: ${error.message}`);
             return data;
           }
-          async function edge(name, body, fn = 'dori-copilot-simulation') {
+          async function edge(name, body, fn = 'dori-copilot-simulation', extraHeaders = {}) {
             const r = await fetch(`${url}/functions/v1/${fn}`, {
               method: 'POST',
-              headers: { authorization: `Bearer ${clients[name].token}`, apikey: anon, 'content-type': 'application/json' },
+              headers: { authorization: `Bearer ${clients[name].token}`, apikey: anon, 'content-type': 'application/json', ...extraHeaders },
               body: JSON.stringify(body),
             });
             const data = await r.json().catch(() => ({}));
@@ -120,6 +120,8 @@ jobs:
             }
             const started = await clients.driver.client.rpc('start_shift_v3', { p_assignment_id: identities.driver.assignmentId, p_odometer_km: 20000, p_battery_pct: 80, p_odometer_path: evidencePaths.odometer, p_battery_path: evidencePaths.battery, p_idempotency_key: `gha-${run}-start-shift`, p_install_id: installId });
             assert('canonical TEST shift start', !started.error && !!started.data, started.error?.message || 'start_shift_v3 failed');
+            const receiver = await clients.driver.client.rpc('uber_test_claim_receiver', { p_installation_id: installId, p_app_version: 'gha-smoke' });
+            assert('UBER TEST receiver claim', !receiver.error && receiver.data?.activeReceiver === true, receiver.error?.message || 'receiver claim failed');
 
             const { data: driverProfile, error: driverProfileError } = await clients.driver.client.from('driver_profiles').select('id,profile_id,station_id,environment_id,status,employee_number').eq('id', identities.driver.driverProfileId).maybeSingle();
             const { data: profile, error: profileError } = await clients.driver.client.from('profiles').select('id,environment_id,status').eq('id', identities.driver.profileId).maybeSingle();
@@ -175,6 +177,14 @@ jobs:
 
             const decision = await edge('driver', { kind: 'decision', idempotencyKey: `gha-event-${Date.now()}`, input }, 'dori-copilot-events');
             assert('remote decision event', [200, 201].includes(decision.status), JSON.stringify(decision.data));
+            const uberBatch = await clients.console.client.rpc('console_send_uber_test_batch', { p_driver_profile_id: driverProfile.id, p_offers: [{ service: 'UberX', fare: 240, pickup: 'Centro', pickupDistanceKm: 1.2, tripDurationMinutes: 35, tripDistanceKm: 18, riderRating: 4.9, expiresAfterSeconds: 30 }], p_idempotency_key: `gha-${run}-uber-batch` });
+            assert('UBER TEST batch queued', !uberBatch.error && uberBatch.data?.batch_id, uberBatch.error?.message || 'batch send failed');
+            created.uberBatches.push(uberBatch.data.batch_id);
+            const uberNext = await edge('driver', {}, 'uber-test-next', { 'x-uber-test-installation-id': installId });
+            assert('UBER TEST next/evaluate', uberNext.status === 200 && uberNext.data?.evaluation?.status === 'evaluated', JSON.stringify(uberNext.data));
+            if (uberNext.data?.batch?.presented?.id) created.uberOffers.push(uberNext.data.batch.presented.id);
+            const notification = await admin.from('dori_copilot_notifications').select('offer_id,status,recommendation').eq('offer_id', uberNext.data?.evaluation?.offerId).maybeSingle();
+            assert('DORI notification persisted', !notification.error && !!notification.data, notification.error?.message || 'notification missing');
             console.log('PASS live invariance (simulation path uses dedicated tables; no live mutation requested)');
             console.log('PASS driver B isolation');
           })().catch((error) => { console.error(`SMOKE_FAILED ${error.message}`); process.exitCode = 1; }).finally(cleanup);
