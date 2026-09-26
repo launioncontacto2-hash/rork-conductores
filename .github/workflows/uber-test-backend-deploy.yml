@@ -18,6 +18,7 @@ on:
       - "supabase/migrations/20260925190000_uber_test_receiver_assertion_reconcile.sql"
       - "supabase/migrations/20260925210000_uber_test_transport_telemetry.sql"
       - "supabase/migrations/20260926100000_uber_test_dori_context_shift_window_guard.sql"
+      - "supabase/migrations/20260926120000_uber_test_link_realtime_authority.sql"
       - "supabase/functions/uber-test-next/**"
       - "supabase/functions/uber-test-result/**"
       - "supabase/functions/uber-test-copilot-evaluate/**"
