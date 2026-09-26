@@ -58,11 +58,15 @@ jobs:
         run: |
           supabase link --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
           test "$(supabase projects list --output json | jq -r '.[] | select(.id=="yyxzuiantrmoyozetswv") | .id')" = "yyxzuiantrmoyozetswv"
-      - name: Apply UBER Test migration
+      - name: Apply UBER Test forward-only guard
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
-        run: supabase db push --linked
+        run: |
+          # The TEST ledger contains historical timestamp aliases that are not
+          # present in this branch. Do not repair schema_migrations or replay
+          # unrelated history. Apply only the idempotent forward-only guard.
+          supabase db query --linked --file supabase/migrations/20260926100000_uber_test_dori_context_shift_window_guard.sql
       - name: Deploy UBER Test Edge Functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
