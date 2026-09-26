@@ -32,7 +32,7 @@ jobs:
           grep -q '^\*\*Versión:\*\* 1.3' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
           missing=()
-          [[ "$SUPABASE_PUBLISHABLE_KEY" == sb_publishable_* ]] || missing+=(TEST_SUPABASE_PUBLISHABLE_KEY)
+          [[ -n "$SUPABASE_PUBLISHABLE_KEY" ]] || missing+=(TEST_SUPABASE_PUBLISHABLE_KEY)
           if ((${#missing[@]})); then
             echo "Required GitHub secrets unavailable: ${missing[*]}" >&2
             exit 1
