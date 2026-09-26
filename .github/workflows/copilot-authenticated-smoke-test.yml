@@ -184,9 +184,9 @@ jobs:
             assert('UBER TEST batch queued', !uberBatch.error && uberBatch.data?.batch_id, uberBatch.error?.message || 'batch send failed');
             created.uberBatches.push(uberBatch.data.batch_id);
             const uberNext = await edge('driver', {}, 'uber-test-next', { 'x-uber-test-installation-id': installId });
-            assert('UBER TEST next/evaluate', uberNext.status === 200 && uberNext.data?.evaluation?.status === 'evaluated', JSON.stringify(uberNext.data));
+            assert('UBER TEST next/evaluate', uberNext.status === 200 && uberNext.data?.batch?.evaluation?.status === 'evaluated', JSON.stringify(uberNext.data));
             if (uberNext.data?.batch?.presented?.id) created.uberOffers.push(uberNext.data.batch.presented.id);
-            const notification = await admin.from('dori_copilot_notifications').select('offer_id,status,recommendation').eq('offer_id', uberNext.data?.evaluation?.offerId).maybeSingle();
+            const notification = await admin.from('dori_copilot_notifications').select('offer_id,status,recommendation').eq('offer_id', uberNext.data?.batch?.evaluation?.offerId).maybeSingle();
             assert('DORI notification persisted', !notification.error && !!notification.data, notification.error?.message || 'notification missing');
             console.log('PASS live invariance (simulation path uses dedicated tables; no live mutation requested)');
             console.log('PASS driver B isolation');
