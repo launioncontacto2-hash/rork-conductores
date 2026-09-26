@@ -41,4 +41,3 @@ end;
 $$;
 revoke all on function public.get_dori_copilot_link_status() from public, anon;
 grant execute on function public.get_dori_copilot_link_status() to authenticated;
-
