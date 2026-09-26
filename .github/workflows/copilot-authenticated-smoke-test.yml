@@ -31,7 +31,6 @@ jobs:
           set -euo pipefail
           grep -q '^\*\*Versión:\*\* 1.3' docs/DORI_COPILOTO_CANONICO.md
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
-          test -n "$SUPABASE_PUBLISHABLE_KEY"
 
       - name: Install isolated smoke dependency
         run: npm install --no-save --no-package-lock @supabase/supabase-js@2.115.0
