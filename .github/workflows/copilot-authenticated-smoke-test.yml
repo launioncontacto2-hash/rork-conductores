@@ -123,7 +123,7 @@ jobs:
               source: 'simulated'
             };
             const key = `gha-${Date.now()}-create`;
-            const created = await edge('console', { operation: 'create', idempotencyKey: key, testCaseId: `gha-${Date.now()}`, driverProfileId: driverProfile.id, input, expected: { recommendation: 'RECOMENDADO', reasonCode: 'lab' }, expiresAt: new Date(now.getTime() + 120000).toISOString() });
+            const created = await edge('console', { operation: 'create', idempotencyKey: key, testCaseId: `gha-${Date.now()}`, driverProfileId: driverProfile.id, input, expected: { recommendation: 'RECOMENDADO', reasonCode: 'lab' }, expiresAt: new Date(Date.now() + 120000).toISOString() });
             assert('console create', [200, 201].includes(created.status), JSON.stringify(created.data));
             const caseId = created.data.case?.id || created.data.id;
             assert('case pending', created.data.case?.status === 'pending' || created.data.status === 'pending');
@@ -146,7 +146,7 @@ jobs:
             const retry = await edge('driver', { operation: 'evaluate', caseId: receivedCaseId, idempotencyKey: evaluationKey });
             assert('idempotency', [200, 201, 409].includes(retry.status), JSON.stringify(retry.data));
 
-            const s1 = await edge('supervisor', { operation: 'create', idempotencyKey: `gha-super-${Date.now()}`, testCaseId: `gha-super-${Date.now()}`, driverProfileId: driverProfile.id, input, expected: { recommendation: 'RECOMENDADO' }, expiresAt: new Date(now.getTime() + 120000).toISOString() });
+            const s1 = await edge('supervisor', { operation: 'create', idempotencyKey: `gha-super-${Date.now()}`, testCaseId: `gha-super-${Date.now()}`, driverProfileId: driverProfile.id, input, expected: { recommendation: 'RECOMENDADO' }, expiresAt: new Date(Date.now() + 120000).toISOString() });
             const s2 = await edge('supervisor', { operation: 'next', caseId });
             const s3 = await edge('supervisor', { operation: 'evaluate', caseId, idempotencyKey: `gha-super-eval-${Date.now()}` });
             assert('supervisor create denied', s1.status === 403, JSON.stringify(s1.data));
