@@ -17,6 +17,33 @@ struct DORIBrandTests {
     }
 }
 
+struct DashboardReadingValidatorTests {
+    @Test func odoRequiresTheODOAndKMAnchors() {
+        #expect(DashboardReadingValidator.extractODO(from: ["ODO 012438 Km"]) == 12_438)
+        #expect(DashboardReadingValidator.extractODO(from: ["ODO012438Km"]) == 12_438)
+        #expect(DashboardReadingValidator.extractODO(from: ["TRIP 012438 Km"]) == nil)
+        #expect(DashboardReadingValidator.extractODO(from: ["12,438 km"]) == nil)
+    }
+
+    @Test func batteryRequiresAValidPercentageInTheExpectedRegion() {
+        #expect(DashboardReadingValidator.extractBattery(from: [
+            DashboardTextLine(text: "83%", boundingBox: CGRect(x: 0.6, y: 0.4, width: 0.1, height: 0.1))
+        ]) == 83)
+        #expect(DashboardReadingValidator.extractBattery(from: [
+            DashboardTextLine(text: "101%", boundingBox: CGRect(x: 0.6, y: 0.4, width: 0.1, height: 0.1))
+        ]) == nil)
+        #expect(DashboardReadingValidator.extractBattery(from: [
+            DashboardTextLine(text: "83%", boundingBox: CGRect(x: 0.05, y: 0.4, width: 0.1, height: 0.1))
+        ]) == nil)
+    }
+
+    @Test func changedManualValueInvalidatesApreviousMatch() {
+        let status = DashboardReadingStatus.matched(12_438)
+        #expect(status.isMatched(manual: "12438"))
+        #expect(!status.isMatched(manual: "12500"))
+    }
+}
+
 /// Canonical conductor-surface invariants. These are intentionally model-level tests:
 /// they prove the prototype exposes the four independent bonus tracks and the five
 /// read-only driver/unit documents without coupling the test target to SwiftUI layout.

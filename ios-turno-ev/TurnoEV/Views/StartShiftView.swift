@@ -45,8 +45,12 @@ struct StartShiftView: View {
     @State private var scannedVehicle: Vehicle?
     @State private var odometerText: String = ""
     @State private var odometerPhoto: Data?
+    @State private var detectedOdometer: Int?
+    @State private var odometerStatus: DashboardReadingStatus = .pending
     @State private var batteryText: String = ""
     @State private var batteryPhoto: Data?
+    @State private var detectedBattery: Int?
+    @State private var batteryStatus: DashboardReadingStatus = .pending
     @State private var issues: [AssignmentIssue] = []
     @State private var manualCode: String = ""
     @State private var isManualEntry: Bool = false
@@ -230,9 +234,9 @@ struct StartShiftView: View {
                     HStack(spacing: 8) {
                         ForEach(store.vehicles.filter { $0.stationId == store.driver.stationId }) { item in
                             Button {
-                                handleDetected(code: item.qrCode)
+                                handleDetected(code: item.internalNumber)
                             } label: {
-                                Text(item.qrCode)
+                                Text(item.internalNumber)
                                     .font(.system(.caption, weight: .semibold))
                                     .foregroundStyle(item.id == vehicle.id ? Palette.volt : Palette.textMuted)
                                     .padding(.horizontal, 12)
@@ -285,10 +289,10 @@ struct StartShiftView: View {
 
             PhotoSlotView(
                 title: "Odómetro de inicio",
-                hint: "Lectura legible",
+                hint: "Asegúrate de que ODO y el kilometraje sean legibles.",
                 data: odometerPhoto
             ) { data in
-                odometerPhoto = data
+                captureOdometer(data)
             }
 
             BigNumberField(
@@ -297,11 +301,14 @@ struct StartShiftView: View {
                 placeholder: "\(vehicle.odometerKm)",
                 text: $odometerText
             )
+            .onChange(of: odometerText) { _, _ in reconcileOdometer() }
+
+            dashboardStatus(odometerStatus, kind: "ODO")
 
             BigButton(
                 title: "Validar kilometraje",
                 symbol: "checkmark.circle.fill",
-                isEnabled: odometerPhoto != nil && !odometerText.isEmpty
+                isEnabled: odometerPhoto != nil && odometerStatus.isMatched(manual: odometerText)
             ) {
                 validateOdometer(vehicle: vehicle)
             }
@@ -338,10 +345,10 @@ struct StartShiftView: View {
 
             PhotoSlotView(
                 title: "Tablero de batería",
-                hint: "Tablero encendido",
+                hint: "Asegúrate de que el porcentaje de batería sea visible.",
                 data: batteryPhoto
             ) { data in
-                batteryPhoto = data
+                captureBattery(data)
             }
 
             BigNumberField(
@@ -350,11 +357,14 @@ struct StartShiftView: View {
                 placeholder: "\(vehicle.batteryPct)",
                 text: $batteryText
             )
+            .onChange(of: batteryText) { _, _ in reconcileBattery() }
+
+            dashboardStatus(batteryStatus, kind: "Batería")
 
             BigButton(
                 title: isStarting ? "Iniciando…" : "Iniciar turno",
                 symbol: isStarting ? "hourglass" : "bolt.car.fill",
-                isEnabled: batteryPhoto != nil && !batteryText.isEmpty && !isStarting
+                isEnabled: batteryPhoto != nil && batteryStatus.isMatched(manual: batteryText) && !isStarting
             ) {
                 start(vehicle: vehicle)
             }
@@ -430,6 +440,98 @@ struct StartShiftView: View {
 
     // MARK: - Actions
 
+    private func captureOdometer(_ data: Data) {
+        odometerPhoto = data
+        detectedOdometer = nil
+        odometerStatus = .pending
+        Task {
+            let detected = await DashboardReadingValidator.readOdometer(from: data)
+            await MainActor.run {
+                detectedOdometer = detected
+                reconcileOdometer()
+            }
+        }
+    }
+
+    private func captureBattery(_ data: Data) {
+        batteryPhoto = data
+        detectedBattery = nil
+        batteryStatus = .pending
+        Task {
+            let detected = await DashboardReadingValidator.readBattery(from: data)
+            await MainActor.run {
+                detectedBattery = detected
+                reconcileBattery()
+            }
+        }
+    }
+
+    private func reconcileOdometer() {
+        guard odometerPhoto != nil else {
+            odometerStatus = .pending
+            return
+        }
+        guard let detectedOdometer else {
+            odometerStatus = .unreadable
+            return
+        }
+        guard let manual = Int(odometerText.trimmingCharacters(in: .whitespaces)), manual > 0 else {
+            odometerStatus = .pending
+            return
+        }
+        odometerStatus = manual == detectedOdometer
+            ? .matched(detectedOdometer)
+            : .mismatch(manual: manual, detected: detectedOdometer)
+    }
+
+    private func reconcileBattery() {
+        guard batteryPhoto != nil else {
+            batteryStatus = .pending
+            return
+        }
+        guard let detectedBattery else {
+            batteryStatus = .unreadable
+            return
+        }
+        guard let manual = Int(batteryText.trimmingCharacters(in: .whitespaces)), (0...100).contains(manual) else {
+            batteryStatus = .pending
+            return
+        }
+        batteryStatus = manual == detectedBattery
+            ? .matched(detectedBattery)
+            : .mismatch(manual: manual, detected: detectedBattery)
+    }
+
+    @ViewBuilder
+    private func dashboardStatus(_ status: DashboardReadingStatus, kind: String) -> some View {
+        switch status {
+        case .pending:
+            EmptyView()
+        case .matched(let value):
+            VStack(alignment: .leading, spacing: 3) {
+                Text(kind == "ODO" ? "ODO detectado: \(Fmt.km(value))" : "Batería detectada: \(value)%")
+                Text("✓ Coincide con la lectura ingresada")
+            }
+            .font(.system(.footnote, weight: .semibold))
+            .foregroundStyle(Palette.volt)
+        case .mismatch(let manual, let detected):
+            VStack(alignment: .leading, spacing: 3) {
+                Text(kind == "ODO" ? "La lectura no coincide con la imagen capturada." : "El porcentaje ingresado no coincide con la imagen capturada.")
+                Text("Ingresado: \(kind == "ODO" ? Fmt.km(manual) : "\(manual)%")")
+                Text("Detectado: \(kind == "ODO" ? Fmt.km(detected) : "\(detected)%")")
+                Text("Corrige el valor o toma otra foto.")
+            }
+            .font(.system(.footnote, weight: .semibold))
+            .foregroundStyle(Palette.danger)
+        case .unreadable:
+            Text(kind == "ODO"
+                ? "No pudimos identificar el kilometraje ODO. Toma nuevamente la fotografía procurando que el tablero esté completamente visible y enfocado."
+                : "No pudimos identificar con suficiente claridad el porcentaje de batería. Toma nuevamente la fotografía procurando que el indicador de batería y el porcentaje estén visibles.")
+                .font(.footnote)
+                .foregroundStyle(Palette.amber)
+        }
+    }
+
     private func handleDetected(code: String) {
         let normalized = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         // Two different truths, and saying the wrong one sends the driver looking for a
@@ -460,10 +562,15 @@ struct StartShiftView: View {
         scannedVehicle = found
         batteryText = ""
         odometerText = ""
+        detectedOdometer = nil
+        detectedBattery = nil
+        odometerStatus = .pending
+        batteryStatus = .pending
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { step = .odometer }
     }
 
     private func validateOdometer(vehicle: Vehicle) {
+        guard odometerStatus.isMatched(manual: odometerText) else { return }
         guard let reading = Int(odometerText.trimmingCharacters(in: .whitespaces)), reading > 0 else {
             issues = [AssignmentIssue(code: .odometerMismatch, message: "Captura el kilometraje que muestra el tablero.")]
             return
@@ -478,6 +585,10 @@ struct StartShiftView: View {
     }
 
     private func start(vehicle: Vehicle) {
+        guard batteryStatus.isMatched(manual: batteryText), odometerStatus.isMatched(manual: odometerText) else {
+            issues = [AssignmentIssue(code: .other, message: "Valida la lectura manual contra la fotografía antes de iniciar turno.")]
+            return
+        }
         guard let battery = Int(batteryText.trimmingCharacters(in: .whitespaces)), battery > 0, battery <= 100 else {
             issues = [AssignmentIssue(code: .lowBattery, message: "Captura el porcentaje de batería del tablero.")]
             return

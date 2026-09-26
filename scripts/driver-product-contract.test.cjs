@@ -39,7 +39,7 @@ test('driver evidence and recovery surfaces remain part of the conductor contrac
 
 test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
   const shift = read('ios-turno-ev/TurnoEV/Views/ShiftView.swift');
-  assert.match(shift, /Tu unidad asignada/);
+  assert.match(shift, /assignedUnitCard/);
   assert.match(shift, /Tolerancia de 15 minutos antes de afectar bonos/);
   assert.doesNotMatch(shift, /\.toolbar\s*\{/);
 

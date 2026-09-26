@@ -351,23 +351,24 @@ struct ShiftView: View {
 
     private var assignedUnitCard: some View {
         HStack(spacing: 12) {
-            Image(systemName: "car.fill")
-                .foregroundStyle(Palette.volt)
-                .frame(width: 38, height: 38)
-                .background(Palette.volt.opacity(0.12), in: .rect(cornerRadius: 12))
-            VStack(alignment: .leading, spacing: 3) {
-                CapsLabel(text: "Tu unidad asignada")
-                if let vehicle = store.displayVehicle {
+            if let vehicle = store.displayVehicle {
+                Image(vehicle.photoAsset)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 76, height: 54)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay { RoundedRectangle(cornerRadius: 12).stroke(Palette.volt.opacity(0.45), lineWidth: 1) }
+                VStack(alignment: .leading, spacing: 3) {
                     Text(vehicle.model)
                         .font(.system(.headline, weight: .black))
                     Text(vehicle.internalNumber)
                         .font(.system(.subheadline, weight: .bold))
                         .foregroundStyle(Palette.textMuted)
-                } else {
-                    Text("Sin unidad asignada")
-                        .font(.system(.subheadline, weight: .bold))
-                        .foregroundStyle(Palette.amber)
                 }
+            } else {
+                Text("Sin unidad asignada")
+                    .font(.system(.subheadline, weight: .bold))
+                    .foregroundStyle(Palette.amber)
             }
             Spacer(minLength: 0)
         }
