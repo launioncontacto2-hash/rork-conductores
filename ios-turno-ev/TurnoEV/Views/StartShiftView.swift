@@ -586,7 +586,6 @@ struct StartShiftView: View {
 
     private func start(vehicle: Vehicle) {
         guard batteryStatus.isMatched(manual: batteryText), odometerStatus.isMatched(manual: odometerText) else {
-            issues = [AssignmentIssue(code: .other, message: "Valida la lectura manual contra la fotografía antes de iniciar turno.")]
             return
         }
         guard let battery = Int(batteryText.trimmingCharacters(in: .whitespaces)), battery > 0, battery <= 100 else {
