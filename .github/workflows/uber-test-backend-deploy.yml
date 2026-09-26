@@ -67,10 +67,12 @@ jobs:
           # present in this branch. Do not repair schema_migrations or replay
           # unrelated history. Apply only the idempotent forward-only guard.
           command -v psql
+          PROJECT_REGION="$(supabase projects list --output json | jq -r '.[] | select(.id=="yyxzuiantrmoyozetswv") | .region')"
+          test -n "$PROJECT_REGION" -a "$PROJECT_REGION" != "null"
           PGPASSWORD="$SUPABASE_DB_PASSWORD" PGSSLMODE=require psql \
-            --host db.yyxzuiantrmoyozetswv.supabase.co \
+            --host "aws-0-${PROJECT_REGION}.pooler.supabase.com" \
             --port 5432 \
-            --username postgres \
+            --username postgres.yyxzuiantrmoyozetswv \
             --dbname postgres \
             --file supabase/migrations/20260926100000_uber_test_dori_context_shift_window_guard.sql
       - name: Deploy UBER Test Edge Functions
