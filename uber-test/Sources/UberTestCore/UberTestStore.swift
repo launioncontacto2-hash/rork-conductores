@@ -65,9 +65,17 @@ public final class UberTestStore: ObservableObject {
         await flushPendingResults()
         guard queue.current == nil else { return }
         do {
-            if let batch = try await client.loadPendingBatch() {
-                transportTelemetry?("transport_used=\(transport)", .now)
-                receive(batch)
+            // Retry briefly after a Realtime INSERT while the server projection commits.
+            // This keeps event-driven presentation immediate; fallback remains recovery only.
+            let attempts = transport == "realtime" ? 3 : 1
+            for attempt in 0..<attempts {
+                if queue.current != nil { return }
+                if let batch = try await client.loadPendingBatch() {
+                    transportTelemetry?("transport_used=\(transport)", .now)
+                    receive(batch)
+                    return
+                }
+                if attempt + 1 < attempts { try await Task.sleep(for: .milliseconds(250)) }
             }
         }
         catch UberTestSessionError.terminated { stopForegroundRecovery() }
