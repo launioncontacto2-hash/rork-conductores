@@ -112,7 +112,7 @@ jobs:
             const claimed = await clients.driver.client.rpc('claim_driver_device', { p_install_id: installId, p_app_version: 'gha-smoke' });
             assert('driver device claim', !claimed.error, claimed.error?.message || 'claim failed');
             const evidenceBase = `${identities.driver.environmentId}/${identities.driver.stationId}/${identities.driver.profileId}`;
-            const evidencePaths = { odometer: `${evidenceBase}/gha-start-odometer.jpg`, battery: `${evidenceBase}/gha-start-battery.jpg` };
+            const evidencePaths = { odometer: `${evidenceBase}/gha/start-odometer.jpg`, battery: `${evidenceBase}/gha/start-battery.jpg` };
             for (const name of Object.values(evidencePaths)) {
               const uploadedEvidence = await clients.driver.client.storage.from('shift-evidence').upload(name, new Uint8Array([0]), { contentType: 'image/jpeg', upsert: true });
               assert(`create evidence ${name.split('/').pop()}`, !uploadedEvidence.error, uploadedEvidence.error?.message || 'upload failed');
