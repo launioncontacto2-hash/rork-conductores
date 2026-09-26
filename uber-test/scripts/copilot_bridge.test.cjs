@@ -53,6 +53,7 @@ test('TEST deployment workflow includes the evaluation and push functions', () =
   assert.match(deployWorkflow, /supabase functions deploy uber-test-copilot-evaluate/);
   assert.match(deployWorkflow, /supabase functions deploy dori-copilot-push/);
   assert.match(deployWorkflow, /yyxzuiantrmoyozetswv/);
+  assert.match(deployWorkflow, /20260926100000_uber_test_dori_context_shift_window_guard\.sql/);
 });
 
 test('presentation and outcomes invoke the evaluator with offer-scoped idempotency', () => {
@@ -77,6 +78,13 @@ test('DORI app receives the shared APNs token without a competing app delegate',
   assert.match(doriPushSwift, /register_dori_copilot_push_device/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedDeviceToken/);
   assert.match(appDelegateSwift, /DORICopilotPushCoordinator\.shared\.receivedNotification/);
+});
+
+test('Uber Test wires the Copilot sink into the production store', () => {
+  assert.match(appSwift, /functions\/v1\/uber-test-copilot-evaluate/);
+  assert.match(appSwift, /struct UberTestDORICopilotSink: UberTestCopilotSink/);
+  assert.match(appSwift, /UberTestStore\(resultSink: sink, copilotSink: copilotSink\)/);
+  assert.match(appSwift, /\["offerId": offer\.id, "idempotencyKey": key\]/);
 });
 
 test('stale open shifts are not treated as valid DORI context', () => {

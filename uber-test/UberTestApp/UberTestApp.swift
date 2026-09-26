@@ -124,6 +124,7 @@ private struct UberTestRuntimeConfiguration {
     let publishableKey: String?
     let resultURL: URL?
     let batchURL: URL?
+    let copilotEvaluateURL: URL?
     let telemetryURL: URL?
     let accessToken: @Sendable () async -> String?
     let refreshAccessToken: @Sendable () async -> String?
@@ -136,9 +137,36 @@ private struct UberTestRuntimeConfiguration {
         publishableKey = (Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_SUPABASE_PUBLISHABLE_KEY") as? String)
         resultURL = base?.appendingPathComponent("functions/v1/uber-test-result")
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
+        copilotEvaluateURL = base?.appendingPathComponent("functions/v1/uber-test-copilot-evaluate")
         telemetryURL = base?.appendingPathComponent("functions/v1/uber-test-telemetry")
         accessToken = { await UberTestSession.shared.validToken() }
         refreshAccessToken = { await UberTestSession.shared.validToken(force: true) }
+    }
+}
+
+private struct UberTestDORICopilotSink: UberTestCopilotSink {
+    let functionURL: URL
+    let accessToken: @Sendable () async -> String?
+    let refreshAccessToken: @Sendable () async -> String?
+
+    func evaluate(_ offer: UberTestOffer, batchId: String) async throws {
+        guard let token = await accessToken() else { throw UberTestSessionError.terminated }
+        let key = "uber-test:\(batchId):\(offer.id)"
+        var request = URLRequest(url: functionURL)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["offerId": offer.id, "idempotencyKey": key])
+        var (data, response) = try await URLSession.shared.data(for: request)
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            guard let refreshed = await refreshAccessToken() else { throw UberTestSessionError.terminated }
+            request.setValue("Bearer \(refreshed)", forHTTPHeaderField: "Authorization")
+            (data, response) = try await URLSession.shared.data(for: request)
+        }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            _ = data
+            throw URLError(.badServerResponse)
+        }
     }
 }
 
@@ -184,7 +212,10 @@ struct UberTestApp: App {
         }
         _receiver = StateObject(wrappedValue: receiver)
         let sink = runtime.resultURL.map { UberTestHTTPResultSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken, installationID: receiver.installationID) }
-        let store = UberTestStore(resultSink: sink)
+        let copilotSink = runtime.copilotEvaluateURL.map {
+            UberTestDORICopilotSink(functionURL: $0, accessToken: runtime.accessToken, refreshAccessToken: runtime.refreshAccessToken)
+        }
+        let store = UberTestStore(resultSink: sink, copilotSink: copilotSink)
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let telemetry = runtime.telemetryURL.map { UberTestTelemetryClient(functionURL: $0, accessToken: runtime.accessToken, installationID: receiver.installationID, appBuild: build) }
         store.transportTelemetry = { label, timestamp in
