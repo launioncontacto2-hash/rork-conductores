@@ -57,31 +57,6 @@ struct ShiftView: View {
             .navigationTitle("Turno")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SessionMenuButton()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    DemoClockButton()
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        DORICopilotView()
-                    } label: {
-                        Image(systemName: "sparkles")
-                    }
-                    .accessibilityLabel("DORI Copiloto")
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        areNoticesPresented = true
-                    } label: {
-                        Image(systemName: store.unreadNoticeCount > 0 ? "bell.badge.fill" : "bell.fill")
-                            .foregroundStyle(store.unreadNoticeCount > 0 ? Palette.volt : Color.primary)
-                    }
-                    .accessibilityLabel("Avisos de la estación")
-                }
-            }
             .sheet(isPresented: $areNoticesPresented) {
                 NoticesView()
             }
@@ -180,6 +155,9 @@ struct ShiftView: View {
             },
             .custom("shift.hero", "Reloj y acciones del turno", kind: .card, isCritical: true) {
                 shiftHero(phase: phase)
+            },
+            .custom("shift.assignedUnit", "Unidad asignada", kind: .card, isCritical: true) {
+                assignedUnitCard
             },
         ]
 
@@ -355,48 +333,46 @@ struct ShiftView: View {
             }
 
             Spacer(minLength: 0)
-            }
 
-            // The assignment is part of the driver's operational identity. Keep it on
-            // the first layer so the driver can verify the physical unit before starting
-            // a shift or opening the QR flow; FleetStore remains the only source of truth.
-            HStack(spacing: 10) {
-                Image(systemName: "car.fill")
-                    .foregroundStyle(Palette.volt)
-                    .frame(width: 30, height: 30)
-                    .background(Palette.volt.opacity(0.12), in: .rect(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tu unidad asignada")
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundStyle(Palette.textMuted)
-                        .textCase(.uppercase)
-                    if let vehicle = store.displayVehicle {
-                        Text("Unidad \(vehicle.internalNumber)")
-                            .font(.system(.subheadline, weight: .black))
-                        Text(vehicle.model)
-                            .font(.caption)
-                            .foregroundStyle(Palette.textMuted)
-                    } else {
-                        Text("Sin unidad asignada")
-                            .font(.system(.subheadline, weight: .bold))
-                            .foregroundStyle(Palette.amber)
-                    }
-                }
-                Spacer(minLength: 0)
-                if store.displayVehicle != nil {
-                    Text("CONFIRMADA")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(0.8)
-                        .foregroundStyle(Palette.volt)
-                }
+            Button {
+                areNoticesPresented = true
+            } label: {
+                Image(systemName: store.unreadNoticeCount > 0 ? "bell.badge.fill" : "bell.fill")
+                    .foregroundStyle(store.unreadNoticeCount > 0 ? Palette.volt : Color.primary)
+                    .frame(width: 34, height: 34)
+                    .background(Palette.surfaceRaised, in: .circle)
             }
-            .padding(12)
-            .background(Palette.surfaceRaised, in: .rect(cornerRadius: 16))
-            .overlay {
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Palette.hairline, lineWidth: 1)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Avisos de la estación")
+
             }
         }
+    }
+
+    private var assignedUnitCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "car.fill")
+                .foregroundStyle(Palette.volt)
+                .frame(width: 38, height: 38)
+                .background(Palette.volt.opacity(0.12), in: .rect(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                CapsLabel(text: "Tu unidad asignada")
+                if let vehicle = store.displayVehicle {
+                    Text(vehicle.model)
+                        .font(.system(.headline, weight: .black))
+                    Text(vehicle.internalNumber)
+                        .font(.system(.subheadline, weight: .bold))
+                        .foregroundStyle(Palette.textMuted)
+                } else {
+                    Text("Sin unidad asignada")
+                        .font(.system(.subheadline, weight: .bold))
+                        .foregroundStyle(Palette.amber)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .panel()
     }
 
     /// Late time owed this week. The figure moves with the week, so it is read at minute
@@ -431,12 +407,12 @@ struct ShiftView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    CapsLabel(text: isActive ? "Turno en curso" : "Próximo turno")
+                    CapsLabel(text: isActive ? "Turno en curso" : "Turno")
                     Text("\(store.driver.slot.label) · \(store.driver.group.label)")
                         .font(.system(.title3, weight: .black))
                 }
                 Spacer(minLength: 8)
-                Text(isActive ? "ACTIVO" : canStart ? "PUEDES INICIAR" : "FUERA DE HORARIO")
+                Text(isActive ? "ACTIVO" : canStart ? "PROGRAMADO" : "FUERA DE HORARIO")
                     .font(.system(size: 9, weight: .black))
                     .tracking(1.2)
                     .foregroundStyle(isActive ? Palette.volt : canStart ? Palette.info : Palette.textMuted)
@@ -502,7 +478,7 @@ struct ShiftView: View {
                     .monospacedDigit()
                     .padding(.top, 16)
 
-                Text(windowCopy(phase: phase))
+                Text("Tolerancia de 15 minutos antes de afectar bonos")
                     .font(.footnote)
                     .foregroundStyle(Palette.textMuted)
                     .padding(.top, 6)

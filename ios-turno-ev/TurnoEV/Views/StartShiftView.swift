@@ -440,9 +440,10 @@ struct StartShiftView: View {
             return
         }
         guard let found = store.vehicles.first(where: {
-            $0.qrCode.uppercased() == normalized || $0.internalNumber.uppercased() == normalized
+            $0.internalNumber.uppercased() == normalized
         }) else {
-            scanMessage = "El código \(normalized) no pertenece a la flotilla"
+            let expected = store.displayVehicle?.internalNumber ?? "la unidad asignada"
+            scanMessage = "El QR leído no coincide con tu unidad asignada. Debe ser \(expected)."
             return
         }
 

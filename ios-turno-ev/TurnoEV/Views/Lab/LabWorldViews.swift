@@ -957,13 +957,13 @@ private struct LabQrSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 18) {
-                LabQrCode(text: vehicle.qrCode)
+                LabQrCode(text: vehicle.internalNumber)
                     .frame(width: 220, height: 220)
                     .padding(18)
                     .background(.white, in: .rect(cornerRadius: 22))
 
                 VStack(spacing: 5) {
-                    Text(vehicle.qrCode)
+                    Text(vehicle.internalNumber)
                         .font(.system(.title3, weight: .black))
                         .monospaced()
                         .foregroundStyle(.white)

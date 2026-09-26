@@ -36,3 +36,18 @@ test('driver evidence and recovery surfaces remain part of the conductor contrac
   assert.match(read('ios-turno-ev/TurnoEV/Views/HourRecoveryView.swift'), /Recuperación de horas/);
   assert.match(read('ios-turno-ev/TurnoEV/Views/UnitDocumentsView.swift'), /Documentos de consulta/);
 });
+
+test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
+  const shift = read('ios-turno-ev/TurnoEV/Views/ShiftView.swift');
+  assert.match(shift, /Tu unidad asignada/);
+  assert.match(shift, /Tolerancia de 15 minutos antes de afectar bonos/);
+  assert.doesNotMatch(shift, /\.toolbar\s*\{/);
+
+  const start = read('ios-turno-ev/TurnoEV/Views/StartShiftView.swift');
+  assert.match(start, /\$0\.internalNumber\.uppercased\(\) == normalized/);
+  assert.doesNotMatch(start, /\$0\.qrCode\.uppercased\(\) == normalized/);
+  assert.match(start, /QR leído no coincide con tu unidad asignada/);
+
+  const lab = read('ios-turno-ev/TurnoEV/Views/Lab/LabWorldViews.swift');
+  assert.match(lab, /LabQrCode\(text: vehicle\.internalNumber\)/);
+});
