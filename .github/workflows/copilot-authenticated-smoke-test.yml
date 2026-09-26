@@ -79,7 +79,7 @@ jobs:
             identities.driver.assignmentId = assignmentId; identities.driver.vehicleId = vehicleId; identities.driver.environmentId = env.id; identities.driver.stationId = station.id;
             identities.console.profileId = ids.console; identities.driver.profileId = ids.driver; identities.driver.driverProfileId = ids.dp; identities.driverB.profileId = ids.driverB; identities.driverB.driverProfileId = ids.dpB; identities.supervisor.profileId = ids.supervisor;
           }
-          async function cleanup() { try { await admin.from('shifts').delete().in('driver_profile_id', created.drivers); await admin.from('assignments').delete().in('id', created.assignments); await admin.from('vehicles').delete().in('id', created.vehicles); await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
+          async function cleanup() { try { if (created.evidence.length) await admin.storage.from('shift-evidence').remove(created.evidence); await admin.from('shifts').delete().in('driver_profile_id', created.drivers); await admin.from('assignments').delete().in('id', created.assignments); await admin.from('vehicles').delete().in('id', created.vehicles); await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
           async function login(name) {
             const { email, password, userId } = identities[name];
             const client = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -114,9 +114,9 @@ jobs:
             const evidenceBase = `${identities.driver.environmentId}/${identities.driver.stationId}/${identities.driver.profileId}`;
             const evidencePaths = { odometer: `${evidenceBase}/gha-start-odometer.jpg`, battery: `${evidenceBase}/gha-start-battery.jpg` };
             for (const name of Object.values(evidencePaths)) {
-              const metadata = { mimetype: 'image/jpeg', size: 1 };
-              const insertedEvidence = await admin.from('storage.objects').insert({ bucket_id: 'shift-evidence', name, owner_id: identities.driver.userId, metadata });
-              assert(`create evidence ${name.split('/').pop()}`, !insertedEvidence.error, insertedEvidence.error?.message || 'insert failed');
+              const uploadedEvidence = await clients.driver.client.storage.from('shift-evidence').upload(name, new Uint8Array([0]), { contentType: 'image/jpeg', upsert: true });
+              assert(`create evidence ${name.split('/').pop()}`, !uploadedEvidence.error, uploadedEvidence.error?.message || 'upload failed');
+              created.evidence.push(name);
             }
             const started = await clients.driver.client.rpc('start_shift_v3', { p_assignment_id: identities.driver.assignmentId, p_odometer_km: 20000, p_battery_pct: 80, p_odometer_path: evidencePaths.odometer, p_battery_path: evidencePaths.battery, p_idempotency_key: `gha-${run}-start-shift`, p_install_id: installId });
             assert('canonical TEST shift start', !started.error && !!started.data, started.error?.message || 'start_shift_v3 failed');
