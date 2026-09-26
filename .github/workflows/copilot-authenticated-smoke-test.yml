@@ -177,7 +177,7 @@ jobs:
 
             const decision = await edge('driver', { kind: 'decision', idempotencyKey: `gha-event-${Date.now()}`, input }, 'dori-copilot-events');
             assert('remote decision event', [200, 201].includes(decision.status), JSON.stringify(decision.data));
-            const uberBatch = await clients.console.client.rpc('console_send_uber_test_batch', { p_driver_profile_id: driverProfile.id, p_offers: [{ service: 'UberX', fare: 240, pickup: 'Centro', pickupDistanceKm: 1.2, tripDurationMinutes: 35, tripDistanceKm: 18, riderRating: 4.9, expiresAfterSeconds: 30 }], p_idempotency_key: `gha-${run}-uber-batch` });
+            const uberBatch = await clients.console.client.rpc('console_send_uber_test_batch', { p_driver_profile_id: driverProfile.id, p_offers: [{ service: 'UberX', fare: 240, pickup: 'Centro', pickupDistanceKm: 1.2, pickupMinutes: 4, tripDurationMinutes: 35, tripDistanceKm: 18, destinationToStationKm: 8, destinationValue: 85, riderRating: 4.9, expiresAfterSeconds: 30 }], p_idempotency_key: `gha-${run}-uber-batch` });
             assert('UBER TEST batch queued', !uberBatch.error && uberBatch.data?.batch_id, uberBatch.error?.message || 'batch send failed');
             created.uberBatches.push(uberBatch.data.batch_id);
             const uberNext = await edge('driver', {}, 'uber-test-next', { 'x-uber-test-installation-id': installId });
