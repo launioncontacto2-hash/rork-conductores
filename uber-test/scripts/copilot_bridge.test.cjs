@@ -20,6 +20,7 @@ const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoE
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
 const storeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestStore.swift'), 'utf8');
 const realtimeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestRealtimeReceiver.swift'), 'utf8');
+const realtimeRls = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20260926150000_uber_test_realtime_identity_rls.sql'), 'utf8');
 const appSwift = fs.readFileSync(path.join(root, 'uber-test', 'UberTestApp', 'UberTestApp.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
@@ -145,6 +146,12 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(storeSwift, /startForegroundRecovery/);
   assert.match(storeSwift, /private var resultFlushTask/);
   assert.match(storeSwift, /flushPendingResultsForTesting/);
+});
+
+test('Realtime event RLS resolves the canonical profile identity', () => {
+  assert.match(realtimeRls, /uber_test_event_driver_read/);
+  assert.match(realtimeRls, /d\.profile_id = app\.auth_profile_id\(\)/);
+  assert.doesNotMatch(realtimeRls, /d\.profile_id\s*=\s*\(?select auth\.uid/);
 });
 
 test('link and push dispatch do not use heartbeat freshness as authority', () => {
