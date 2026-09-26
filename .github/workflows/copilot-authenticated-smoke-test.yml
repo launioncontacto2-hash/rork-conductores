@@ -49,7 +49,7 @@ jobs:
           const anonClient = createClient(url, anon, { auth: { persistSession: false } });
           const run = Date.now().toString(36);
           const identities = Object.fromEntries(['console','driver','driverB','supervisor'].map((name) => [name, { email: `copilot-smoke-${name}-${run}@local.test`, password: crypto.randomUUID() + crypto.randomUUID() }]));
-          const created = { users: [], profiles: [], memberships: [], drivers: [] };
+          const created = { users: [], profiles: [], memberships: [], drivers: [], vehicles: [], assignments: [], evidence: [] };
           const clients = {};
           const assert = (name, condition, detail = '') => {
             if (!condition) throw new Error(`${name}: ${detail}`);
@@ -70,9 +70,16 @@ jobs:
             const memberships = [{ id: ids.mc, environment_id: env.id, profile_id: ids.console, station_id: station.id, role: 'console', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.md, environment_id: env.id, profile_id: ids.driver, station_id: station.id, role: 'driver', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.mdB, environment_id: env.id, profile_id: ids.driverB, station_id: station.id, role: 'driver', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }, { id: ids.ms, environment_id: env.id, profile_id: ids.supervisor, station_id: station.id, role: 'supervisor', starts_at: '2000-01-01T00:00:00Z', shift_group: 'weekday', shift_slot: 'morning' }];
             q = await admin.from('staff_memberships').insert(memberships); assert('create automation memberships', !q.error, q.error?.message || 'insert failed'); created.memberships.push(...memberships.map((x) => x.id));
             q = await admin.from('driver_profiles').insert([{ id: ids.dp, environment_id: env.id, station_id: station.id, profile_id: ids.driver, membership_id: ids.md, employee_number: `LAB-${run}-DRIVER-A`, status: 'active' }, { id: ids.dpB, environment_id: env.id, station_id: station.id, profile_id: ids.driverB, membership_id: ids.mdB, employee_number: `LAB-${run}-DRIVER-B`, status: 'active' }]); assert('create automation driver profiles', !q.error, q.error?.message || 'insert failed'); created.drivers.push(ids.dp, ids.dpB);
+            const vehicleId = crypto.randomUUID();
+            const assignmentId = crypto.randomUUID();
+            q = await admin.from('vehicles').insert({ id: vehicleId, environment_id: env.id, station_id: station.id, internal_number: `LAB-${run}-VEHICLE`, qr_code: `LAB-${run}-QR`, model: 'Copiloto Smoke Vehicle', odometer_km: 20000, battery_pct: 80, status: 'occupied' });
+            assert('create automation vehicle', !q.error, q.error?.message || 'insert failed'); created.vehicles.push(vehicleId);
+            q = await admin.from('assignments').insert({ id: assignmentId, environment_id: env.id, station_id: station.id, driver_profile_id: ids.dp, vehicle_id: vehicleId, kind: 'titular', assigned_by: ids.console, assigned_at: new Date().toISOString() });
+            assert('create automation assignment', !q.error, q.error?.message || 'insert failed'); created.assignments.push(assignmentId);
+            identities.driver.assignmentId = assignmentId; identities.driver.vehicleId = vehicleId; identities.driver.environmentId = env.id; identities.driver.stationId = station.id;
             identities.console.profileId = ids.console; identities.driver.profileId = ids.driver; identities.driver.driverProfileId = ids.dp; identities.driverB.profileId = ids.driverB; identities.driverB.driverProfileId = ids.dpB; identities.supervisor.profileId = ids.supervisor;
           }
-          async function cleanup() { try { await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
+          async function cleanup() { try { await admin.from('shifts').delete().in('driver_profile_id', created.drivers); await admin.from('assignments').delete().in('id', created.assignments); await admin.from('vehicles').delete().in('id', created.vehicles); await admin.from('driver_profiles').delete().in('id', created.drivers); await admin.from('staff_memberships').delete().in('id', created.memberships); await admin.from('profiles').delete().in('id', created.profiles); for (const id of created.users) await admin.auth.admin.deleteUser(id); console.log('PASS ephemeral cleanup'); } catch (e) { console.error(`CLEANUP_FAILED ${e.message}`); } }
           async function login(name) {
             const { email, password, userId } = identities[name];
             const client = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -100,6 +107,19 @@ jobs:
             await login('driver');
             await login('driverB');
             await login('supervisor');
+
+            const installId = `gha-copilot-${run}`;
+            const claimed = await clients.driver.client.rpc('claim_driver_device', { p_install_id: installId, p_app_version: 'gha-smoke' });
+            assert('driver device claim', !claimed.error, claimed.error?.message || 'claim failed');
+            const evidenceBase = `${identities.driver.environmentId}/${identities.driver.stationId}/${identities.driver.profileId}`;
+            const evidencePaths = { odometer: `${evidenceBase}/gha-start-odometer.jpg`, battery: `${evidenceBase}/gha-start-battery.jpg` };
+            for (const name of Object.values(evidencePaths)) {
+              const metadata = { mimetype: 'image/jpeg', size: 1 };
+              const insertedEvidence = await admin.from('storage.objects').insert({ bucket_id: 'shift-evidence', name, owner_id: identities.driver.userId, metadata });
+              assert(`create evidence ${name.split('/').pop()}`, !insertedEvidence.error, insertedEvidence.error?.message || 'insert failed');
+            }
+            const started = await clients.driver.client.rpc('start_shift_v3', { p_assignment_id: identities.driver.assignmentId, p_odometer_km: 20000, p_battery_pct: 80, p_odometer_path: evidencePaths.odometer, p_battery_path: evidencePaths.battery, p_idempotency_key: `gha-${run}-start-shift`, p_install_id: installId });
+            assert('canonical TEST shift start', !started.error && !!started.data, started.error?.message || 'start_shift_v3 failed');
 
             const { data: driverProfile, error: driverProfileError } = await clients.driver.client.from('driver_profiles').select('id,profile_id,station_id,environment_id,status,employee_number').eq('id', identities.driver.driverProfileId).maybeSingle();
             const { data: profile, error: profileError } = await clients.driver.client.from('profiles').select('id,environment_id,status').eq('id', identities.driver.profileId).maybeSingle();
