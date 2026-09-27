@@ -6,7 +6,7 @@ nonisolated enum ShiftRules {
     /// A correct start is accepted up to 10 minutes after the scheduled time.
     static let graceMinutes = 10
     static let tripsGoalPerDay = 14
-    static let minBatteryPct = 70
+    static let minBatteryPct = 90
     /// The unit may be scanned this early before the scheduled start.
     static let earlyAssignmentMinutes = 30
     /// Administrative default for the photographed ODO versus the station record.

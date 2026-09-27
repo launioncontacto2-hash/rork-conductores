@@ -72,3 +72,18 @@ Conductores consume la asignación y los datos dinámicos (`odometer_km`,
 operativo se presenta como `DMP-XXX` para la unidad visible y no sustituye al
 identificador interno de compatibilidad. VIN y color no se inventan: requieren
 que Adquisiciones/Flota los publique en el contrato compartido.
+
+## Layout final de inicio y turno activo
+
+La pantalla de inicio mantiene únicamente el título `Inicio de turno`, la barra
+`Unidad / Kilometraje / Batería` y el flujo manual primero, fotografía después.
+El paso de kilometraje usa `Captura el kilometraje` y `Fotografía el odómetro`.
+El paso de batería usa `Comprobación de carga`, muestra provisionalmente `100%`
+como dato registrado del auto, un mínimo de salida de `90%` y avisa que una carga
+insuficiente se notifica a supervisión. La integración futura del dato en vivo debe
+reemplazar sólo esa fuente, sin cambiar el estado de validación manual/fotografía.
+
+En turno activo no se muestra el título duplicado `Turno`, la cápsula `Activo`, la
+barra de progreso, el resumen de jornada/restante, el horario inferior ni la tarjeta
+de unidad. Se conservan el turno en curso, inicio, finalizar turno, atraso,
+incidencia, documentos y cerrar sesión.

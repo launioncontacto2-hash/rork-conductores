@@ -108,14 +108,6 @@ struct StartShiftView: View {
             }
             .navigationTitle("Inicio de turno")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cerrar") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    DemoClockButton()
-                }
-            }
             .alert("Inicio bloqueado", isPresented: .constant(!issues.isEmpty)) {
                 Button("Notificar a supervisor", role: .destructive) {
                     supervisorNotified = store.notifySupervisor(
@@ -269,12 +261,12 @@ struct StartShiftView: View {
     private func odometerStep(vehicle: Vehicle) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingHeader(
-                title: "Captura el kilometraje y fotografía el odómetro",
-                message: "Asegúrate de que ODO y el kilometraje sean legibles."
+                title: "Captura el kilometraje",
+                message: "Fotografía el odómetro"
             )
 
             BigNumberField(
-                title: "Kilometraje leído",
+                title: "Kilometraje",
                 symbol: "gauge.with.dots.needle.bottom.50percent",
                 placeholder: "\(vehicle.odometerKm)",
                 text: $odometerText
@@ -283,7 +275,7 @@ struct StartShiftView: View {
 
             PhotoSlotView(
                 title: odometerPhoto == nil ? "Odómetro de inicio" : "Tomar otra foto",
-                hint: "Primero captura el kilometraje manual.",
+                hint: "Fotografía el odómetro",
                 data: odometerPhoto,
                 validation: odometerStatus,
                 isEnabled: validOdometerManual
@@ -312,19 +304,20 @@ struct StartShiftView: View {
     private func batteryStep(vehicle: Vehicle) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingHeader(
-                title: "Captura la batería y fotografía el tablero",
-                message: "Se requiere más de \(ShiftRules.minBatteryPct)% de carga para salir a operar."
+                title: "Comprobación de carga",
+                message: "Si la carga es insuficiente, se notifica a supervisión."
             )
 
             HStack(spacing: 12) {
                 StatTile(
                     label: "Carga registrada",
-                    value: "\(vehicle.batteryPct)%",
+                    value: "100%",
+                    hint: "Dato en vivo del auto",
                     symbol: "bolt.batteryblock.fill"
                 )
                 StatTile(
                     label: "Mínimo de salida",
-                    value: "\(ShiftRules.minBatteryPct)%",
+                    value: "90%",
                     hint: "Regla de flotilla",
                     tone: .info,
                     symbol: "checkmark.shield.fill"
@@ -332,7 +325,7 @@ struct StartShiftView: View {
             }
 
             BigNumberField(
-                title: "Porcentaje leído",
+                title: "Porcentaje confirmado",
                 symbol: "bolt.fill",
                 placeholder: "\(vehicle.batteryPct)",
                 text: $batteryText
@@ -341,7 +334,7 @@ struct StartShiftView: View {
 
             PhotoSlotView(
                 title: batteryPhoto == nil ? "Tablero de batería" : "Tomar otra foto",
-                hint: "Primero captura el porcentaje manual.",
+                hint: "Fotografía el tablero de batería",
                 data: batteryPhoto,
                 validation: batteryStatus,
                 isEnabled: validBatteryManual

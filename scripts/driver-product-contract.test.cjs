@@ -41,7 +41,9 @@ test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
   const shift = read('ios-turno-ev/TurnoEV/Views/ShiftView.swift');
   assert.match(shift, /assignedUnitCard/);
   assert.doesNotMatch(shift, /Tolerancia de 15 minutos antes de afectar bonos/);
-  assert.ok(shift.indexOf('shift.assignedUnit') < shift.indexOf('shift.hero'));
+  assert.match(shift, /if !phase\.isActive/);
+  assert.match(shift, /\.insert\(/);
+  assert.match(shift, /at: 1/);
   assert.match(shift, /Text\(store\.driver\.station\)/);
   assert.doesNotMatch(shift, /Text\("Empleado/);
   assert.doesNotMatch(shift, /\.toolbar\s*\{/);
@@ -72,7 +74,8 @@ test('driver ODO surface keeps administrative mileage rules out of the UI', () =
   assert.doesNotMatch(start, /Registro de estación/);
   assert.doesNotMatch(start, /Rango aceptado/);
   assert.doesNotMatch(start, /odometerToleranceKm/);
-  assert.match(start, /ODO y el kilometraje sean legibles/);
+  assert.doesNotMatch(start, /ODO y el kilometraje sean legibles/);
+  assert.match(start, /Fotografía el odómetro/);
 });
 
 test('driver evidence UI derives success from analysis state, not photo existence', () => {

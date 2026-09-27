@@ -54,7 +54,7 @@ struct ShiftView: View {
                 }
             }
             .background(phaseTicker)
-            .navigationTitle("Turno")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .sheet(isPresented: $areNoticesPresented) {
@@ -153,13 +153,18 @@ struct ShiftView: View {
             .custom("shift.header", "Identidad del conductor", kind: .card) {
                 driverHeader
             },
-            .custom("shift.assignedUnit", "Unidad asignada", kind: .card, isCritical: true) {
-                assignedUnitCard
-            },
             .custom("shift.hero", "Reloj y acciones del turno", kind: .card, isCritical: true) {
                 shiftHero(phase: phase)
             },
         ]
+        if !phase.isActive {
+            blocks.insert(
+                .custom("shift.assignedUnit", "Unidad asignada", kind: .card, isCritical: true) {
+                    assignedUnitCard
+                },
+                at: 1
+            )
+        }
 
         if phase.isActive, phase.isPastClose {
             blocks.append(
@@ -428,15 +433,6 @@ struct ShiftView: View {
                         .font(.system(.title3, weight: .black))
                 }
                 Spacer(minLength: 8)
-                if isActive {
-                    Text("ACTIVO")
-                        .font(.system(size: 9, weight: .black))
-                        .tracking(1.2)
-                        .foregroundStyle(Palette.volt)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Palette.volt.opacity(0.13), in: .capsule)
-                }
             }
 
             if let shift = store.activeShift {
@@ -460,32 +456,6 @@ struct ShiftView: View {
 
                 // The bar measures a nine-hour block: a minute is the finest step that can
                 // move it visibly.
-                TimeScope(.minute) { now in
-                    ProgressTrack(value: Double(store.elapsedSeconds(at: now)) / 60, goal: 9 * 60)
-                }
-                .padding(.top, 14)
-
-                TimeScope(.minute) { now in
-                    HStack {
-                        Text("Jornada laborada: \(Fmt.stopwatch(store.elapsedSeconds(at: now)))")
-                        Spacer()
-                        Text("Restante: \(Fmt.stopwatch(max(0, Int(phase.closesAt.timeIntervalSince(now)))))")
-                    }
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Palette.textMuted)
-                    .monospacedDigit()
-                }
-                .padding(.top, 6)
-
-                HStack {
-                    Text("8 h efectivas + 1 h comida")
-                    Spacer()
-                    Text(store.driver.slot.rangeLabel)
-                }
-                .font(.system(size: 10))
-                .foregroundStyle(Palette.textMuted)
-                .padding(.top, 6)
-
                 BigButton(title: "Finalizar turno", symbol: "checkmark.seal.fill", tone: .outline) {
                     route = .finish
                 }
@@ -568,10 +538,6 @@ struct ShiftView: View {
                 route = .documents
             }
 
-            Text("Kilómetros, batería, viajes e ingresos del turno se siguen en Metas. Puedes iniciar y finalizar varias veces dentro de tu jornada.")
-                .font(.system(size: 10))
-                .foregroundStyle(Palette.textMuted)
-                .multilineTextAlignment(.center)
         }
     }
 
