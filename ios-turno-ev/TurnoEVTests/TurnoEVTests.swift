@@ -19,6 +19,20 @@ struct DORIBrandTests {
 }
 
 struct DashboardReadingValidatorTests {
+    @Test func onlyMatchedIsAcceptedAsValidationEvidence() {
+        #expect(!DashboardReadingStatus.pending.isMatched(manual: "12438"))
+        #expect(!DashboardReadingStatus.unreadable.isMatched(manual: "12438"))
+        #expect(!DashboardReadingStatus.mismatch(manual: 12_438, detected: 12_439).isMatched(manual: "12438"))
+        #expect(DashboardReadingStatus.matched(12_438).isMatched(manual: "12438"))
+    }
+
+    @Test func newEvidenceStartsPendingAndCannotReusePriorMatch() {
+        let previous = DashboardReadingStatus.matched(12_438)
+        let newEvidence = DashboardReadingStatus.pending
+        #expect(previous.isMatched(manual: "12438"))
+        #expect(!newEvidence.isMatched(manual: "12438"))
+    }
+
     @Test func odoRequiresTheODOAndKMAnchors() {
         #expect(DashboardReadingValidator.extractODO(from: ["ODO 012438 Km"]) == 12_438)
         #expect(DashboardReadingValidator.extractODO(from: ["ODO012438Km"]) == 12_438)

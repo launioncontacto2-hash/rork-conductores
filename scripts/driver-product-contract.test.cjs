@@ -62,3 +62,14 @@ test('driver ODO surface keeps administrative mileage rules out of the UI', () =
   assert.doesNotMatch(start, /odometerToleranceKm/);
   assert.match(start, /ODO y el kilometraje sean legibles/);
 });
+
+test('driver evidence UI derives success from analysis state, not photo existence', () => {
+  const start = read('ios-turno-ev/TurnoEV/Views/StartShiftView.swift');
+  const capture = read('ios-turno-ev/TurnoEV/Views/CaptureViews.swift');
+  assert.match(start, /validation: odometerStatus/);
+  assert.match(start, /validation: batteryStatus/);
+  assert.match(start, /isEnabled: validOdometerManual/);
+  assert.match(start, /isEnabled: validBatteryManual/);
+  assert.match(capture, /validation\?\.symbol/);
+  assert.doesNotMatch(capture, /Image\(systemName: "checkmark"\)/);
+});

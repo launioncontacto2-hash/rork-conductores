@@ -29,6 +29,15 @@ continúa en `FleetStore`; este cambio no modifica autenticación, RLS ni backen
 
 ## Lecturas del tablero
 
+El flujo exige primero introducir el valor manual y sólo después habilita la
+captura de fotografía. Capturar una foto no equivale a validar la evidencia:
+la máquina única de estados inicia en `pending`, permanece sin éxito mientras
+Vision analiza y sólo muestra verde/check y habilita `Validar kilometraje` en
+`matched`. `mismatch` y `unreadable` se muestran en rojo, bloquean la
+validación y ofrecen `Tomar otra foto`; una nueva foto invalida la evidencia
+anterior. Editar el valor manual después de `matched` también invalida el
+estado.
+
 El kilometraje usa Vision en el dispositivo. Sólo una línea anclada por `ODO`,
 un número y `KM` es válida; `TRIP`, números sueltos y fotos borrosas producen
 `unreadable`. La comparación visible entre el valor manual y la fotografía es
@@ -44,7 +53,7 @@ La batería usa un porcentaje `NN%` de 0 a 100 localizado en la región esperada
 del indicador. La barra de cinco segmentos sólo confirma contexto y nunca se
 convierte en un porcentaje estimado. La comparación también es exacta.
 
-Los estados son `matched`, `mismatch` y `unreadable`. Cambiar el valor manual
+Los estados son `pending`, `matched`, `mismatch` y `unreadable`. Cambiar el valor manual
 después de una coincidencia invalida la lectura y exige volver a cotejarla. Las
 fotos originales ya se entregan al repositorio de evidencia de inicio de turno;
 no se crea un almacenamiento paralelo.

@@ -269,17 +269,9 @@ struct StartShiftView: View {
     private func odometerStep(vehicle: Vehicle) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingHeader(
-                title: "Fotografía y captura el odómetro",
+                title: "Captura el kilometraje y fotografía el odómetro",
                 message: "Asegúrate de que ODO y el kilometraje sean legibles."
             )
-
-            PhotoSlotView(
-                title: "Odómetro de inicio",
-                hint: "Asegúrate de que ODO y el kilometraje sean legibles.",
-                data: odometerPhoto
-            ) { data in
-                captureOdometer(data)
-            }
 
             BigNumberField(
                 title: "Kilometraje leído",
@@ -288,6 +280,16 @@ struct StartShiftView: View {
                 text: $odometerText
             )
             .onChange(of: odometerText) { _, _ in reconcileOdometer() }
+
+            PhotoSlotView(
+                title: odometerPhoto == nil ? "Odómetro de inicio" : "Tomar otra foto",
+                hint: "Primero captura el kilometraje manual.",
+                data: odometerPhoto,
+                validation: odometerStatus,
+                isEnabled: validOdometerManual
+            ) { data in
+                captureOdometer(data)
+            }
 
             dashboardStatus(odometerStatus, kind: "ODO")
 
@@ -310,7 +312,7 @@ struct StartShiftView: View {
     private func batteryStep(vehicle: Vehicle) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingHeader(
-                title: "Fotografía y captura la batería",
+                title: "Captura la batería y fotografía el tablero",
                 message: "Se requiere más de \(ShiftRules.minBatteryPct)% de carga para salir a operar."
             )
 
@@ -329,14 +331,6 @@ struct StartShiftView: View {
                 )
             }
 
-            PhotoSlotView(
-                title: "Tablero de batería",
-                hint: "Asegúrate de que el porcentaje de batería sea visible.",
-                data: batteryPhoto
-            ) { data in
-                captureBattery(data)
-            }
-
             BigNumberField(
                 title: "Porcentaje leído",
                 symbol: "bolt.fill",
@@ -344,6 +338,16 @@ struct StartShiftView: View {
                 text: $batteryText
             )
             .onChange(of: batteryText) { _, _ in reconcileBattery() }
+
+            PhotoSlotView(
+                title: batteryPhoto == nil ? "Tablero de batería" : "Tomar otra foto",
+                hint: "Primero captura el porcentaje manual.",
+                data: batteryPhoto,
+                validation: batteryStatus,
+                isEnabled: validBatteryManual
+            ) { data in
+                captureBattery(data)
+            }
 
             dashboardStatus(batteryStatus, kind: "Batería")
 
@@ -425,6 +429,16 @@ struct StartShiftView: View {
     }
 
     // MARK: - Actions
+
+    private var validOdometerManual: Bool {
+        let trimmed = odometerText.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed.allSatisfy(\.isNumber) && Int(trimmed).map { $0 > 0 } == true
+    }
+
+    private var validBatteryManual: Bool {
+        let trimmed = batteryText.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed.allSatisfy(\.isNumber) && Int(trimmed).map { (0...100).contains($0) } == true
+    }
 
     private func captureOdometer(_ data: Data) {
         odometerPhoto = data
@@ -514,7 +528,7 @@ struct StartShiftView: View {
                 ? "No pudimos identificar el kilometraje ODO. Toma nuevamente la fotografía procurando que el tablero esté completamente visible y enfocado."
                 : "No pudimos identificar con suficiente claridad el porcentaje de batería. Toma nuevamente la fotografía procurando que el indicador de batería y el porcentaje estén visibles.")
                 .font(.footnote)
-                .foregroundStyle(Palette.amber)
+                .foregroundStyle(Palette.danger)
         }
     }
 

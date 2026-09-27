@@ -72,6 +72,8 @@ struct PhotoSlotView: View {
     let title: String
     var hint: String?
     let data: Data?
+    var validation: DashboardReadingStatus?
+    var isEnabled: Bool = true
     let onCapture: (Data) -> Void
 
     @State private var isPickerPresented: Bool = false
@@ -91,11 +93,11 @@ struct PhotoSlotView: View {
                                 .allowsHitTesting(false)
                         }
                     VStack(spacing: 6) {
-                        Image(systemName: "checkmark")
+                        Image(systemName: validation?.symbol ?? "photo")
                             .font(.system(.headline, weight: .black))
-                            .foregroundStyle(Palette.canvas)
+                            .foregroundStyle(validation?.tone ?? Palette.textMuted)
                             .frame(width: 34, height: 34)
-                            .background(Palette.volt, in: .circle)
+                            .background((validation?.tone ?? Palette.textMuted).opacity(0.18), in: .circle)
                         Text(title)
                             .font(.system(.caption2, weight: .bold))
                             .padding(.horizontal, 8)
@@ -133,9 +135,29 @@ struct PhotoSlotView: View {
             }
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.55)
         .fullScreenCover(isPresented: $isPickerPresented) {
             EvidencePicker(onCapture: onCapture)
                 .ignoresSafeArea()
+        }
+    }
+}
+
+private extension DashboardReadingStatus {
+    var symbol: String {
+        switch self {
+        case .pending: "hourglass"
+        case .matched: "checkmark"
+        case .mismatch, .unreadable: "xmark"
+        }
+    }
+
+    var tone: Color {
+        switch self {
+        case .pending: Palette.amber
+        case .matched: Palette.volt
+        case .mismatch, .unreadable: Palette.danger
         }
     }
 }
