@@ -408,18 +408,22 @@ struct ShiftView: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    CapsLabel(text: isActive ? "Turno en curso" : "Turno")
+                    if isActive {
+                        CapsLabel(text: "Turno en curso")
+                    }
                     Text("\(store.driver.slot.label) · \(store.driver.group.label)")
                         .font(.system(.title3, weight: .black))
                 }
                 Spacer(minLength: 8)
-                Text(isActive ? "ACTIVO" : canStart ? "PROGRAMADO" : "FUERA DE HORARIO")
-                    .font(.system(size: 9, weight: .black))
-                    .tracking(1.2)
-                    .foregroundStyle(isActive ? Palette.volt : canStart ? Palette.info : Palette.textMuted)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background((isActive ? Palette.volt : canStart ? Palette.info : Color.white).opacity(0.13), in: .capsule)
+                if isActive {
+                    Text("ACTIVO")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(1.2)
+                        .foregroundStyle(Palette.volt)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Palette.volt.opacity(0.13), in: .capsule)
+                }
             }
 
             if let shift = store.activeShift {
