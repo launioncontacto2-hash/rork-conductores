@@ -7,7 +7,12 @@ struct FinishShiftView: View {
 
     @State private var odometer: String = ""
     @State private var battery: String = ""
-    @State private var photo: Data?
+    @State private var odometerPhoto: Data?
+    @State private var batteryPhoto: Data?
+    @State private var detectedOdometer: Int?
+    @State private var detectedBattery: Int?
+    @State private var odometerStatus: DashboardReadingStatus = .pending
+    @State private var batteryStatus: DashboardReadingStatus = .pending
     @State private var confirmDelivery: Bool = false
     @State private var summary: ShiftSummary?
     @State private var errorMessage: String?
@@ -43,6 +48,7 @@ struct FinishShiftView: View {
                                     placeholder: "\(suggestedOdometer(shift: shift))",
                                     text: $odometer
                                 )
+                                .onChange(of: odometer) { _, _ in reconcileOdometer() }
                                 Button {
                                     odometer = "\(suggestedOdometer(shift: shift))"
                                 } label: {
@@ -62,13 +68,47 @@ struct FinishShiftView: View {
                                 placeholder: "28",
                                 text: $battery
                             )
+                            .onChange(of: battery) { _, _ in reconcileBattery() }
 
-                            VStack(alignment: .leading, spacing: 8) {
-                                CapsLabel(text: "Fotografía final del odómetro")
-                                PhotoSlotView(title: "Odómetro final", hint: "Lectura legible", data: photo) { data in
-                                    photo = data
+                            PhotoSlotView(
+                                title: odometerPhoto == nil ? "Fotografía final del ODO" : "Tomar otra foto",
+                                hint: "Primero captura el kilometraje manual.",
+                                data: odometerPhoto,
+                                validation: odometerStatus,
+                                isEnabled: validOdometerManual
+                            ) { data in
+                                odometerPhoto = data
+                                detectedOdometer = nil
+                                odometerStatus = .pending
+                                Task {
+                                    let detected = await DashboardReadingValidator.readOdometer(from: data)
+                                    await MainActor.run {
+                                        detectedOdometer = detected
+                                        reconcileOdometer()
+                                    }
                                 }
                             }
+                            dashboardStatus(odometerStatus, kind: "ODO")
+
+                            PhotoSlotView(
+                                title: batteryPhoto == nil ? "Fotografía final de batería" : "Tomar otra foto",
+                                hint: "Primero captura el porcentaje manual.",
+                                data: batteryPhoto,
+                                validation: batteryStatus,
+                                isEnabled: validBatteryManual
+                            ) { data in
+                                batteryPhoto = data
+                                detectedBattery = nil
+                                batteryStatus = .pending
+                                Task {
+                                    let detected = await DashboardReadingValidator.readBattery(from: data)
+                                    await MainActor.run {
+                                        detectedBattery = detected
+                                        reconcileBattery()
+                                    }
+                                }
+                            }
+                            dashboardStatus(batteryStatus, kind: "batería")
 
                             deliveryToggle(vehicle: vehicle)
 
@@ -81,7 +121,9 @@ struct FinishShiftView: View {
                             BigButton(
                                 title: isFinishing ? "Cerrando…" : "Cerrar turno",
                                 symbol: isFinishing ? "hourglass" : "checkmark.seal.fill",
-                                isEnabled: !isFinishing
+                                isEnabled: !isFinishing && confirmDelivery
+                                    && odometerStatus.isMatched(manual: odometer)
+                                    && batteryStatus.isMatched(manual: battery)
                             ) {
                                 close(shift: shift)
                             }
@@ -142,13 +184,63 @@ struct FinishShiftView: View {
         .buttonStyle(.plain)
     }
 
+    private var validOdometerManual: Bool {
+        let value = odometer.trimmingCharacters(in: .whitespaces)
+        return !value.isEmpty && value.allSatisfy(\.isNumber) && Int(value).map { $0 >= 0 } == true
+    }
+
+    private var validBatteryManual: Bool {
+        let value = battery.trimmingCharacters(in: .whitespaces)
+        return !value.isEmpty && value.allSatisfy(\.isNumber) && Int(value).map { (0...100).contains($0) } == true
+    }
+
+    private func reconcileOdometer() {
+        guard odometerPhoto != nil else { odometerStatus = .pending; return }
+        guard let detectedOdometer, let manual = Int(odometer.trimmingCharacters(in: .whitespaces)) else {
+            odometerStatus = .unreadable
+            return
+        }
+        odometerStatus = manual == detectedOdometer
+            ? .matched(detectedOdometer)
+            : .mismatch(manual: manual, detected: detectedOdometer)
+    }
+
+    private func reconcileBattery() {
+        guard batteryPhoto != nil else { batteryStatus = .pending; return }
+        guard let detectedBattery, let manual = Int(battery.trimmingCharacters(in: .whitespaces)) else {
+            batteryStatus = .unreadable
+            return
+        }
+        batteryStatus = manual == detectedBattery
+            ? .matched(detectedBattery)
+            : .mismatch(manual: manual, detected: detectedBattery)
+    }
+
+    @ViewBuilder
+    private func dashboardStatus(_ status: DashboardReadingStatus, kind: String) -> some View {
+        switch status {
+        case .pending:
+            Text("Toma la fotografía para analizar \(kind).")
+                .font(.caption).foregroundStyle(Palette.amber)
+        case .matched(let value):
+            Text("\(kind) detectado: \(kind == "batería" ? "\(value)%" : Fmt.km(value)) · Coincide con la lectura ingresada.")
+                .font(.caption).foregroundStyle(Palette.volt)
+        case .mismatch(let manual, let detected):
+            Text("La lectura no coincide. Ingresado: \(kind == "batería" ? "\(manual)%" : Fmt.km(manual)) · Detectado: \(kind == "batería" ? "\(detected)%" : Fmt.km(detected)). Toma otra foto.")
+                .font(.caption).foregroundStyle(Palette.danger)
+        case .unreadable:
+            Text("No pudimos identificar \(kind). Toma nuevamente la fotografía con el dato visible.")
+                .font(.caption).foregroundStyle(Palette.danger)
+        }
+    }
+
     private func close(shift: ActiveShift) {
         guard let odometerValue = Int(odometer), odometerValue >= shift.startOdometerKm else {
             errorMessage = "El kilometraje final debe ser mayor o igual a \(Fmt.km(shift.startOdometerKm))."
             return
         }
-        guard photo != nil else {
-            errorMessage = "Falta la fotografía final del odómetro."
+        guard odometerStatus.isMatched(manual: odometer), batteryStatus.isMatched(manual: battery) else {
+            errorMessage = "Valida ODO y batería con una coincidencia exacta antes de cerrar el turno."
             return
         }
         guard let batteryValue = Int(battery), batteryValue >= 0, batteryValue <= 100 else {
@@ -167,7 +259,7 @@ struct FinishShiftView: View {
                 summary = try await store.finishAvailableShift(
                     endOdometerKm: odometerValue,
                     endBatteryPct: batteryValue,
-                    photo: photo,
+                    photo: odometerPhoto,
                     idempotencyKey: idempotencyKey
                 )
             } catch {

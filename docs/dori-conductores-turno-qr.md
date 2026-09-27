@@ -2,18 +2,16 @@
 
 ## Criterio visual
 
-La pantalla `Turno` muestra la identidad del conductor, los avisos junto a la
-fotografía y una tarjeta de unidad asignada inmediatamente debajo de la tarjeta
-principal del turno. La tarjeta usa únicamente los datos autoritativos de la
-asignación vigente: modelo e identificador interno DORI. Si no existe una
-asignación, muestra `Sin unidad asignada`.
+La pantalla `Turno` muestra la identidad del conductor y coloca primero la
+tarjeta de unidad asignada, seguida de la tarjeta de inicio/estado del turno.
+La tarjeta resume modelo, código operativo, placas, ODO y batería actuales; VIN
+y color se muestran como `No registrado` mientras el contrato de flota no los
+exponga. Si no existe una asignación, muestra `Sin unidad asignada`.
 
 En esta pantalla no se muestra el círculo de iniciales de cuenta ni el acceso
 visual de Copiloto. El reloj de TEST permanece en la franja amarilla global.
-La tarjeta principal conserva el horario operativo y muestra la tolerancia:
-`Tolerancia de 15 minutos antes de afectar bonos`. La tolerancia de bonos no es
-el kilometraje administrativo y no se muestran reglas internas de kilometraje al
-conductor.
+La tarjeta principal conserva el horario operativo sin exponer tolerancias
+internas ni reglas de bonos.
 
 ## Contrato QR
 
@@ -57,3 +55,20 @@ Los estados son `pending`, `matched`, `mismatch` y `unreadable`. Cambiar el valo
 después de una coincidencia invalida la lectura y exige volver a cotejarla. Las
 fotos originales ya se entregan al repositorio de evidencia de inicio de turno;
 no se crea un almacenamiento paralelo.
+
+## Cierre de turno
+
+El cierre usa la misma máquina de evidencia que el inicio: primero se captura
+manualmente ODO y batería, luego se habilita cada fotografía, y sólo las dos
+lecturas en estado `matched` permiten cerrar. `mismatch`, `unreadable`, edición
+manual y una nueva foto invalidan la evidencia y mantienen el cierre bloqueado.
+El contrato remoto actual conserva la foto ODO en el cierre; la foto de batería
+queda en la sesión de validación hasta que el contrato remoto la exponga.
+
+## Puente de datos de unidad
+
+Conductores consume la asignación y los datos dinámicos (`odometer_km`,
+`battery_pct`, placa y modelo) desde el contrato de flota de Supabase. El código
+operativo se presenta como `DMP-XXX` para la unidad visible y no sustituye al
+identificador interno de compatibilidad. VIN y color no se inventan: requieren
+que Adquisiciones/Flota los publique en el contrato compartido.

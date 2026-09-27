@@ -82,6 +82,15 @@ nonisolated struct Vehicle: Codable, Identifiable, Hashable, Sendable {
     var status: VehicleStatus
     var occupiedBy: String?
     let photoAsset: String
+
+    var modelDisplay: String { model == "Dolphin Mini" ? "Dolphin Mini P." : model }
+    var operationalCode: String {
+        if internalNumber.uppercased().hasPrefix("DMP-") { return internalNumber.uppercased() }
+        let digits = internalNumber.filter(\.isNumber)
+        return digits.isEmpty ? internalNumber : "DMP-\(String(format: "%03d", Int(digits) ?? 0))"
+    }
+    var vinSuffix: String { "No registrado" }
+    var colorDisplay: String { "Color no registrado" }
 }
 
 nonisolated enum InspectionSlot: String, Codable, CaseIterable, Sendable {

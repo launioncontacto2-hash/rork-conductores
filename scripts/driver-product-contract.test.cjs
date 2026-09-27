@@ -40,7 +40,10 @@ test('driver evidence and recovery surfaces remain part of the conductor contrac
 test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
   const shift = read('ios-turno-ev/TurnoEV/Views/ShiftView.swift');
   assert.match(shift, /assignedUnitCard/);
-  assert.match(shift, /Tolerancia de 15 minutos antes de afectar bonos/);
+  assert.doesNotMatch(shift, /Tolerancia de 15 minutos antes de afectar bonos/);
+  assert.ok(shift.indexOf('shift.assignedUnit') < shift.indexOf('shift.hero'));
+  assert.match(shift, /Text\(store\.driver\.station\)/);
+  assert.doesNotMatch(shift, /Text\("Empleado/);
   assert.doesNotMatch(shift, /\.toolbar\s*\{/);
 
   const start = read('ios-turno-ev/TurnoEV/Views/StartShiftView.swift');
@@ -50,6 +53,15 @@ test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
 
   const lab = read('ios-turno-ev/TurnoEV/Views/Lab/LabWorldViews.swift');
   assert.match(lab, /LabQrCode\(text: vehicle\.internalNumber\)/);
+});
+
+test('driver finish keeps both dashboard readings in the validated state machine', () => {
+  const finish = read('ios-turno-ev/TurnoEV/Views/FinishShiftView.swift');
+  assert.match(finish, /DashboardReadingStatus/);
+  assert.match(finish, /odometerStatus\.isMatched/);
+  assert.match(finish, /batteryStatus\.isMatched/);
+  assert.match(finish, /detectedBattery/);
+  assert.doesNotMatch(finish, /isEnabled: photo != nil/);
 });
 
 test('driver ODO surface keeps administrative mileage rules out of the UI', () => {

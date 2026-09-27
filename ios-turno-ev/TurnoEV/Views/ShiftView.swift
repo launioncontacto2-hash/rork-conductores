@@ -153,11 +153,11 @@ struct ShiftView: View {
             .custom("shift.header", "Identidad del conductor", kind: .card) {
                 driverHeader
             },
-            .custom("shift.hero", "Reloj y acciones del turno", kind: .card, isCritical: true) {
-                shiftHero(phase: phase)
-            },
             .custom("shift.assignedUnit", "Unidad asignada", kind: .card, isCritical: true) {
                 assignedUnitCard
+            },
+            .custom("shift.hero", "Reloj y acciones del turno", kind: .card, isCritical: true) {
+                shiftHero(phase: phase)
             },
         ]
 
@@ -325,7 +325,7 @@ struct ShiftView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "mappin.and.ellipse")
                         .font(.system(size: 10))
-                    Text("\(store.driver.station) · \(store.driver.employeeNumber)")
+                    Text(store.driver.station)
                         .lineLimit(1)
                 }
                 .font(.caption2)
@@ -358,11 +358,16 @@ struct ShiftView: View {
                     .frame(width: 76, height: 54)
                     .clipShape(.rect(cornerRadius: 12))
                     .overlay { RoundedRectangle(cornerRadius: 12).stroke(Palette.volt.opacity(0.45), lineWidth: 1) }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(vehicle.model)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(vehicle.modelDisplay)
                         .font(.system(.headline, weight: .black))
-                    Text(vehicle.internalNumber)
-                        .font(.system(.subheadline, weight: .bold))
+                    unitFact("Código", vehicle.operationalCode)
+                    unitFact("Placas", vehicle.plates)
+                    unitFact("ODO", Fmt.km(vehicle.odometerKm))
+                    unitFact("Batería", "\(vehicle.batteryPct)%")
+                    unitFact("VIN", vehicle.vinSuffix)
+                    Text(vehicle.colorDisplay)
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Palette.textMuted)
                 }
             } else {
@@ -374,6 +379,14 @@ struct ShiftView: View {
         }
         .padding(14)
         .panel()
+    }
+
+    private func unitFact(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 5) {
+            Text("\(label):").foregroundStyle(Palette.textMuted)
+            Text(value).foregroundStyle(Color.primary)
+        }
+        .font(.system(size: 11, weight: .semibold))
     }
 
     /// Late time owed this week. The figure moves with the week, so it is read at minute
@@ -482,11 +495,6 @@ struct ShiftView: View {
                     .font(.system(size: 34, weight: .black))
                     .monospacedDigit()
                     .padding(.top, 16)
-
-                Text("Tolerancia de 15 minutos antes de afectar bonos")
-                    .font(.footnote)
-                    .foregroundStyle(Palette.textMuted)
-                    .padding(.top, 6)
 
                 BigButton(
                     title: "Iniciar turno",
