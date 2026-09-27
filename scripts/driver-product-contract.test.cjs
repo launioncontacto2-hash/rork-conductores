@@ -51,3 +51,14 @@ test('driver turn keeps the assigned-unit and QR contracts explicit', () => {
   const lab = read('ios-turno-ev/TurnoEV/Views/Lab/LabWorldViews.swift');
   assert.match(lab, /LabQrCode\(text: vehicle\.internalNumber\)/);
 });
+
+test('driver ODO surface keeps administrative mileage rules out of the UI', () => {
+  const start = read('ios-turno-ev/TurnoEV/Views/StartShiftView.swift');
+  const policy = read('ios-turno-ev/TurnoEV/Models/OdometerAdministrationPolicy.swift');
+  assert.match(policy, /masterToleranceKm/);
+  assert.match(policy, /static let `default` = Self\(masterToleranceKm: 5\)/);
+  assert.doesNotMatch(start, /Registro de estación/);
+  assert.doesNotMatch(start, /Rango aceptado/);
+  assert.doesNotMatch(start, /odometerToleranceKm/);
+  assert.match(start, /ODO y el kilometraje sean legibles/);
+});

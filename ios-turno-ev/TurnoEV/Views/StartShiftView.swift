@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 /// Start of shift in three blocking steps: unit sticker against the assigned unit,
-/// odometer scan with a 5 km tolerance and battery scan against the fleet minimum.
+/// exact manual-versus-photo ODO and battery scan against the fleet minimum. The
+/// administrative station-record comparison is intentionally not exposed here.
 /// Any failed step stops the flow and offers to report it to the supervisor.
 struct StartShiftView: View {
     @Environment(FleetStore.self) private var store
@@ -269,23 +270,8 @@ struct StartShiftView: View {
         VStack(alignment: .leading, spacing: 16) {
             ReadingHeader(
                 title: "Fotografía y captura el odómetro",
-                message: "Tolerancia de \(ShiftRules.odometerToleranceKm) km contra el registro de la estación."
+                message: "Asegúrate de que ODO y el kilometraje sean legibles."
             )
-
-            HStack(spacing: 12) {
-                StatTile(
-                    label: "Registro de estación",
-                    value: Fmt.km(vehicle.odometerKm),
-                    symbol: "gauge.with.dots.needle.bottom.50percent"
-                )
-                StatTile(
-                    label: "Rango aceptado",
-                    value: "±\(ShiftRules.odometerToleranceKm) km",
-                    hint: "\(Fmt.km(vehicle.odometerKm - ShiftRules.odometerToleranceKm)) — \(Fmt.km(vehicle.odometerKm + ShiftRules.odometerToleranceKm))",
-                    tone: .info,
-                    symbol: "arrow.left.and.right"
-                )
-            }
 
             PhotoSlotView(
                 title: "Odómetro de inicio",

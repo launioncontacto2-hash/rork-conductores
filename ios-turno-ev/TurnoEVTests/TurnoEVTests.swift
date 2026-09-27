@@ -45,6 +45,39 @@ struct DashboardReadingValidatorTests {
     }
 }
 
+struct OdometerAdministrationPolicyTests {
+    private let vehicle = Vehicle(
+        id: "vehicle-test",
+        qrCode: "DMP-003",
+        internalNumber: "DMP-003",
+        model: "BYD Dolphin Mini",
+        plates: "",
+        odometerKm: 12_435,
+        batteryPct: 83,
+        stationId: "pue-test",
+        station: "Puebla TEST",
+        status: .available,
+        occupiedBy: nil,
+        photoAsset: "byd_dolphin_mini_white"
+    )
+
+    @Test func defaultAdministrativeToleranceAcceptsFiveKmOrLess() {
+        #expect(ShiftRules.validateOdometer(vehicle: vehicle, reading: 12_438) == nil)
+        #expect(ShiftRules.validateOdometer(vehicle: vehicle, reading: 12_440) == nil)
+        #expect(ShiftRules.validateOdometer(vehicle: vehicle, reading: 12_441) != nil)
+    }
+
+    @Test func administrativeToleranceIsConfigurableWithoutChangingDriverExactMatch() {
+        let policy = OdometerAdministrationPolicy(masterToleranceKm: 10)
+        #expect(ShiftRules.validateOdometer(vehicle: vehicle, reading: 12_444, policy: policy) == nil)
+        #expect(ShiftRules.validateOdometer(vehicle: vehicle, reading: 12_446, policy: policy) != nil)
+
+        let exact = DashboardReadingStatus.matched(12_438)
+        #expect(exact.isMatched(manual: "12438"))
+        #expect(!exact.isMatched(manual: "12439"))
+    }
+}
+
 /// Canonical conductor-surface invariants. These are intentionally model-level tests:
 /// they prove the prototype exposes the four independent bonus tracks and the five
 /// read-only driver/unit documents without coupling the test target to SwiftUI layout.

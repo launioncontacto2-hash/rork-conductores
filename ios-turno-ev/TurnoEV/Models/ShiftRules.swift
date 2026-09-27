@@ -9,8 +9,9 @@ nonisolated enum ShiftRules {
     static let minBatteryPct = 70
     /// The unit may be scanned this early before the scheduled start.
     static let earlyAssignmentMinutes = 30
-    /// Difference accepted between the captured odometer and the registered one.
-    static let odometerToleranceKm = 5
+    /// Administrative default for the photographed ODO versus the station record.
+    /// Driver-facing manual-versus-photo validation remains exact and has no tolerance.
+    static let odometerAdministrationPolicy = OdometerAdministrationPolicy.default
 
     static var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -298,13 +299,19 @@ nonisolated enum ShiftRules {
         return issues
     }
 
-    /// Step 2: the photographed odometer against the registered one, ±5 km.
-    static func validateOdometer(vehicle: Vehicle, reading: Int) -> AssignmentIssue? {
+    /// Administrative layer: compare the already-validated ODO against the station
+    /// record. The policy is injected so Administration can change it later without
+    /// changing the driver's exact manual-versus-photo contract.
+    static func validateOdometer(
+        vehicle: Vehicle,
+        reading: Int,
+        policy: OdometerAdministrationPolicy = odometerAdministrationPolicy
+    ) -> AssignmentIssue? {
         let drift = abs(reading - vehicle.odometerKm)
-        guard drift > odometerToleranceKm else { return nil }
+        guard drift > policy.masterToleranceKm else { return nil }
         return AssignmentIssue(
             code: .odometerMismatch,
-            message: "Diferencia de \(Fmt.km(drift)) contra el registro de \(Fmt.km(vehicle.odometerKm)). La tolerancia es de \(odometerToleranceKm) km, notificar a supervisor"
+            message: "Diferencia de \(Fmt.km(drift)) contra el registro de \(Fmt.km(vehicle.odometerKm)). Notificar a supervisor"
         )
     }
 

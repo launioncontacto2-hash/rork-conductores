@@ -11,7 +11,9 @@ asignación, muestra `Sin unidad asignada`.
 En esta pantalla no se muestra el círculo de iniciales de cuenta ni el acceso
 visual de Copiloto. El reloj de TEST permanece en la franja amarilla global.
 La tarjeta principal conserva el horario operativo y muestra la tolerancia:
-`Tolerancia de 15 minutos antes de afectar bonos`.
+`Tolerancia de 15 minutos antes de afectar bonos`. La tolerancia de bonos no es
+el kilometraje administrativo y no se muestran reglas internas de kilometraje al
+conductor.
 
 ## Contrato QR
 
@@ -29,7 +31,14 @@ continúa en `FleetStore`; este cambio no modifica autenticación, RLS ni backen
 
 El kilometraje usa Vision en el dispositivo. Sólo una línea anclada por `ODO`,
 un número y `KM` es válida; `TRIP`, números sueltos y fotos borrosas producen
-`unreadable`. La comparación contra el valor manual es exacta, sin tolerancia.
+`unreadable`. La comparación visible entre el valor manual y la fotografía es
+exacta, sin tolerancia: 12,438 contra 12,439 es `mismatch`.
+
+Después de esa coincidencia exacta, la operación compara internamente el ODO
+validado contra el kilometraje maestro de la unidad. La tolerancia administrativa
+inicial es de 5 km mediante `OdometerAdministrationPolicy.default`; es una
+configuración desacoplada, invisible al conductor y preparada para ser inyectada
+por Administración. No altera la comparación manual-foto ni se duplica en la UI.
 
 La batería usa un porcentaje `NN%` de 0 a 100 localizado en la región esperada
 del indicador. La barra de cinco segmentos sólo confirma contexto y nunca se
