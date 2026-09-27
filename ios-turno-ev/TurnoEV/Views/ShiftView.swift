@@ -438,7 +438,7 @@ struct ShiftView: View {
                         Text(Fmt.clock(shift.startedAt))
                             .font(.system(.title2, weight: .bold))
                             .monospacedDigit()
-                        Text("Programado \(Fmt.clock(shift.scheduledStartAt))")
+                        Text("Inicio previsto \(Fmt.clock(shift.scheduledStartAt))")
                             .font(.system(size: 10))
                             .foregroundStyle(Palette.textMuted)
                     }
