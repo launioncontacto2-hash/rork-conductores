@@ -9,8 +9,6 @@ import SwiftUI
 struct GoalsView: View {
     @Environment(FleetStore.self) private var store
 
-    @State private var isIncomePresented: Bool = false
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -50,16 +48,7 @@ struct GoalsView: View {
             .navigationTitle("Metas")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    SessionMenuButton()
-                }
-            }
-            .fullScreenCover(isPresented: $isIncomePresented) {
-                if store.usesBackendFinancialCycle {
-                    BackendDriverFinanceView(presentsCloseButton: true)
-                } else {
-                    IncomeView()
-                }
+                ToolbarItem(placement: .topBarTrailing) { SessionMenuButton() }
             }
         }
         .editorScreen(.driverGoals)
@@ -88,12 +77,6 @@ struct GoalsView: View {
             .custom("goals.ring", "Meta del día", kind: .progress) {
                 dailyRing(earnedToday: earnedToday, goals: goals, missingToday: missingToday)
             },
-            .custom("goals.telemetry", "Recorrido y batería del turno", kind: .kpi) {
-                shiftTelemetrySection(reference: reference)
-            },
-            .custom("goals.hours", "Mejores horas", kind: .chart) {
-                bestHoursSection
-            },
             .chart(
                 "goals.weekly",
                 "Avance semanal",
@@ -109,8 +92,11 @@ struct GoalsView: View {
             .custom("goals.trips", "Viajes de hoy", kind: .progress) {
                 tripsSection(tripsToday: tripsToday, missingTrips: missingTrips, goals: goals)
             },
-            .custom("goals.late", "Atrasos de la semana", kind: .notice) {
-                lateSection(reference: reference)
+            .custom("goals.hours", "Mejores horas", kind: .chart) {
+                bestHoursSection
+            },
+            .custom("goals.telemetry", "Recorrido y batería del turno", kind: .kpi) {
+                shiftTelemetrySection(reference: reference)
             },
         ]
     }
@@ -180,21 +166,16 @@ struct GoalsView: View {
         missingToday: Int
     ) -> some View {
         VStack(spacing: 14) {
-            RingGauge(
-                value: Double(earnedToday),
-                goal: Double(goals.dailyMxn),
-                headline: Fmt.mxn(earnedToday),
-                caption: "de \(Fmt.mxn(goals.dailyMxn)) hoy"
-            )
-
-            Label(
-                missingToday == 0
-                    ? "Meta del día cumplida"
-                    : "Faltan \(Fmt.mxn(missingToday)) para la meta del día",
-                systemImage: missingToday == 0 ? "checkmark.seal.fill" : "chart.line.uptrend.xyaxis"
-            )
-            .font(.system(.subheadline, weight: .bold))
-            .foregroundStyle(missingToday == 0 ? Palette.volt : Palette.amber)
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Meta del día").font(.system(size: 24, weight: .bold))
+                    Text(Fmt.mxn(goals.dailyMxn)).font(.system(size: 30, weight: .black, design: .rounded))
+                    Text("Objetivo económico de hoy").font(.caption).foregroundStyle(Palette.textMuted)
+                }
+                Spacer()
+                RingGauge(value: Double(earnedToday), goal: Double(goals.dailyMxn), headline: Fmt.mxn(earnedToday), caption: "\(Int((Double(earnedToday) / Double(max(1, goals.dailyMxn)) * 100).rounded()))%")
+                    .frame(width: 116, height: 116)
+            }
 
             // The running target climbs with the shift: `hourlyMxn / 60` pesos every
             // logical minute. It is one of the two genuinely temporal figures on the
@@ -243,8 +224,13 @@ struct GoalsView: View {
         /// Distance already closed and filed today. Moves on store events only.
         let closedKmToday = todayRecords.reduce(0) { $0 + $1.kmDriven }
 
-        let startBattery = active?.startBatteryPct ?? closedToday?.startBatteryPct
-        let endBattery = active == nil ? closedToday?.endBatteryPct : nil
+        let batteryConsumption: Int
+        if let closedToday {
+            batteryConsumption = max(0, closedToday.startBatteryPct - closedToday.endBatteryPct)
+        } else {
+            // The active shift has no closing reading yet; keep the live placeholder at zero.
+            batteryConsumption = 0
+        }
         let startOdometer = active?.startOdometerKm ?? closedToday?.startOdometerKm
 
         return VStack(alignment: .leading, spacing: 12) {
@@ -268,7 +254,7 @@ struct GoalsView: View {
                 if active != nil {
                     TimeScope(.minute) { now in
                         ReadingTile(
-                            label: "Km",
+                            label: "KM RECORRIDOS",
                             value: Fmt.km(closedKmToday + store.estimatedKmDriven(at: now)),
                             hint: startOdometer.map { "Desde \(Fmt.km($0))" } ?? "Sin lectura",
                             tone: Palette.volt
@@ -276,50 +262,26 @@ struct GoalsView: View {
                     }
                 } else {
                     ReadingTile(
-                        label: "Km",
+                        label: "KM RECORRIDOS",
                         value: Fmt.km(closedKmToday),
                         hint: startOdometer.map { "Desde \(Fmt.km($0))" } ?? "Sin lectura",
                         tone: Palette.volt
                     )
                 }
                 ReadingTile(
-                    label: "Bat. inicio",
-                    value: startBattery.map { "\($0)%" } ?? "—",
-                    hint: "Salida",
+                    label: "CONSUMO BATERÍA",
+                    value: "\(batteryConsumption)%",
+                    hint: "En vivo",
                     tone: .primary
                 )
                 ReadingTile(
-                    label: "Bat. fin",
-                    value: endBattery.map { "\($0)%" } ?? (active != nil ? "···" : "—"),
-                    hint: endBattery == nil && active != nil ? "En curso" : "Entrega",
-                    tone: endBattery == nil ? .primary : Palette.volt
+                    label: "CONSUMO EN kWh",
+                    value: String(format: "%.1f kWh", Double(batteryConsumption) * 0.45),
+                    hint: "Conversión",
+                    tone: batteryConsumption > 0 ? Palette.volt : .primary
                 )
             }
 
-            if let startBattery, let endBattery {
-                // Reachable only with the shift closed — `endBattery` is filed on
-                // delivery — so the distance here is the recorded one, never an estimate.
-                Text("Consumo del turno: \(max(0, startBattery - endBattery)) puntos de carga para \(Fmt.km(closedToday?.kmDriven ?? closedKmToday)).")
-                    .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
-            } else {
-                Text("La carga de entrega se registra al finalizar el turno. Las tres lecturas quedan guardadas en tu historial para análisis posterior.")
-                    .font(.caption2)
-                    .foregroundStyle(Palette.textMuted)
-            }
-
-            // The screen behind this button is the same one either way, but it does two
-            // different things depending on who is looking. A demonstration session can
-            // mint an income there; a backend session can only read what the platform
-            // reported. Offering "Registrar" to the second one promises an act the
-            // financial boundary refuses, so the label states the act that is available.
-            BigButton(
-                title: store.canSimulateFinancialState ? "Registrar ingreso" : "Ver ingresos",
-                symbol: "banknote.fill",
-                tone: .outline
-            ) {
-                isIncomePresented = true
-            }
         }
         .padding(18)
         .panel()
@@ -359,10 +321,7 @@ struct GoalsView: View {
 
     /// Reference-only demand guide. It is intentionally not an earnings calculation.
     private var bestHoursSection: some View {
-        let points: [(String, Int, String)] = [
-            ("06", 34, "Baja"), ("09", 58, "Media"), ("12", 76, "Alta"),
-            ("15", 49, "Media"), ("18", 92, "Alta"), ("21", 67, "Media")
-        ]
+        let points = (5..<14).map { (String(format: "%02d:00–%02d:00", $0, $0 + 1), 0) }
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("Mejores horas", systemImage: "chart.bar.fill")
@@ -375,10 +334,10 @@ struct GoalsView: View {
                     .foregroundStyle(Palette.info)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                ForEach(points, id: \.0) { hour, value, level in
+                ForEach(points, id: \.0) { hour, value in
                     VStack(spacing: 5) {
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(level == "Alta" ? Palette.volt : Palette.info.opacity(0.65))
+                            .fill(Palette.info.opacity(0.65))
                             .frame(maxWidth: .infinity)
                             .frame(height: CGFloat(value) * 0.75)
                         Text(hour)
@@ -388,23 +347,11 @@ struct GoalsView: View {
                 }
             }
             .frame(height: 100, alignment: .bottom)
-            Text("Guía visual de demanda; no modifica tu meta ni calcula ingresos.")
-                .font(.caption2)
-                .foregroundStyle(Palette.textMuted)
         }
         .padding(18)
         .panel()
     }
 
-    private func lateSection(reference: Date) -> some View {
-        let debt = store.weeklyLateDebt(reference: reference)
-        return NoticeBanner(
-            symbol: "timer",
-            title: debt > 0 ? "Debes \(debt) minutos esta semana" : "Sin atrasos esta semana",
-            message: "Ventana de pago \(store.driver.slot.paybackWindowLabel) · consulta la bitácora dentro de Cartera.",
-            tone: debt > 0 ? .amber : .volt
-        )
-    }
 }
 
 #Preview {

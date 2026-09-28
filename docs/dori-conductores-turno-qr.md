@@ -87,3 +87,12 @@ En turno activo no se muestra el título duplicado `Turno`, la cápsula `Activo`
 barra de progreso, el resumen de jornada/restante, el horario inferior ni la tarjeta
 de unidad. Se conservan el turno en curso, inicio, finalizar turno, atraso,
 incidencia, documentos y cerrar sesión.
+
+## Ventana Metas
+
+La ventana presenta, en este orden, la meta económica, viajes de hoy, avance
+semanal, mejores horas del turno (05:00–14:00) y recorrido/batería. El encabezado
+conserva la meta diaria y el círculo sólo muestra el avance actual; no incluye
+ingresos, cartera, atrasos ni alertas ajenas. El último bloque usa kilómetros,
+consumo de batería y conversión a kWh como estructura preparada para telemetría
+real, sin inventar valores operativos.
