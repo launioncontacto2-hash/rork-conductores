@@ -135,7 +135,7 @@ struct RecoveryProgramSection: View {
         let cal = ShiftRules.calendar
         let weekday = cal.component(.weekday, from: today)
         let monday = cal.date(byAdding: .day, value: -(weekday + 5) % 7, to: today) ?? today
-        HStack(spacing: 4) {
+        return HStack(spacing: 4) {
             ForEach(0..<7, id: \.self) { offset in
                 if let day = cal.date(byAdding: .day, value: offset, to: monday) {
                     dayCell(day)
