@@ -7,7 +7,6 @@ struct BonusesView: View {
     @Environment(CoverageStore.self) private var coverage
 
     @State private var alert: BonusAlert?
-    @State private var expanded: Set<String> = []
 
     /// The logical day this screen is standing on, and the only temporal input the whole
     /// composition has.
@@ -255,11 +254,12 @@ struct BonusesView: View {
 
     private func bonusCard(evaluation: BonusEvaluation) -> some View {
         let kind = evaluation.kind
-        let isOpen = expanded.contains(kind.rawValue)
-
         let accent = tint(for: evaluation)
 
-        return VStack(alignment: .leading, spacing: 14) {
+        return NavigationLink {
+            BonusDetailView(evaluation: evaluation)
+        } label: {
+          VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Image(systemName: kind.symbol)
                     .font(.system(.body, weight: .semibold))
@@ -287,56 +287,18 @@ struct BonusesView: View {
                 }
             }
 
-            decisionStrip(evaluation.decision)
-
             HStack(spacing: 8) {
                 ForEach(evaluation.weeks) { result in
                     weekChip(result: result)
                 }
             }
 
-            Button {
-                withAnimation(.smooth(duration: 0.25)) {
-                    if isOpen { expanded.remove(kind.rawValue) } else { expanded.insert(kind.rawValue) }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isOpen ? "chevron.up" : "info.circle")
-                        .font(.system(size: 11, weight: .bold))
-                    Text(isOpen ? "Ocultar reglas" : "Cómo se gana y cómo se pierde")
-                        .font(.system(size: 11, weight: .bold))
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(Palette.info)
-            }
-            .buttonStyle(.plain)
-
-            if isOpen {
-                VStack(alignment: .leading, spacing: 8) {
-                    ruleRow(symbol: "checkmark.circle.fill", tint: Palette.volt, text: kind.howToWin)
-                    ruleRow(symbol: "xmark.circle.fill", tint: Palette.danger, text: kind.howToLose)
-                    if kind == .service {
-                        if let rating = store.platformRating {
-                            ruleRow(
-                                symbol: "antenna.radiowaves.left.and.right",
-                                tint: Palette.info,
-                                text: "En pruebas la métrica es positiva: \(Fmt.rating(rating)) estrellas."
-                            )
-                        } else {
-                            ruleRow(
-                                symbol: "antenna.radiowaves.left.and.right",
-                                tint: Palette.neutral,
-                                text: "Aún no hay calificación de plataforma ligada a tu cuenta. El bono no se evalúa hasta que llegue."
-                            )
-                        }
-                    }
-                }
-                .padding(12)
-                .panelFlat()
-            }
+            HStack { Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(Palette.textMuted) }
+          }
+          .padding(18)
+          .panel()
         }
-        .padding(18)
-        .panel()
+        .buttonStyle(.plain)
     }
 
     /// The verdict of the engine, spelled out so no one looks for a signature.
@@ -439,6 +401,30 @@ struct BonusesView: View {
             .padding(18)
             .panel()
         }
+    }
+}
+
+private struct BonusDetailView: View {
+    let evaluation: BonusEvaluation
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(evaluation.kind.title).font(.system(.title2, weight: .black))
+                HStack { Text(evaluation.kind.isExternal ? "Uber" : Fmt.mxn(evaluation.monthlyMxn)); Spacer(); Text(evaluation.statusText) }
+                    .foregroundStyle(Palette.volt)
+                HStack(spacing: 8) { ForEach(evaluation.weeks) { weekChip($0) } }
+                DetailRow(label: "Resumen", value: evaluation.kind == .service ? "Sin actividad para evaluar" : "Datos actuales de la semana")
+                Text(evaluation.kind == .service ? "Aún no hay viajes registrados suficientes." : evaluation.kind.howToWin)
+                    .font(.footnote).foregroundStyle(Palette.textMuted)
+            }.padding(18)
+        }
+        .background { StationBackground() }
+        .navigationTitle("Detalle")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    private func weekChip(_ result: BonusWeekResult) -> some View {
+        VStack(spacing: 4) { Image(systemName: result.status.symbol).foregroundStyle(Palette.volt); Text(result.week.shortLabel).font(.caption2) }
+            .frame(maxWidth: .infinity).padding(8).background(Palette.surfaceRaised, in: .rect(cornerRadius: 10))
     }
 }
 

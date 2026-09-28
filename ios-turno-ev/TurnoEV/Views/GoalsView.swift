@@ -77,6 +77,9 @@ struct GoalsView: View {
             .custom("goals.ring", "Meta del día", kind: .progress) {
                 dailyRing(earnedToday: earnedToday, goals: goals, missingToday: missingToday)
             },
+            .custom("goals.trips", "Viajes de hoy", kind: .progress) {
+                tripsSection(tripsToday: tripsToday, missingTrips: missingTrips, goals: goals)
+            },
             .chart(
                 "goals.weekly",
                 "Avance semanal",
@@ -89,9 +92,6 @@ struct GoalsView: View {
                     unit: .money
                 )
             ),
-            .custom("goals.trips", "Viajes de hoy", kind: .progress) {
-                tripsSection(tripsToday: tripsToday, missingTrips: missingTrips, goals: goals)
-            },
             .custom("goals.hours", "Mejores horas", kind: .chart) {
                 bestHoursSection
             },

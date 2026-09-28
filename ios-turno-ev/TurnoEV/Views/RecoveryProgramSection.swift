@@ -132,50 +132,13 @@ struct RecoveryProgramSection: View {
     // MARK: - Calendar
 
     private var calendar: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Button {
-                    shiftMonth(by: -1)
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(.footnote, weight: .bold))
-                        .frame(width: 34, height: 34)
-                        .background(Palette.surfaceRaised, in: .circle)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-                Text(Fmt.monthLong(anchor))
-                    .font(.system(.subheadline, weight: .black))
-                Spacer()
-
-                Button {
-                    shiftMonth(by: 1)
-                } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(.footnote, weight: .bold))
-                        .frame(width: 34, height: 34)
-                        .background(Palette.surfaceRaised, in: .circle)
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack(spacing: 4) {
-                ForEach(["L", "M", "M", "J", "V", "S", "D"], id: \.self) { day in
-                    Text(day)
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundStyle(Palette.textMuted)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 4) {
-                ForEach(Array(monthCells.enumerated()), id: \.offset) { _, day in
-                    if let day {
-                        dayCell(day)
-                    } else {
-                        Color.clear.frame(height: 42)
-                    }
+        let cal = ShiftRules.calendar
+        let weekday = cal.component(.weekday, from: today)
+        let monday = cal.date(byAdding: .day, value: -(weekday + 5) % 7, to: today) ?? today
+        HStack(spacing: 4) {
+            ForEach(0..<7, id: \.self) { offset in
+                if let day = cal.date(byAdding: .day, value: offset, to: monday) {
+                    dayCell(day)
                 }
             }
         }
@@ -277,20 +240,9 @@ struct RecoveryProgramSection: View {
                     .foregroundStyle(canReserve ? Palette.volt : Palette.amber)
             }
 
-            if !canReserve {
-                // The programme is explained above and stays explained: what is missing is
-                // the register that would hold the seat, not the driver's right to it.
-                NoticeBanner(
-                    symbol: "antenna.radiowaves.left.and.right.slash",
-                    title: "La reserva aún no puede enviarse",
-                    message: "El programa existe y tu grupo aplica, pero el lugar lo aparta el sistema operativo de tu estación. En cuanto la aplicación quede conectada, podrás reservar desde aquí.",
-                    tone: .amber
-                )
-            }
-
             BigButton(
-                title: canReserve ? "Reservar día de recuperación" : "Reserva no disponible",
-                symbol: canReserve ? "checkmark.circle.fill" : "clock.badge.exclamationmark",
+                title: "Reservar turno",
+                symbol: "checkmark.circle.fill",
                 tone: canReserve ? .volt : .outline,
                 isEnabled: canReserve && selectedDay != nil
             ) {
