@@ -2,6 +2,9 @@ name: DORI Vehicle Agent Probe
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/dori-vehicle-agent-probe
 
 permissions:
   contents: read
@@ -19,23 +22,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: feat/dori-vehicle-agent-probe
-
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
-
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
       - name: Build probe APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew :vehicleAgentProbe:assembleDebug --stacktrace
-
       - name: Prepare artifact and checksum
         shell: bash
         run: |
@@ -43,7 +42,6 @@ jobs:
           mkdir -p artifacts
           cp android/vehicleAgentProbe/build/outputs/apk/debug/vehicleAgentProbe-debug.apk artifacts/dori-vehicle-agent-probe-v0.1.apk
           sha256sum artifacts/dori-vehicle-agent-probe-v0.1.apk | tee artifacts/dori-vehicle-agent-probe-v0.1.apk.sha256
-
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
