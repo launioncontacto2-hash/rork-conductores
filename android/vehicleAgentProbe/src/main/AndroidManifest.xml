@@ -5,7 +5,7 @@
     <uses-permission android:name="com.byd.auto.permission.BYDAUTO_CHARGING_GET" />
     <uses-permission android:name="com.byd.auto.permission.BYDAUTO_INSTRUMENT_GET" />
     <uses-permission android:name="com.byd.auto.permission.BYDAUTO_VEHICLE_DATA_GET" />
-    <application android:theme="@android:style/Theme.DeviceDefault.DayNight.NoActionBar" android:label="DORI Vehicle Agent Probe" android:allowBackup="false" android:supportsRtl="true">
+    <application android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:label="DORI Vehicle Agent Probe" android:allowBackup="false" android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
