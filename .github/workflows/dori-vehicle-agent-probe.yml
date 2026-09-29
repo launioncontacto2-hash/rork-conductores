@@ -49,6 +49,18 @@ jobs:
           test -n "$KEY_PASSWORD" || { echo "Missing DORI_VEHICLE_AGENT_KEY_PASSWORD" >&2; exit 1; }
           echo "All required signing secrets are present."
 
+      - name: Validate private signing entry
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/dori-vehicle-agent-signing.keystore"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          keytool -list -v -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
+          grep -q 'Entry type: PrivateKeyEntry' "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
+          rm -f "$keystore" "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
       - name: Enforce read-only source policy
         run: |
           set -euo pipefail
