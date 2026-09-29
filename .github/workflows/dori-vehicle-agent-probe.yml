@@ -57,10 +57,21 @@ jobs:
         run: |
           set -euo pipefail
           keystore="$RUNNER_TEMP/dori-vehicle-agent-signing.keystore"
+          report="$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
-          keytool -list -v -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
-          grep -q 'Entry type: PrivateKeyEntry' "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
-          rm -f "$keystore" "$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
+          keytool -list -v -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > "$report"
+          if grep -q 'Entry type: PrivateKeyEntry' "$report"; then
+            echo 'PrivateKeyEntry detected.'
+          elif grep -q 'Entry type: trustedCertEntry' "$report"; then
+            echo 'The configured alias is a trusted certificate entry, not a private signing key.' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          else
+            echo 'The configured alias is not a private signing key entry.' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          rm -f "$keystore" "$report"
       - name: Enforce read-only source policy
         run: |
           set -euo pipefail
