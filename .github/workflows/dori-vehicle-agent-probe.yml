@@ -1,18 +1,14 @@
 name: DORI Vehicle Agent Probe
-
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/dori-vehicle-agent-probe
-
 permissions:
   contents: read
-
 concurrency:
   group: dori-vehicle-agent-probe
   cancel-in-progress: false
-
 jobs:
   build:
     if: github.ref_name == 'feat/dori-vehicle-agent-probe'
@@ -42,11 +38,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          cp android/vehicleAgentProbe/build/outputs/apk/debug/vehicleAgentProbe-debug.apk artifacts/dori-vehicle-agent-probe-v0.1.apk
-          sha256sum artifacts/dori-vehicle-agent-probe-v0.1.apk | tee artifacts/dori-vehicle-agent-probe-v0.1.apk.sha256
+          cp android/vehicleAgentProbe/build/outputs/apk/debug/vehicleAgentProbe-debug.apk artifacts/dori-vehicle-agent-probe-v0.2.apk
+          sha256sum artifacts/dori-vehicle-agent-probe-v0.2.apk | tee artifacts/dori-vehicle-agent-probe-v0.2.apk.sha256
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dori-vehicle-agent-probe-v0.1
-          path: artifacts/dori-vehicle-agent-probe-v0.1.apk*
+          name: dori-vehicle-agent-probe-v0.2
+          path: artifacts/dori-vehicle-agent-probe-v0.2.apk*
           if-no-files-found: error
