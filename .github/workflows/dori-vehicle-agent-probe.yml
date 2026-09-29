@@ -126,11 +126,13 @@ jobs:
           "$zipalign_bin" -c -v 4 "$aligned"
           "$apksigner_bin" sign --ks "$keystore" --ks-pass env:STORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --min-sdk-version 23 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --out "$final" "$aligned"
           "$zipalign_bin" -c -v 4 "$final"
-          "$apksigner_bin" verify --verbose --print-certs "$final" | tee "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
-          grep -q 'Verified using v1 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
-          grep -q 'Verified using v2 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
-          grep -q 'Verified using v3 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
-          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
+          "$apksigner_bin" verify --verbose --print-certs --min-sdk-version 23 "$final" | tee "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v1 scheme (JAR signing): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          unzip -l "$final" | grep -E 'META-INF/.*\.(SF|RSA|DSA|EC)$'
+          unzip -l "$final" | grep 'META-INF/MANIFEST.MF'
+          jarsigner -verify "$final"          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
           "$aapt_bin" dump badging "$final" | tee "$badging"
           grep -q "package: name='mx.dori.vehicleagent.probe' versionCode='3' versionName='0.3'" "$badging"
           grep -q "sdkVersion:'24'" "$badging"
