@@ -2,8 +2,8 @@ pluginManagement {
     repositories {
         google {
             content {
-                includeGroupByRegex("com\\.android.*")
-                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("com\.android.*")
+                includeGroupByRegex("com\.google.*")
                 includeGroupByRegex("androidx.*")
             }
         }
@@ -20,3 +20,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Turno EV Android"
 include(":app")
+include(":vehicleAgentProbe")
+project(":vehicleAgentProbe").projectDir = file("vehicleAgentProbe")
