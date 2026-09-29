@@ -1,14 +1,18 @@
 name: DORI Vehicle Agent Probe
+
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/dori-vehicle-agent-probe
+
 permissions:
   contents: read
+
 concurrency:
   group: dori-vehicle-agent-probe
   cancel-in-progress: false
+
 jobs:
   build:
     if: github.ref_name == 'feat/dori-vehicle-agent-probe'
@@ -18,31 +22,88 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: feat/dori-vehicle-agent-probe
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
-      - name: Build probe APK
+
+      - name: Check release signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" || { echo "Missing DORI_VEHICLE_AGENT_KEYSTORE_B64" >&2; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing DORI_VEHICLE_AGENT_STORE_PASSWORD" >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Missing DORI_VEHICLE_AGENT_KEY_ALIAS" >&2; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing DORI_VEHICLE_AGENT_KEY_PASSWORD" >&2; exit 1; }
+          echo "All required signing secrets are present."
+
+      - name: Enforce read-only source policy
+        run: |
+          set -euo pipefail
+          if grep -RInE 'BYDAUTO_.*_SET|android\.permission\.(WRITE|CONTROL)|CAN[[:space:]_-]*WRITE' android/vehicleAgentProbe; then
+            echo "Forbidden write/control capability found" >&2
+            exit 1
+          fi
+
+      - name: Assemble unsigned release APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew :vehicleAgentProbe:assembleDebug --stacktrace
-      - name: Prepare artifact and checksum
-        shell: bash
+          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace
+
+      - name: Align, sign and verify APK
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts
-          cp android/vehicleAgentProbe/build/outputs/apk/debug/vehicleAgentProbe-debug.apk artifacts/dori-vehicle-agent-probe-v0.2.apk
-          sha256sum artifacts/dori-vehicle-agent-probe-v0.2.apk | tee artifacts/dori-vehicle-agent-probe-v0.2.apk.sha256
-      - name: Upload APK artifact
+          mkdir -p artifacts "$RUNNER_TEMP/dori-vehicle-agent"
+          unsigned="$(find android/vehicleAgentProbe/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -n "$unsigned"
+          zipalign_bin="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          aligned="$RUNNER_TEMP/dori-vehicle-agent/aligned.apk"
+          keystore="$RUNNER_TEMP/dori-vehicle-agent/dori-vehicle-agent.keystore"
+          final="artifacts/dori-vehicle-agent-probe-v0.3.apk"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          "$zipalign_bin" -p -f 4 "$unsigned" "$aligned"
+          "$zipalign_bin" -c -v 4 "$aligned"
+          "$apksigner_bin" sign --ks "$keystore" --ks-pass env:STORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --out "$final" "$aligned"
+          "$zipalign_bin" -c -v 4 "$final"
+          "$apksigner_bin" verify --verbose --print-certs "$final" | tee "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v1 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v2 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v3 scheme: true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
+          "$aapt_bin" dump badging "$final" | tee "$badging"
+          grep -q "package: name='mx.dori.vehicleagent.probe' versionCode='3' versionName='0.3'" "$badging"
+          grep -q "sdkVersion:'24'" "$badging"
+          grep -q "targetSdkVersion:'33'" "$badging"
+          permissions="$RUNNER_TEMP/dori-vehicle-agent/permissions.txt"
+          "$aapt_bin" dump permissions "$final" | tee "$permissions"
+          ! grep -q 'android.permission.INTERNET' "$permissions"
+          ! grep -Eiq '(WRITE|CONTROL|_SET)' "$permissions"
+          sha256sum "$final" | tee artifacts/dori-vehicle-agent-probe-v0.3.apk.sha256
+          rm -f "$keystore" "$aligned" "$unsigned"
+
+      - name: Upload v0.3 APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dori-vehicle-agent-probe-v0.2
-          path: artifacts/dori-vehicle-agent-probe-v0.2.apk*
+          name: dori-vehicle-agent-probe-v0.3
+          path: artifacts/dori-vehicle-agent-probe-v0.3.apk*
           if-no-files-found: error
