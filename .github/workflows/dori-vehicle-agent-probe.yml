@@ -54,18 +54,38 @@ jobs:
           KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
           STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           keystore="$RUNNER_TEMP/dori-vehicle-agent-signing.keystore"
           report="$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
-          keytool -list -v -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" > "$report"
+          actual_sha=$(sha256sum "$keystore" | awk '{print $1}')
+          echo "Signing keystore SHA256: $actual_sha"
+          if [ "$actual_sha" != "a71d0ef6a0a8d3ae47c32e947bfc1f4e9f3fc55d73495253beac77480eceec9e" ]; then
+            echo 'GITHUB_KEYSTORE_SECRET_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if ! keytool -list -storetype JKS -keystore "$keystore" -storepass "$STORE_PASSWORD" > "$report" 2>&1; then
+            echo 'GITHUB_STORE_PASSWORD_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if ! keytool -list -v -storetype JKS -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >> "$report" 2>&1; then
+            echo 'GITHUB_KEY_ALIAS_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
           entry_type=$(awk -F': ' '/Entry type:/ {print $2; exit}' "$report")
           echo "Signing entry classification: $entry_type"
-          if [ "$entry_type" = "PrivateKeyEntry" ]; then
-            echo 'PrivateKeyEntry detected.'
-          else
-            echo 'The configured alias is not a private signing key entry.' >&2
+          if [ "$KEY_ALIAS" != 'dori-vehicle-agent' ]; then
+            echo 'GITHUB_KEY_ALIAS_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if [ "$entry_type" != 'PrivateKeyEntry' ]; then
+            echo 'GITHUB_PRIVATE_KEY_ENTRY_MISMATCH' >&2
             rm -f "$keystore" "$report"
             exit 1
           fi
