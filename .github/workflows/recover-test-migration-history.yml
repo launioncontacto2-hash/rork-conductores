@@ -24,7 +24,7 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
         run: |
           set -euo pipefail
-          supabase link --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD" --skip-pooler
+          supabase link --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
           cat > "$RUNNER_TEMP/recover.sql" <<'SQL'
           select version, name, array_to_string(statements, E'\n\n') as sql_text
           from supabase_migrations.schema_migrations
