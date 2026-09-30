@@ -2,8 +2,6 @@ package mx.dori.vehicleagent.probe
 
 import android.app.Activity
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -46,10 +44,9 @@ class MainActivity : Activity() {
             setPadding(0, 7, 0, 7)
         }
         root.addView(label("DORI Vehicle Agent Probe", 26f))
-        root.addView(label("Version 0.3 · lectura local read-only", 15f))
+        root.addView(label("Version 0.4 · lectura local read-only", 15f))
         root.addView(label("Sin Supabase · sin red requerida · sin controles", 14f))
         root.addView(label("Sistema: Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"))
-        root.addView(label("Red: ${networkState()}"))
         root.addView(label("Acceso vehículo: inspección normal, sin bypass"))
         root.addView(label("Permisos BYD GET", 20f))
         getPermissions.forEach { permission ->
@@ -81,12 +78,6 @@ class MainActivity : Activity() {
         "SECURITY_EXCEPTION"
     }
 
-    private fun networkState(): String {
-        val cm = getSystemService(ConnectivityManager::class.java) ?: return "unavailable"
-        val network = cm.activeNetwork ?: return "offline/local-only"
-        val caps = cm.getNetworkCapabilities(network) ?: return "offline/local-only"
-        return if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) "available (not used)" else "offline/local-only"
-    }
 
     private fun runDiagnostics() {
         val result = StringBuilder("DORI BYD diagnostics\n")
