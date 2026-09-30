@@ -14,7 +14,7 @@ android {
         versionCode = 8
         versionName = "0.8"
         buildConfigField("String", "INGEST_URL", "\"https://yyxzuiantrmoyozetswv.supabase.co/functions/v1/dori-vehicle-telemetry-ingest\"")
-        buildConfigField("String", "AGENT_TOKEN", "\"\"")
+        buildConfigField("String", "AGENT_TOKEN", "\"${providers.gradleProperty("agentToken").orElse("")}\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

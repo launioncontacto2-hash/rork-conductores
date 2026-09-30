@@ -93,16 +93,19 @@ jobs:
       - name: Enforce read-only source policy
         run: |
           set -euo pipefail
-          if grep -RInE 'BYDAUTO_.*_SET|android\.permission\.(WRITE|CONTROL)|CAN[[:space:]_-]*WRITE' android/vehicleAgentProbe; then
+          if grep -RInE 'BYDAUTO_.*_SET|android\.permission\.(WRITE|CONTROL)|CAN[[:space:]_-]*WRITE|ServiceManager|IBinder|binder\.transact|Runtime\.exec|sh -c|bash -c|setProperty|setInt|setFloat' android/vehicleAgentProbe; then
             echo "Forbidden write/control capability found" >&2
             exit 1
           fi
 
       - name: Assemble unsigned release APK
         working-directory: android
+        env:
+          AGENT_TOKEN: ${{ secrets.DORI_VEHICLE_AGENT_TOKEN_TEST }}
         run: |
           chmod +x gradlew
-          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace
+          test -n "$AGENT_TOKEN"
+          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace -PagentToken="$AGENT_TOKEN"
 
       - name: Align, sign and verify APK
         env:
