@@ -120,7 +120,7 @@ jobs:
           aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           aligned="$RUNNER_TEMP/dori-vehicle-agent/aligned.apk"
           keystore="$RUNNER_TEMP/dori-vehicle-agent/dori-vehicle-agent.keystore"
-          final="artifacts/dori-vehicle-agent-probe-v0.7.apk"
+          final="artifacts/dori-vehicle-agent-telemetry-v0.7.apk"
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
           "$zipalign_bin" -p -f 4 "$unsigned" "$aligned"
           "$zipalign_bin" -c -v 4 "$aligned"
@@ -146,12 +146,12 @@ jobs:
           ! grep -q 'android.permission.INTERNET' "$permissions"
           ! grep -q 'android.permission.ACCESS_NETWORK_STATE' "$permissions"
           ! grep -Eiq '(BYDAUTO|WRITE|CONTROL|_SET)' "$permissions"
-          sha256sum "$final" | tee artifacts/dori-vehicle-agent-probe-v0.7.apk.sha256
+          sha256sum "$final" | tee artifacts/dori-vehicle-agent-telemetry-v0.7.apk.sha256
           rm -f "$keystore" "$aligned" "$unsigned"
 
       - name: Upload v0.7 APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dori-vehicle-agent-probe-v0.7
-          path: artifacts/dori-vehicle-agent-probe-v0.7.apk*
+          name: dori-vehicle-agent-telemetry-v0.7
+          path: artifacts/dori-vehicle-agent-telemetry-v0.7.apk*
           if-no-files-found: error
