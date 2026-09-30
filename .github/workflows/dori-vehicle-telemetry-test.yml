@@ -1,0 +1,34 @@
+name: DORI Vehicle Telemetry TEST
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Push TEST migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
+        run: supabase db push --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
+      - name: Configure TEST function secrets
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_TEST }}
+          AGENT_TOKEN: ${{ secrets.DORI_VEHICLE_AGENT_TOKEN_TEST }}
+        run: |
+          test -n "$SERVICE_ROLE" && test -n "$AGENT_TOKEN"
+          supabase secrets set --project-ref yyxzuiantrmoyozetswv SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE" DORI_VEHICLE_AGENT_TOKEN_TEST="$AGENT_TOKEN"
+      - name: Deploy ingest function to TEST
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy dori-vehicle-telemetry-ingest --project-ref yyxzuiantrmoyozetswv --no-verify-jwt
