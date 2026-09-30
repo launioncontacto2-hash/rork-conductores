@@ -97,6 +97,10 @@ jobs:
             echo "Forbidden write/control capability found" >&2
             exit 1
           fi
+          grep -q 'DEVICE_VEHICLE = 1014' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          grep -q 'DEVICE_POWER = 1023' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          grep -Fq 'Parcel\\(00000000\\s+' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          ! grep -Fq '0x' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
 
       - name: Assemble unsigned release APK
         working-directory: android
