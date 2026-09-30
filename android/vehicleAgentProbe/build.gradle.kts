@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "mx.dori.vehicleagent.probe"
     compileSdk = 36
+    buildFeatures { buildConfig = true }
     defaultConfig {
         applicationId = "mx.dori.vehicleagent.probe"
         minSdk = 24
