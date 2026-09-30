@@ -345,12 +345,13 @@ final class FleetStore {
     func refreshBackendTelemetry() async {
         guard let vehicle = assignedVehicle, let client = SupabaseBridge.client else { return }
         do {
-            let rows: [SupabaseAssignmentService.TelemetryRow] = try await client
+            let response = try await client
                 .from("vehicle_telemetry_latest")
                 .select("soc_percent,odometer_km,power_state,captured_at,received_at")
                 .eq("vehicle_id", value: vehicle.id)
                 .limit(1)
-                .execute().value
+                .execute()
+            let rows: [SupabaseAssignmentService.TelemetryRow] = try response.value
             guard let row = rows.first else { return }
             backendTelemetryReceivedAt = row.received_at
             if let index = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
