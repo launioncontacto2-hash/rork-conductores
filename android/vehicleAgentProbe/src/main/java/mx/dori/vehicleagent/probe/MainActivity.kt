@@ -1,43 +1,33 @@
 package mx.dori.vehicleagent.probe
 
 import android.app.Activity
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
+import android.os.Parcel
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private data class ProbeResult(
-    val uri: String,
-    val state: String,
-    val columns: List<String> = emptyList(),
-    val rows: Int = 0,
-    val exception: String? = null,
-    val soc: String = "unavailable",
-    val odo: String = "unavailable",
-    val socSource: String = "unavailable",
-    val odoSource: String = "unavailable"
-)
+private const val DEVICE = 1014
+private const val TX_GET_INT = 5
+private const val TX_GET_FLOAT = 7
+private const val FID_SOC = 1246777400
+private const val FID_ODO = 1246765072
+
+private data class Reading(val soc: Float?, val odo: Float?, val detail: String)
 
 class MainActivity : Activity() {
-    private lateinit var log: TextView
-    private val commonPermissions = listOf(
-        "android.permission.BYDAUTO_ENERGY_COMMON",
-        "android.permission.BYDAUTO_CHARGING_COMMON",
-        "android.permission.BYDAUTO_INSTRUMENT_COMMON"
-    )
-    private val candidateUris = listOf(
-        "content://com.byd.carStatusProvider",
-        "content://com.byd.carStatusProvider/status"
-    )
-    private val permissionRequestCode = 501
+    private lateinit var socValue: TextView
+    private lateinit var odoValue: TextView
+    private lateinit var channelValue: TextView
+    private lateinit var diagnosticLog: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,150 +43,145 @@ class MainActivity : Activity() {
             setPadding(0, 7, 0, 7)
         }
         root.addView(label("DORI Vehicle Agent Probe", 26f))
-        root.addView(label("Version 0.5 · lectura local read-only", 15f))
-        root.addView(label("Provider: com.byd.carStatusProvider", 14f))
-        root.addView(label("Sin Supabase · sin red requerida · sin controles", 14f))
-        root.addView(label("Sistema: Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"))
-        root.addView(label("Permisos BYD COMMON", 20f))
-        commonPermissions.forEach { permission ->
-            root.addView(label("${permission.substringAfterLast('.')}: ${permissionState(permission)}", 14f))
-        }
-        val authorize = Button(this).apply {
-            text = "AUTORIZAR LECTURA BYD"
-            setOnClickListener { requestCommonPermissions() }
-        }
-        root.addView(authorize, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val diagnostics = Button(this).apply {
-            text = "DIAGNÓSTICO BYD"
-            setOnClickListener { runDiagnostics() }
-        }
-        root.addView(diagnostics, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(label("Version 0.6 · autoservice read-only", 15f))
+        root.addView(label("SOC", 20f))
+        socValue = label("-- %", 34f)
+        root.addView(socValue)
+        root.addView(label("ODO", 20f))
+        odoValue = label("-- km", 34f)
+        root.addView(odoValue)
+        root.addView(label("CANAL", 20f))
+        channelValue = label("Pendiente", 20f)
+        root.addView(channelValue)
         val read = Button(this).apply {
-            text = "LEER VEHÍCULO"
-            setOnClickListener { readVehicle() }
+            text = "LEER SOC + ODO"
+            setOnClickListener { readValues() }
         }
         root.addView(read, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(label("Resultados", 20f))
-        log = label("Estado: pendiente\nSOC: unavailable\nODO: unavailable\nSource: —", 15f)
-        log.setTextIsSelectable(true)
-        root.addView(ScrollView(this).apply { addView(log) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val diagnostic = Button(this).apply {
+            text = "DIAGNÓSTICO AUTOSERVICE"
+            setOnClickListener { diagnose() }
+        }
+        root.addView(diagnostic, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        diagnosticLog = label("autoservice: pendiente", 15f).apply { setTextIsSelectable(true) }
+        root.addView(ScrollView(this).apply { addView(diagnosticLog) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
     }
 
-    private fun permissionState(permission: String): String = try {
-        packageManager.getPermissionInfo(permission, 0)
-        when {
-            checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED -> "GRANTED"
-            Build.VERSION.SDK_INT >= 23 && !shouldShowRequestPermissionRationale(permission) -> "DENIED_PERMANENTLY"
-            else -> "DENIED"
+    private fun readValues() {
+        val direct = directRead()
+        if (direct.soc != null && direct.odo != null && direct.soc in 0f..100f && direct.odo >= 0f) {
+            showReading(direct, "DIRECT_BINDER")
+            diagnosticLog.text = direct.detail
+            return
         }
-    } catch (_: PackageManager.NameNotFoundException) {
-        "NOT AVAILABLE"
-    } catch (_: SecurityException) {
-        "SECURITY_EXCEPTION"
-    }
-
-    private fun requestCommonPermissions() {
-        val pending = commonPermissions.filter { permissionState(it) != "GRANTED" && permissionState(it) != "NOT AVAILABLE" }
-        if (pending.isEmpty()) {
-            log.text = "Permisos COMMON: GRANTED\nNo hay permisos pendientes."
-        } else if (Build.VERSION.SDK_INT >= 23) {
-            requestPermissions(pending.toTypedArray(), permissionRequestCode)
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, results)
-        if (requestCode == permissionRequestCode) {
-            log.text = commonPermissions.joinToString("\n") { "${it.substringAfterLast('.')}: ${permissionState(it)}" }
-        }
-    }
-
-    private fun runDiagnostics() {
-        val result = StringBuilder("DORI BYD diagnostics\nProvider: com.byd.carStatusProvider\n")
-        commonPermissions.forEach { permission ->
-            result.append(permission.substringAfterLast('.')).append(": ").append(permissionState(permission)).append('\n')
-        }
-        candidateUris.forEach { raw ->
-            val probe = queryUri(raw)
-            result.append("URI: ").append(probe.uri).append("\n")
-                .append("Resultado: ").append(probe.state).append("\n")
-                .append("Columnas: ").append(if (probe.columns.isEmpty()) "—" else probe.columns.joinToString(", ")).append("\n")
-                .append("Filas: ").append(probe.rows).append("\n")
-            probe.exception?.let { result.append("Excepción: ").append(it).append('\n') }
-        }
-        result.append("Read at: ").append(now())
-        log.text = result.toString()
-    }
-
-    private fun queryUri(raw: String): ProbeResult = try {
-        contentResolver.query(Uri.parse(raw), null, null, null, null)?.use { cursor ->
-            val columns = cursor.columnNames.toList()
-            var rows = 0
-            while (cursor.moveToNext()) rows++
-            ProbeResult(raw, if (rows > 0) "AVAILABLE" else "EMPTY", columns, rows)
-        } ?: ProbeResult(raw, "NOT AVAILABLE")
-    } catch (e: SecurityException) {
-        ProbeResult(raw, "SECURITY_EXCEPTION", exception = e.message?.take(160))
-    } catch (e: IllegalArgumentException) {
-        ProbeResult(raw, "ILLEGAL_ARGUMENT", exception = e.message?.take(160))
-    } catch (e: Exception) {
-        ProbeResult(raw, "UNKNOWN_URI", exception = e.message?.take(160))
-    }
-
-    private fun readVehicle() {
-        val results = candidateUris.map { raw -> queryVehicle(raw) }
-        val available = results.firstOrNull { it.state == "AVAILABLE" }
-        val output = StringBuilder("DORI BYD vehicle read\nProvider: com.byd.carStatusProvider\n")
-        results.forEach { probe ->
-            output.append("URI: ").append(probe.uri).append(" · ").append(probe.state)
-                .append(" · filas=").append(probe.rows).append("\n")
-        }
-        if (available == null) {
-            output.append("SOC: unavailable\nODO: unavailable\nSource: —\n")
+        val fallback = binaryRead()
+        if (fallback.soc != null && fallback.odo != null && fallback.soc in 0f..100f && fallback.odo >= 0f) {
+            showReading(fallback, "SERVICE_BINARY_APP_UID")
         } else {
-            output.append("SOC: ").append(available.soc).append("\nSource: ").append(available.socSource).append("\n")
-                .append("ODO: ").append(available.odo).append("\nSource: ").append(available.odoSource).append("\n")
+            socValue.text = "unavailable"
+            odoValue.text = "unavailable"
+            channelValue.text = "BLOCKED"
         }
-        output.append("Read at: ").append(now())
-        log.text = output.toString()
+        diagnosticLog.text = "DIRECT_BINDER:\n${direct.detail}\n\nSERVICE_BINARY_APP_UID:\n${fallback.detail}"
     }
 
-    private fun queryVehicle(raw: String): ProbeResult = try {
-        contentResolver.query(Uri.parse(raw), null, null, null, null)?.use { cursor ->
-            val columns = cursor.columnNames.toList()
-            var rows = 0
-            var soc = "unavailable"
-            var odo = "unavailable"
-            var socSource = "unavailable"
-            var odoSource = "unavailable"
-            while (cursor.moveToNext()) {
-                rows++
-                for (i in 0 until cursor.columnCount) {
-                    val name = cursor.getColumnName(i)
-                    val normalized = name.lowercase(Locale.US)
-                    val value = if (isSensitive(normalized)) "<REDACTED>" else cursor.getString(i) ?: "unavailable"
-                    when {
-                        normalized == "soc" || normalized.contains("battery") || normalized.contains("charge_percent") || normalized == "energy" -> {
-                            if (soc == "unavailable") { soc = value; socSource = "$raw + $name" }
-                        }
-                        normalized == "odo" || normalized.contains("odometer") || normalized.contains("mileage") -> {
-                            if (odo == "unavailable") { odo = value; odoSource = "$raw + $name" }
-                        }
-                    }
-                }
-            }
-            ProbeResult(raw, if (rows > 0) "AVAILABLE" else "EMPTY", columns, rows, soc = soc, odo = odo, socSource = socSource, odoSource = odoSource)
-        } ?: ProbeResult(raw, "NOT AVAILABLE")
-    } catch (e: SecurityException) {
-        ProbeResult(raw, "SECURITY_EXCEPTION", exception = e.message?.take(160))
-    } catch (e: IllegalArgumentException) {
-        ProbeResult(raw, "ILLEGAL_ARGUMENT", exception = e.message?.take(160))
-    } catch (e: Exception) {
-        ProbeResult(raw, "UNKNOWN_URI", exception = e.message?.take(160))
+    private fun showReading(reading: Reading, channel: String) {
+        socValue.text = "${"%.1f".format(Locale.US, reading.soc)} %"
+        odoValue.text = "${"%.1f".format(Locale.US, reading.odo)} km"
+        channelValue.text = channel
     }
 
-    private fun isSensitive(name: String): Boolean = listOf("vin", "imei", "iccid", "serial", "account", "token").any { name.contains(it) }
+    private fun diagnose() {
+        val direct = directRead()
+        val fallback = binaryRead()
+        val available = try {
+            serviceBinder() != null
+        } catch (_: Exception) {
+            false
+        }
+        diagnosticLog.text = "autoservice: ${if (available) "AVAILABLE" else "NOT_AVAILABLE"}\n\nDIRECT_BINDER:\n${direct.detail}\n\nSERVICE_BINARY_APP_UID:\n${fallback.detail}"
+    }
 
-    private fun now(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.US).format(Date())
+    private fun directRead(): Reading {
+        var binder: IBinder? = null
+        return try {
+            binder = serviceBinder()
+            if (binder == null) return Reading(null, null, "state: NOT_AVAILABLE\nerror: ServiceManager returned null")
+            val soc = transactFloat(binder, TX_GET_FLOAT, FID_SOC)
+            val odo = transactInt(binder, TX_GET_INT, FID_ODO) / 10.0f
+            Reading(soc, odo, "state: AVAILABLE\nSOC: $soc\nODO: $odo\ntransactions: 7, 5")
+        } catch (e: Exception) {
+            Reading(null, null, "state: FAILED\nerror: ${e.javaClass.simpleName}: ${e.message ?: "unknown"}")
+        }
+    }
+
+    private fun serviceBinder(): IBinder? {
+        val manager = Class.forName("android.os.ServiceManager")
+        val method = manager.getDeclaredMethod("getService", String::class.java)
+        method.isAccessible = true
+        return method.invoke(null, "autoservice") as? IBinder
+    }
+
+    private fun transactFloat(binder: IBinder, transaction: Int, field: Int): Float {
+        check(transaction == TX_GET_FLOAT && field == FID_SOC)
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInt(DEVICE)
+            data.writeInt(field)
+            check(binder.transact(transaction, data, reply, 0))
+            reply.readException()
+            reply.readFloat()
+        } finally {
+            data.recycle()
+            reply.recycle()
+        }
+    }
+
+    private fun transactInt(binder: IBinder, transaction: Int, field: Int): Int {
+        check(transaction == TX_GET_INT && field == FID_ODO)
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInt(DEVICE)
+            data.writeInt(field)
+            check(binder.transact(transaction, data, reply, 0))
+            reply.readException()
+            reply.readInt()
+        } finally {
+            data.recycle()
+            reply.recycle()
+        }
+    }
+
+    private fun binaryRead(): Reading {
+        val soc = runServiceCall(TX_GET_FLOAT, FID_SOC)
+        val odo = runServiceCall(TX_GET_INT, FID_ODO)
+        val socValue = soc.word?.let { Float.fromBits(it) }
+        val odoValue = odo.word?.toFloat()?.div(10.0f)
+        val detail = "SOC state: ${soc.state}\nODO state: ${odo.state}\nexit code: ${soc.exitCode}/${odo.exitCode}\nParcel raw:\n${soc.raw}\n${odo.raw}" +
+            "\nerror: ${soc.error ?: odo.error ?: "none"}"
+        return Reading(socValue, odoValue, detail)
+    }
+
+    private data class ServiceResult(val state: String, val word: Int?, val exitCode: Int, val raw: String, val error: String?)
+
+    private fun runServiceCall(transaction: Int, field: Int): ServiceResult {
+        check(transaction == TX_GET_FLOAT || transaction == TX_GET_INT)
+        check(field == FID_SOC || field == FID_ODO)
+        return try {
+            val process = ProcessBuilder("/system/bin/service", "call", "autoservice", transaction.toString(), "i32", DEVICE.toString(), "i32", field.toString())
+                .redirectErrorStream(true).start()
+            val output = ByteArrayOutputStream()
+            process.inputStream.use { it.copyTo(output) }
+            val exit = process.waitFor()
+            val raw = output.toString(StandardCharsets.UTF_8.name()).trim()
+            val match = Regex("Parcel\\(00000000\\s+([0-9a-fA-F]{8})").find(raw)
+            val word = match?.groupValues?.get(1)?.toLong(16)?.toInt()
+            ServiceResult(if (word != null) "AVAILABLE" else "NOT_AVAILABLE", word, exit, raw, if (word == null) "no parcel word" else null)
+        } catch (e: Exception) {
+            ServiceResult("FAILED", null, -1, "", "${e.javaClass.simpleName}: ${e.message ?: "unknown"}")
+        }
+    }
 }
