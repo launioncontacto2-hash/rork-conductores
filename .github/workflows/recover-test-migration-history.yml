@@ -51,7 +51,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add supabase/migrations
-          git diff --cached --check
           git diff --cached --name-only
           git commit -m "chore(test): recover exact remote migration history"
           git push origin HEAD:feat/dori-conductores-live-vehicle-e2e
