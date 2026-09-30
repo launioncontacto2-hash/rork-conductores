@@ -2,6 +2,9 @@ name: DORI Vehicle Telemetry TEST
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/dori-conductores-live-vehicle-e2e
 
 permissions:
   contents: read
