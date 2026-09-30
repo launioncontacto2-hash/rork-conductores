@@ -10,8 +10,10 @@ android {
         applicationId = "mx.dori.vehicleagent.probe"
         minSdk = 24
         targetSdk = 33
-        versionCode = 6
-        versionName = "0.6"
+        versionCode = 8
+        versionName = "0.8"
+        buildConfigField("String", "INGEST_URL", "\"https://yyxzuiantrmoyozetswv.supabase.co/functions/v1/dori-vehicle-telemetry-ingest\"")
+        buildConfigField("String", "AGENT_TOKEN", "\"\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
