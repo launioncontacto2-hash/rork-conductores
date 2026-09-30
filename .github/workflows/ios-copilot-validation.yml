@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/dori-copiloto
+      - feat/dori-conductores-live-vehicle-e2e
     paths:
       - .github/workflows/ios-copilot-validation.yml
       - ios-turno-ev/**
@@ -139,7 +140,17 @@ jobs:
             echo "simulator_runtime=$SIMULATOR_RUNTIME"
           } >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$SIMULATOR_UDID" || true
-          timeout 180 xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          python3 <<'PY'
+          import os
+          import subprocess
+          import sys
+          udid = os.environ["SIMULATOR_UDID"]
+          try:
+              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
+          except subprocess.TimeoutExpired:
+              print("Simulator boot timed out after 180 seconds", file=sys.stderr)
+              raise SystemExit(124)
+          PY
           {
             echo "- Simulator: $SIMULATOR_NAME ($SIMULATOR_RUNTIME)"
             echo "- Simulator UDID: $SIMULATOR_UDID"
