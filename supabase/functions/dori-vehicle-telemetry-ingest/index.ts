@@ -14,11 +14,17 @@ Deno.serve(async (req) => {
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: vehicle } = await db.from("vehicles").select("id,environment_id,station_id,odometer_km").eq("operational_code", "DMP-003").maybeSingle();
   if (!vehicle) return reply({ error: "vehicle_not_found" }, 404);
-  const { data: current } = await db.from("vehicle_telemetry_latest").select("sequence,odometer_km").eq("vehicle_id", vehicle.id).maybeSingle();
+  const powerState = body.power_state == null ? null : Number(body.power_state);
+  if (powerState !== null && (!Number.isInteger(powerState) || powerState < 0 || powerState > 3)) return reply({ error: "invalid_power_state" }, 422);
+  const { data: current } = await db.from("vehicle_telemetry_latest").select("sequence,odometer_km,soc_percent,power_state,captured_at,agent_version,source").eq("vehicle_id", vehicle.id).maybeSingle();
   if (current && sequence < current.sequence) return reply({ error: "sequence_rejected" }, 409);
+  if (current && sequence === current.sequence) {
+    const identical = Number(current.soc_percent) === soc && Number(current.odometer_km) === odo && (current.power_state == null ? powerState === null : Number(current.power_state) === powerState) && String(current.captured_at) === captured.toISOString() && String(current.agent_version) === String(body.agent_version ?? "0.8") && current.source === "dori_vehicle_agent";
+    return identical ? reply({ accepted: true, idempotent: true, vehicle_id: vehicle.id, sequence }) : reply({ error: "sequence_conflict" }, 409);
+  }
   if (current && odo < Number(current.odometer_km)) return reply({ error: "odometer_rejected" }, 409);
   const received = new Date().toISOString();
-  const snapshot = { vehicle_id: vehicle.id, environment_id: vehicle.environment_id, station_id: vehicle.station_id, soc_percent: soc, odometer_km: odo, power_state: body.power_state == null ? null : Number(body.power_state), captured_at: captured.toISOString(), received_at: received, agent_version: String(body.agent_version ?? "0.8"), sequence, source: "dori_vehicle_agent" };
+  const snapshot = { vehicle_id: vehicle.id, environment_id: vehicle.environment_id, station_id: vehicle.station_id, soc_percent: soc, odometer_km: odo, power_state: powerState, captured_at: captured.toISOString(), received_at: received, agent_version: String(body.agent_version ?? "0.8"), sequence, source: "dori_vehicle_agent" };
   const { error } = await db.from("vehicle_telemetry_latest").upsert(snapshot, { onConflict: "vehicle_id" });
   if (error) return reply({ error: "snapshot_failed" }, 500);
   const { error: syncError } = await db.from("vehicles").update({ odometer_km: Math.round(odo), battery_pct: Math.round(soc) }).eq("id", vehicle.id);

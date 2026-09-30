@@ -57,6 +57,7 @@ nonisolated enum BackendIncidentContractError: LocalizedError, Sendable {
 /// Persists to `UserDefaults` so a reopened app keeps the shift running.
 @Observable
 final class FleetStore {
+    var backendTelemetryReceivedAt: Date?
     // MARK: - Persisted shape
 
     nonisolated private struct PersistedState: Codable, Sendable {
@@ -338,6 +339,27 @@ final class FleetStore {
             assignedAt: row.assigned_at,
             origin: .backend
         )
+    }
+
+    /// Refreshes only live vehicle telemetry; assignment and session authority remain unchanged.
+    func refreshBackendTelemetry() async {
+        guard let vehicle = assignedVehicle, let client = SupabaseBridge.client else { return }
+        do {
+            let rows: [SupabaseAssignmentService.TelemetryRow] = try await client
+                .from("vehicle_telemetry_latest")
+                .select("soc_percent,odometer_km,power_state,captured_at,received_at")
+                .eq("vehicle_id", value: vehicle.id)
+                .limit(1)
+                .execute().value
+            guard let row = rows.first else { return }
+            backendTelemetryReceivedAt = row.received_at
+            if let index = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+                vehicles[index].batteryPct = Int(row.soc_percent.rounded())
+                vehicles[index].odometerKm = Int(row.odometer_km.rounded())
+            }
+        } catch {
+            // Preserve the last valid reading and let the view derive offline status.
+        }
     }
 
     /// Pulls only reports owned by the authenticated driver. RLS repeats this boundary

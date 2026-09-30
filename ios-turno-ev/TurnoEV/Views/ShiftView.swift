@@ -81,6 +81,12 @@ struct ShiftView: View {
                 store.reloadAssignment()
                 updatePhase()
             }
+            .task {
+                while !Task.isCancelled {
+                    await store.refreshBackendTelemetry()
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
             // Starting, finishing or reporting can change the state of the shift the
             // instant the sheet closes, well before the next minute arrives.
             .fullScreenCover(item: $route, onDismiss: updatePhase) { destination in
@@ -374,6 +380,9 @@ struct ShiftView: View {
                     Text(vehicle.colorDisplay)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Palette.textMuted)
+                    Text(store.backendTelemetryReceivedAt.map { $0.timeIntervalSinceNow > -20 ? "Telemetría: En línea" : "Telemetría: Sin conexión" } ?? "Telemetría: Pendiente")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(store.backendTelemetryReceivedAt.map { $0.timeIntervalSinceNow > -20 ? Palette.volt : Palette.amber } ?? Palette.textMuted)
                 }
             } else {
                 Text("Sin unidad asignada")
