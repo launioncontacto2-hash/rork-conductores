@@ -144,12 +144,19 @@ jobs:
           import os
           import subprocess
           import sys
+          import time
           udid = os.environ["SIMULATOR_UDID"]
-          try:
-              subprocess.run(["xcrun", "simctl", "bootstatus", udid, "-b"], check=True, timeout=180)
-          except subprocess.TimeoutExpired:
-              print("Simulator boot timed out after 180 seconds", file=sys.stderr)
-              raise SystemExit(124)
+          process = subprocess.Popen(["xcrun", "simctl", "bootstatus", udid, "-b"])
+          deadline = time.monotonic() + 180
+          while process.poll() is None:
+              if time.monotonic() >= deadline:
+                  process.kill()
+                  process.wait()
+                  print("Simulator boot timed out after 180 seconds", file=sys.stderr)
+                  raise SystemExit(124)
+              time.sleep(1)
+          if process.returncode != 0:
+              raise SystemExit(process.returncode)
           PY
           {
             echo "- Simulator: $SIMULATOR_NAME ($SIMULATOR_RUNTIME)"
