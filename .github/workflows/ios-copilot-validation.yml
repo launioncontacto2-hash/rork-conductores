@@ -140,7 +140,7 @@ jobs:
             echo "simulator_runtime=$SIMULATOR_RUNTIME"
           } >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$SIMULATOR_UDID" || true
-          python3 <<'PY'
+          SIMULATOR_UDID="$SIMULATOR_UDID" python3 <<'PY'
           import os
           import subprocess
           import sys
