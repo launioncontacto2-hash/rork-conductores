@@ -45,3 +45,12 @@ jobs:
           set -euo pipefail
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/dori-vehicle-telemetry-ingest" -H 'content-type: application/json' -H 'x-dori-agent-token: invalid-test-token' -d '{}')
           test "$code" = "401"
+      - name: Smoke vehicle allowlist
+        env:
+          SUPABASE_URL: https://yyxzuiantrmoyozetswv.supabase.co
+          AGENT_TOKEN: ${{ secrets.DORI_VEHICLE_AGENT_TOKEN_TEST }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENT_TOKEN"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/dori-vehicle-telemetry-ingest" -H 'content-type: application/json' -H "x-dori-agent-token: $AGENT_TOKEN" -d '{"vehicle_code":"DMP-999","soc_percent":50,"odometer_km":1,"sequence":1,"captured_at":"2026-09-30T20:00:00Z"}')
+          test "$code" = "403"
