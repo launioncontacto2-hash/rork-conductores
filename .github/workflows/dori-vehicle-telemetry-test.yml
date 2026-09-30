@@ -30,7 +30,13 @@ jobs:
           set -euo pipefail
           test -n "$AGENT_TOKEN"
           TOKEN_HASH="$(printf '%s' "$AGENT_TOKEN" | sha256sum | awk '{print $1}')"
-          sed -i "s/__DORI_AGENT_TOKEN_SHA256__/$TOKEN_HASH/" supabase/functions/dori-vehicle-telemetry-ingest/index.ts
+          TOKEN_HASH="$TOKEN_HASH" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path("supabase/functions/dori-vehicle-telemetry-ingest/index.ts")
+          text = path.read_text()
+          path.write_text(text.replace("__DORI_AGENT_TOKEN_SHA256__", os.environ["TOKEN_HASH"]))
+          PY
           ! grep -q '__DORI_AGENT_TOKEN_SHA256__' supabase/functions/dori-vehicle-telemetry-ingest/index.ts
       - name: Deploy ingest function to TEST
         env:
