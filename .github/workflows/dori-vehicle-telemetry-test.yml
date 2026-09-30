@@ -51,4 +51,5 @@ jobs:
           set -euo pipefail
           test -n "$AGENT_TOKEN"
           code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/dori-vehicle-telemetry-ingest" -H 'content-type: application/json' -H "x-dori-agent-token: $AGENT_TOKEN" -d '{"vehicle_code":"DMP-999","soc_percent":50,"odometer_km":1,"sequence":1,"captured_at":"2026-09-30T20:00:00Z"}')
+          echo "allowlist smoke status=$code"
           test "$code" = "403"

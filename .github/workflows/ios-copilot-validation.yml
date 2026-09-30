@@ -103,7 +103,7 @@ jobs:
           maximum_ios_major = xcode_major if xcode_major >= 20 else xcode_major + 2
           candidates = []
           for runtime, devices in inventory.get("devices", {}).items():
-              if ".iOS-" not in runtime:
+              if "iOS-" not in runtime:
                   continue
               version = tuple(int(part) for part in re.findall(r"\d+", runtime.split(".iOS-")[-1]))
               if not version or version[0] > maximum_ios_major:
