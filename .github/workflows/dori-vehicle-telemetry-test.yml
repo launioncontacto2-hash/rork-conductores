@@ -24,8 +24,6 @@ jobs:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
         run: supabase db push --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
       - name: Configure TEST function secrets
-        id: configure-secrets
-        continue-on-error: true
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_TEST }}
