@@ -30,6 +30,8 @@ jobs:
           set -euo pipefail
           test -n "$AGENT_TOKEN"
           TOKEN_HASH="$(printf '%s' "$AGENT_TOKEN" | sha256sum | awk '{print $1}')"
+          count=$(grep -o '__DORI_AGENT_TOKEN_SHA256__' supabase/functions/dori-vehicle-telemetry-ingest/index.ts | wc -l | tr -d ' ')
+          test "$count" = "1"
           TOKEN_HASH="$TOKEN_HASH" python3 - <<'PY'
           import os
           from pathlib import Path

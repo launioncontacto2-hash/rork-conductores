@@ -343,15 +343,16 @@ final class FleetStore {
 
     /// Refreshes only live vehicle telemetry; assignment and session authority remain unchanged.
     func refreshBackendTelemetry() async {
-        guard let vehicle = assignedVehicle, let client = SupabaseBridge.client else { return }
+        guard let vehicle = assignedVehicle else { return }
+        guard let client = await SupabaseBridge.client else { return }
         do {
-            let response = try await client
+            let rows: [SupabaseAssignmentService.TelemetryRow] = try await client
                 .from("vehicle_telemetry_latest")
-                .select("soc_percent,odometer_km,power_state,captured_at,received_at")
+                .select("vehicle_id,soc_percent,odometer_km,power_state,captured_at,received_at,agent_version,sequence")
                 .eq("vehicle_id", value: vehicle.id)
                 .limit(1)
                 .execute()
-            let rows: [SupabaseAssignmentService.TelemetryRow] = try response.value
+                .value
             guard let row = rows.first else { return }
             backendTelemetryReceivedAt = row.received_at
             if let index = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
