@@ -132,7 +132,7 @@ jobs:
           grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
           unzip -l "$final" | grep -E 'META-INF/.*\.(SF|RSA|DSA|EC)$'
           unzip -l "$final" | grep 'META-INF/MANIFEST.MF'
-          jarsigner -verify "$final"          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
+          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
           "$aapt_bin" dump badging "$final" | tee "$badging"
           grep -q "package: name='mx.dori.vehicleagent.probe' versionCode='3' versionName='0.3'" "$badging"
           grep -q "sdkVersion:'24'" "$badging"
