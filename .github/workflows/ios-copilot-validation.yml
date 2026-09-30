@@ -139,7 +139,7 @@ jobs:
             echo "simulator_runtime=$SIMULATOR_RUNTIME"
           } >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$SIMULATOR_UDID" || true
-          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+          timeout 180 xcrun simctl bootstatus "$SIMULATOR_UDID" -b
           {
             echo "- Simulator: $SIMULATOR_NAME ($SIMULATOR_RUNTIME)"
             echo "- Simulator UDID: $SIMULATOR_UDID"
