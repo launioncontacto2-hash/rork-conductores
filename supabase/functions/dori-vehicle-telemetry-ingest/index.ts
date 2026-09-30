@@ -1,11 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.0";
 const headers = { "content-type": "application/json", "access-control-allow-origin": "*" };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers });
+const EXPECTED_AGENT_TOKEN_SHA256 = "__DORI_AGENT_TOKEN_SHA256__";
+const sha256Hex = async (value: string) => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+};
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...headers, "access-control-allow-methods": "POST", "access-control-allow-headers": "content-type, x-dori-agent-token" } });
   if (req.method !== "POST") return reply({ error: "method_not_allowed" }, 405);
-  const token = Deno.env.get("DORI_VEHICLE_AGENT_TOKEN_TEST");
-  if (!token || req.headers.get("x-dori-agent-token") !== token) return reply({ error: "unauthorized" }, 401);
+  const token = req.headers.get("x-dori-agent-token");
+  if (!token || EXPECTED_AGENT_TOKEN_SHA256 === "__DORI_AGENT_TOKEN_SHA256__" || await sha256Hex(token) !== EXPECTED_AGENT_TOKEN_SHA256) return reply({ error: "unauthorized" }, 401);
   const body = await req.json().catch(() => null) as Record<string, unknown> | null;
   if (!body || body.vehicle_code !== "DMP-003") return reply({ error: "vehicle_not_allowed" }, 403);
   const soc = Number(body.soc_percent), odo = Number(body.odometer_km), sequence = Number(body.sequence);

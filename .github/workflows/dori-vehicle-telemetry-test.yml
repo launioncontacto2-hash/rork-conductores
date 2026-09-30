@@ -23,16 +23,16 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_TEST }}
         run: supabase db push --project-ref yyxzuiantrmoyozetswv --password "$SUPABASE_DB_PASSWORD"
-      - name: Configure TEST function secrets
+      - name: Inject TEST token hash in working copy
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY_TEST }}
           AGENT_TOKEN: ${{ secrets.DORI_VEHICLE_AGENT_TOKEN_TEST }}
         run: |
-          test -n "$SERVICE_ROLE" && test -n "$AGENT_TOKEN"
-          supabase secrets set --project-ref yyxzuiantrmoyozetswv SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE" DORI_VEHICLE_AGENT_TOKEN_TEST="$AGENT_TOKEN"
+          set -euo pipefail
+          test -n "$AGENT_TOKEN"
+          TOKEN_HASH="$(printf '%s' "$AGENT_TOKEN" | sha256sum | awk '{print $1}')"
+          sed -i "s/__DORI_AGENT_TOKEN_SHA256__/$TOKEN_HASH/" supabase/functions/dori-vehicle-telemetry-ingest/index.ts
+          ! grep -q '__DORI_AGENT_TOKEN_SHA256__' supabase/functions/dori-vehicle-telemetry-ingest/index.ts
       - name: Deploy ingest function to TEST
-        if: always()
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy dori-vehicle-telemetry-ingest --project-ref yyxzuiantrmoyozetswv --no-verify-jwt
