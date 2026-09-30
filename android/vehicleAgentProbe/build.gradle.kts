@@ -10,8 +10,8 @@ android {
         applicationId = "mx.dori.vehicleagent.probe"
         minSdk = 24
         targetSdk = 33
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
