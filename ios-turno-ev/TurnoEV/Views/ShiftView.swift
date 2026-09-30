@@ -380,9 +380,9 @@ struct ShiftView: View {
                     Text(vehicle.colorDisplay)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Palette.textMuted)
-                    Text(store.backendTelemetryReceivedAt.map { $0.timeIntervalSinceNow > -20 ? "Telemetría: En línea" : "Telemetría: Sin conexión" } ?? "Telemetría: Pendiente")
+                    Text(telemetryStatus)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(store.backendTelemetryReceivedAt.map { $0.timeIntervalSinceNow > -20 ? Palette.volt : Palette.amber } ?? Palette.textMuted)
+                        .foregroundStyle(telemetryStatusColor)
                 }
             } else {
                 Text("Sin unidad asignada")
@@ -401,6 +401,17 @@ struct ShiftView: View {
             Text(value).foregroundStyle(Color.primary)
         }
         .font(.system(size: 11, weight: .semibold))
+    }
+
+    private var telemetryStatus: String {
+        guard let received = store.backendTelemetryReceivedAt else { return "Telemetría: Pendiente" }
+        let seconds = max(0, Int(Date().timeIntervalSince(received)))
+        return seconds <= 20 ? "● En línea · Última lectura hace \(seconds) s" : "Sin conexión · Última lectura hace \(seconds) s"
+    }
+
+    private var telemetryStatusColor: Color {
+        guard let received = store.backendTelemetryReceivedAt else { return Palette.textMuted }
+        return Date().timeIntervalSince(received) <= 20 ? Palette.volt : Palette.amber
     }
 
     /// Late time owed this week. The figure moves with the week, so it is read at minute
