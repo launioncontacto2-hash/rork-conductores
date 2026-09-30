@@ -304,6 +304,7 @@ final class FleetStore {
 
         let row = remote.assignment
         let vehicleRow = remote.vehicle
+        let live = remote.telemetry
         let kind = AssignedUnitKind(rawValue: row.kind) ?? .titular
         let vehicleStatus = VehicleStatus(rawValue: vehicleRow.status) ?? .occupied
         let vehicle = Vehicle(
@@ -312,8 +313,8 @@ final class FleetStore {
             internalNumber: vehicleRow.internal_number,
             model: vehicleRow.model,
             plates: vehicleRow.plate ?? "Sin placa",
-            odometerKm: vehicleRow.odometer_km,
-            batteryPct: vehicleRow.battery_pct ?? 0,
+            odometerKm: live.map { Int($0.odometer_km.rounded()) } ?? vehicleRow.odometer_km,
+            batteryPct: live.map { Int($0.soc_percent.rounded()) } ?? (vehicleRow.battery_pct ?? 0),
             stationId: vehicleRow.station_id.uuidString,
             station: principal.stationName ?? principal.stationCode ?? "Estación",
             status: vehicleStatus,

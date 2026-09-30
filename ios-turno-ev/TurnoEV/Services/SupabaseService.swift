@@ -1407,6 +1407,18 @@ enum SupabaseAssignmentService {
     nonisolated struct DriverAssignment: Sendable {
         let assignment: AssignmentRow
         let vehicle: VehicleRow
+        let telemetry: TelemetryRow?
+    }
+
+    nonisolated struct TelemetryRow: Decodable, Sendable {
+        let vehicle_id: UUID
+        let soc_percent: Double
+        let odometer_km: Double
+        let power_state: Int?
+        let captured_at: Date
+        let received_at: Date
+        let agent_version: String
+        let sequence: Int64
     }
 
     nonisolated struct AssignParameters: Encodable, Sendable {
@@ -1550,7 +1562,14 @@ enum SupabaseAssignmentService {
             .value
 
         guard let vehicle = vehicles.first else { throw ServiceError.assignmentVehicleNotVisible }
-        return DriverAssignment(assignment: assignment, vehicle: vehicle)
+        let telemetry: [TelemetryRow] = (try? await client
+            .from("vehicle_telemetry_latest")
+            .select("vehicle_id,soc_percent,odometer_km,power_state,captured_at,received_at,agent_version,sequence")
+            .eq("vehicle_id", value: vehicle.id.uuidString)
+            .limit(1)
+            .execute()
+            .value) ?? []
+        return DriverAssignment(assignment: assignment, vehicle: vehicle, telemetry: telemetry.first)
     }
 }
 
