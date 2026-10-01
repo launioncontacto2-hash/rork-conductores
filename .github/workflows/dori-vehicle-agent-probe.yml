@@ -17,6 +17,7 @@ jobs:
   build:
     if: github.ref_name == 'feat/dori-vehicle-agent-live-v08'
     runs-on: ubuntu-latest
+    environment: test
     steps:
       - name: Checkout isolated probe branch
         uses: actions/checkout@v4
