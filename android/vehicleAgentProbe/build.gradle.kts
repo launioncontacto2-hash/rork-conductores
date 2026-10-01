@@ -10,6 +10,11 @@ android {
     defaultConfig {
         val agentToken = providers.gradleProperty("agentToken").orElse("").get()
         check(agentToken.isNotEmpty()) { "AGENT_TOKEN_RESOLVED_FAILED" }
+        check(
+            listOf("GradlePropertyValueSource", "Provider", "valueof(", "fixed(")
+                .none(agentToken::contains)
+        ) { "AGENT_TOKEN_PROVIDER_VALUE_FAILED" }
+        logger.lifecycle("AGENT_TOKEN_RESOLVED=PASS")
         val escapedAgentToken = agentToken
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
