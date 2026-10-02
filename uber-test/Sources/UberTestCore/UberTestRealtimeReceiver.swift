@@ -54,7 +54,6 @@ public actor UberTestRealtimeReceiver {
                 guard !Task.isCancelled else { return }
                 if case .subscribed = status {
                     await self?.markSubscribed()
-                    await onWakeup()
                 }
             }
         }
@@ -68,11 +67,12 @@ public actor UberTestRealtimeReceiver {
 
     /// Gives the primary transport a bounded window to complete its handshake
     /// before recovery polling is allowed to run.
-    public func waitUntilSubscribed(timeoutNanoseconds: UInt64 = 2_000_000_000) async {
+    public func waitUntilSubscribed(timeoutNanoseconds: UInt64 = 2_000_000_000) async -> Bool {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
         while !subscribed && DispatchTime.now().uptimeNanoseconds < deadline {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
+        return subscribed
     }
 
     public func stop() async {
@@ -88,6 +88,7 @@ public actor UberTestRealtimeReceiver {
 public actor UberTestRealtimeReceiver {
     public init(url: URL, publishableKey: String) {}
     public func start(accessToken: String, onWakeup: @escaping @Sendable () async -> Void) async {}
+    public func waitUntilSubscribed(timeoutNanoseconds: UInt64 = 2_000_000_000) async -> Bool { true }
     public func stop() async {}
 }
 #endif

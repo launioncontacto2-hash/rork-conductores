@@ -147,7 +147,11 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(realtimeSwift, /onWakeup/);
   assert.match(realtimeSwift, /statusChange/);
   assert.match(realtimeSwift, /waitUntilSubscribed/);
+  assert.match(realtimeSwift, /if case \.subscribed = status \{\s*await self\?\.markSubscribed\(\)\s*\}/);
+  assert.match(realtimeSwift, /consumer = Task \{\s*for await _ in changes \{ await onWakeup\(\) \}\s*\}/);
   assert.match(appSwift, /realtime_received_at/);
+  assert.match(appSwift, /realtime_subscribed_at/);
+  assert.match(appSwift, /realtime_subscribe_timeout_at/);
   assert.match(appSwift, /transportActive/);
   assert.match(appSwift, /activateTransportIfNeeded/);
   assert.match(appSwift, /realtime_start_requested/);
@@ -157,6 +161,9 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(storeSwift, /transport_used=/);
   assert.match(storeSwift, /presented_at/);
   assert.match(storeSwift, /startForegroundRecovery/);
+  assert.match(storeSwift, /intervalSeconds: Double = 15/);
+  assert.match(storeSwift, /max\(1, min\(intervalSeconds, 15\)\)/);
+  assert.match(appSwift, /UBER_TEST_RECOVERY_INTERVAL_SECONDS/);
   assert.match(storeSwift, /private var resultFlushTask/);
   assert.match(storeSwift, /flushPendingResultsForTesting/);
 });

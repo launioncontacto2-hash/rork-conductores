@@ -92,15 +92,16 @@ public final class UberTestStore: ObservableObject {
         catch UberTestSessionError.terminated { stopForegroundRecovery() }
         catch { errorMessage = "No se pudo recuperar la tanda TEST." }
     }
-    public func startForegroundRecovery(using client: UberTestBatchClient) async {
+    public func startForegroundRecovery(using client: UberTestBatchClient, intervalSeconds: Double = 15) async {
         recoveryTask?.cancel()
+        let recoveryInterval = max(1, min(intervalSeconds, 15))
         recoveryTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 if self.queue.current == nil { await self.recover(using: client, transport: "fallback") }
                 // Realtime/push is the primary transport; this bounded loop is
                 // recovery only when the app resumes without a delivered event.
-                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                do { try await Task.sleep(for: .seconds(recoveryInterval)) } catch { return }
             }
         }
     }

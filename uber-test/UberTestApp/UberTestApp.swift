@@ -126,6 +126,7 @@ private struct UberTestRuntimeConfiguration {
     let batchURL: URL?
     let copilotEvaluateURL: URL?
     let telemetryURL: URL?
+    let recoveryIntervalSeconds: Double
     let accessToken: @Sendable () async -> String?
     let refreshAccessToken: @Sendable () async -> String?
 
@@ -139,6 +140,13 @@ private struct UberTestRuntimeConfiguration {
         batchURL = base?.appendingPathComponent("functions/v1/uber-test-next")
         copilotEvaluateURL = base?.appendingPathComponent("functions/v1/uber-test-copilot-evaluate")
         telemetryURL = base?.appendingPathComponent("functions/v1/uber-test-telemetry")
+        let recoveryValue = Bundle.main.object(forInfoDictionaryKey: "UBER_TEST_RECOVERY_INTERVAL_SECONDS")
+        let configuredRecovery: Double? = {
+            if let number = recoveryValue as? NSNumber { return number.doubleValue }
+            if let text = recoveryValue as? String { return Double(text) }
+            return nil
+        }()
+        recoveryIntervalSeconds = max(1, min(configuredRecovery ?? 15, 15))
         accessToken = { await UberTestSession.shared.validToken() }
         refreshAccessToken = { await UberTestSession.shared.validToken(force: true) }
     }
@@ -244,12 +252,13 @@ struct UberTestApp: App {
                     await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
                     await store.recover(using: client, transport: "realtime")
                 }
-                await realtime.waitUntilSubscribed()
+                let subscribed = await realtime.waitUntilSubscribed()
+                store.transportTelemetry?(subscribed ? "realtime_subscribed_at" : "realtime_subscribe_timeout_at", .now)
             }
             // Realtime is established before initial recovery so a batch
             // created during startup cannot be consumed only by fallback.
             await store.recover(using: client, transport: "fallback")
-            await store.startForegroundRecovery(using: client)
+            await store.startForegroundRecovery(using: client, intervalSeconds: runtime.recoveryIntervalSeconds)
         }
     }
 

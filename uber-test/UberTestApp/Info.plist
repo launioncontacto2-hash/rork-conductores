@@ -22,6 +22,8 @@
 	<string>$(UBER_TEST_SUPABASE_URL)</string>
 	<key>UBER_TEST_SUPABASE_PUBLISHABLE_KEY</key>
 	<string>$(UBER_TEST_SUPABASE_PUBLISHABLE_KEY)</string>
+	<key>UBER_TEST_RECOVERY_INTERVAL_SECONDS</key>
+	<string>$(UBER_TEST_RECOVERY_INTERVAL_SECONDS)</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
