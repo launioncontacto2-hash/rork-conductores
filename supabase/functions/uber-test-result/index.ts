@@ -22,9 +22,13 @@ Deno.serve(async (request) => {
   try { body = await request.json(); } catch { return reply(400, { error: "invalid_json" }); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return reply(400, { error: "invalid_request_shape" });
   const payload = body as Record<string, unknown>;
-  if (typeof payload.offerId !== "string" || typeof payload.outcome !== "string" || typeof payload.idempotencyKey !== "string" || typeof payload.occurredAt !== "string") return reply(400, { error: "result_fields_required" });
+  if (typeof payload.offerId !== "string" || typeof payload.outcome !== "string" || typeof payload.idempotencyKey !== "string") return reply(400, { error: "result_fields_required" });
   if (!["accepted", "discarded", "expired"].includes(payload.outcome)) return reply(400, { error: "invalid_uber_test_outcome" });
-  const observedAt = new Date(payload.occurredAt);
+  // Backward compatibility for UBER Test build 107: legacy result payloads
+  // did not include occurredAt. Use server receipt time only when the field is
+  // absent; newer builds keep their client-observed timestamp.
+  if (payload.occurredAt != null && typeof payload.occurredAt !== "string") return reply(400, { error: "invalid_occurred_at" });
+  const observedAt = typeof payload.occurredAt === "string" ? new Date(payload.occurredAt) : new Date();
   if (Number.isNaN(observedAt.getTime())) return reply(400, { error: "invalid_occurred_at" });
   const rawObservation = payload.observation;
   let tripObservation: Record<string, number | null> | null = null;
