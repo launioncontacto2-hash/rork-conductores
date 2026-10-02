@@ -76,7 +76,7 @@ public struct UberTestOfferView: View {
         }.padding(24)
     }
     private func observedField(_ title: String, text: Binding<String>, unit: String) -> some View {
-        HStack { Text(title).font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.65)); Spacer(); TextField("0", text: text).keyboardType(.decimalPad).multilineTextAlignment(.trailing).frame(width: 90).textFieldStyle(.roundedBorder); Text(unit).font(.caption2).foregroundStyle(.white.opacity(0.55)).frame(width: 90, alignment: .leading) }
+        HStack { Text(title).font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.65)); Spacer(); TextField("0", text: text).multilineTextAlignment(.trailing).frame(width: 90).textFieldStyle(.roundedBorder); Text(unit).font(.caption2).foregroundStyle(.white.opacity(0.55)).frame(width: 90, alignment: .leading) }
     }
     private func metric(_ title: String, _ value: String) -> some View { VStack(alignment: .leading) { Text(title).font(.caption2.weight(.bold)).foregroundStyle(.white.opacity(0.55)); Text(value).font(.body.weight(.medium)).foregroundStyle(.white) } }
 }
