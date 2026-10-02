@@ -230,31 +230,39 @@ private struct DORICopilotOfferAlert: View {
     @Bindable var inbox: DORICopilotInbox
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 20) {
             Label("NUEVA OFERTA", systemImage: "bell.badge.fill")
-                .font(.system(.headline, weight: .black))
+                .font(.system(size: 28, weight: .black))
                 .foregroundStyle(Palette.volt)
             Text(inbox.store.simulationMessage ?? "DORI está leyendo la oferta.")
-                .font(.subheadline)
+                .font(.system(size: 20, weight: .semibold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(Palette.text)
             if let result = inbox.store.state.result {
                 Text(result.recommendation.rawValue)
-                    .font(.system(.title, weight: .black))
+                    .font(.system(size: 50, weight: .black, design: .rounded))
+                    .minimumScaleFactor(0.72)
                     .foregroundStyle(result.recommendation == .recommended ? Palette.volt : Palette.danger)
                 ForEach(Array(result.reasons.prefix(3).enumerated()), id: \.offset) { _, reason in
-                    Text(reason).font(.caption).foregroundStyle(Palette.textMuted)
+                    Text(reason)
+                        .font(.system(size: 18, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(Palette.textMuted)
                 }
-                HStack {
+                VStack(spacing: 12) {
                     Button("TOMAR") { inbox.store.confirmDecision(true); inbox.dismissOffer() }
+                        .font(.system(size: 24, weight: .black))
+                        .frame(maxWidth: .infinity, minHeight: 58)
                         .buttonStyle(.borderedProminent).tint(Palette.volt)
                     Button("NO TOMAR") { inbox.store.confirmDecision(false); inbox.dismissOffer() }
+                        .font(.system(size: 22, weight: .bold))
+                        .frame(maxWidth: .infinity, minHeight: 54)
                         .buttonStyle(.bordered).tint(Palette.surfaceRaised)
                 }
             }
         }
-        .padding(22)
-        .frame(maxWidth: 360)
+        .padding(28)
+        .frame(maxWidth: 520, minHeight: 420)
         .background(Palette.surfaceRaised, in: .rect(cornerRadius: 24))
         .overlay { RoundedRectangle(cornerRadius: 24).stroke(Palette.volt.opacity(0.65), lineWidth: 1) }
         .shadow(radius: 20)

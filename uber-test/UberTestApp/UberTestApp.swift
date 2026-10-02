@@ -246,9 +246,9 @@ struct UberTestApp: App {
             await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             await UberTestPushCoordinator.registerForNotifications()
-            if let realtime, let token = await runtime.accessToken() {
+            if let realtime, let token = await runtime.accessToken(), let profileID = receiver.profileID {
                 store.transportTelemetry?("realtime_start_requested", .now)
-                await realtime.start(accessToken: token) {
+                await realtime.start(accessToken: token, profileID: profileID) {
                     await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
                     await store.recover(using: client, transport: "realtime")
                 }

@@ -17,19 +17,19 @@ public actor UberTestRealtimeReceiver {
         client = SupabaseClient(supabaseURL: url, supabaseKey: publishableKey)
     }
 
-    public func start(accessToken: String, onWakeup: @escaping @Sendable () async -> Void) async {
+    public func start(accessToken: String, profileID: String, onWakeup: @escaping @Sendable () async -> Void) async {
         if subscribed { return }
         if let startTask { await startTask.value; return }
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.performStart(accessToken: accessToken, onWakeup: onWakeup)
+            await self.performStart(accessToken: accessToken, profileID: profileID, onWakeup: onWakeup)
         }
         startTask = task
         await task.value
         startTask = nil
     }
 
-    private func performStart(accessToken: String, onWakeup: @escaping @Sendable () async -> Void) async {
+    private func performStart(accessToken: String, profileID: String, onWakeup: @escaping @Sendable () async -> Void) async {
         client.realtime.setAuth(accessToken)
         subscribed = false
         consumer?.cancel(); consumer = nil
@@ -38,12 +38,10 @@ public actor UberTestRealtimeReceiver {
             channel = nil
             await client.removeChannel(oldChannel)
         }
-        let next = client.channel("uber-test-offer-events")
-        let changes = next.postgresChange(
-            InsertAction.self,
-            schema: "public",
-            table: "uber_test_offer_events"
-        )
+        let next = client.channel("uber-test-driver:\(profileID)") {
+            $0.isPrivate = true
+        }
+        let changes = next.broadcastStream(event: "offer-insert")
         channel = next
         // Install callbacks before subscribe so Realtime is the primary
         // wake-up and recovery remains the authoritative read path.
@@ -87,7 +85,7 @@ public actor UberTestRealtimeReceiver {
 /// deterministic queue/model tests do not initialize an iOS-only SDK runtime.
 public actor UberTestRealtimeReceiver {
     public init(url: URL, publishableKey: String) {}
-    public func start(accessToken: String, onWakeup: @escaping @Sendable () async -> Void) async {}
+    public func start(accessToken: String, profileID: String, onWakeup: @escaping @Sendable () async -> Void) async {}
     public func waitUntilSubscribed(timeoutNanoseconds: UInt64 = 2_000_000_000) async -> Bool { true }
     public func stop() async {}
 }

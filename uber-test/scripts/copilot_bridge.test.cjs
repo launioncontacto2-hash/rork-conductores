@@ -20,7 +20,9 @@ const appDelegateSwift = fs.readFileSync(path.join(root, 'ios-turno-ev', 'TurnoE
 const offerBatchSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'OfferBatch.swift'), 'utf8');
 const storeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestStore.swift'), 'utf8');
 const realtimeSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestRealtimeReceiver.swift'), 'utf8');
+const receiverStateSwift = fs.readFileSync(path.join(root, 'uber-test', 'Sources', 'UberTestCore', 'UberTestReceiverState.swift'), 'utf8');
 const realtimeRls = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20261002012156_gate_puebla_backend_reconcile.sql'), 'utf8');
+const realtimeBroadcastMigration = fs.readFileSync(path.join(root, 'supabase', 'migrations', '20261002062453_gate_puebla_uber_test_realtime_broadcast.sql'), 'utf8');
 const appSwift = fs.readFileSync(path.join(root, 'uber-test', 'UberTestApp', 'UberTestApp.swift'), 'utf8');
 
 test('Uber Test bridge carries pickup and TEST destination context', () => {
@@ -146,8 +148,16 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(realtimeSwift, /public actor UberTestRealtimeReceiver/);
   assert.match(realtimeSwift, /private var startTask/);
   assert.match(realtimeSwift, /await client\.removeChannel\(oldChannel\)/);
-  assert.match(realtimeSwift, /postgresChange/);
-  assert.match(realtimeSwift, /table: "uber_test_offer_events"/);
+  assert.match(realtimeSwift, /broadcastStream\(event: "offer-insert"\)/);
+  assert.match(realtimeSwift, /uber-test-driver:\\\(profileID\)/);
+  assert.match(realtimeSwift, /\$0\.isPrivate = true/);
+  assert.match(receiverStateSwift, /profileID = payload\["profileId"\] as\? String/);
+  assert.match(appSwift, /profileID = receiver\.profileID/);
+  assert.match(realtimeBroadcastMigration, /uber_test_driver_broadcast_read/);
+  assert.match(realtimeBroadcastMigration, /realtime\.topic\(\) = 'uber-test-driver:'/);
+  assert.match(realtimeBroadcastMigration, /realtime\.send/);
+  assert.match(realtimeBroadcastMigration, /offer-insert/);
+  assert.match(realtimeBroadcastMigration, /after insert on public\.uber_test_offer_events/i);
   assert.match(realtimeSwift, /await next\.subscribe\(\)/);
   assert.match(realtimeSwift, /setAuth/);
   assert.match(realtimeSwift, /onWakeup/);

@@ -19,6 +19,7 @@ public final class UberTestReceiverState: ObservableObject {
     @Published public private(set) var isActive = false
     @Published public private(set) var receiverState = "SIN CONEXIÓN"
     @Published public private(set) var linkState = "ESPERANDO DORI"
+    @Published public private(set) var profileID: String?
     public let installationID: String
     private let baseURL: URL?
     private let publishableKey: String?
@@ -46,7 +47,13 @@ public final class UberTestReceiverState: ObservableObject {
             if (response as? HTTPURLResponse)?.statusCode == 401 { uberTestNotifySessionTerminated(); reset(); return }
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { isActive = false; receiverState = "SIN CONEXIÓN"; return }
-        if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { displayName = payload["displayName"] as? String ?? displayName; employeeNumber = payload["employeeNumber"] as? String ?? employeeNumber; isActive = payload["activeReceiver"] as? Bool ?? false; receiverState = isActive ? "ACTIVO" : "INACTIVO" }
+        if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            displayName = payload["displayName"] as? String ?? displayName
+            employeeNumber = payload["employeeNumber"] as? String ?? employeeNumber
+            profileID = payload["profileId"] as? String ?? profileID
+            isActive = payload["activeReceiver"] as? Bool ?? false
+            receiverState = isActive ? "ACTIVO" : "INACTIVO"
+        }
         if function != "uber_test_release_receiver" { await refreshLinkStatus(token: bearer, refresh: refresh) }
     }
 
@@ -84,5 +91,5 @@ public final class UberTestReceiverState: ObservableObject {
         }
     }
     public func stopHeartbeat() { heartbeatTask?.cancel(); heartbeatTask = nil }
-    public func reset() { stopHeartbeat(); isActive = false; receiverState = "SIN CONEXIÓN" }
+    public func reset() { stopHeartbeat(); profileID = nil; isActive = false; receiverState = "SIN CONEXIÓN" }
 }

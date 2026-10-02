@@ -60,7 +60,14 @@ Deno.serve(async (request) => {
                 "apns-collapse-id": n.offer_id.slice(0, 64),
               },
               body: JSON.stringify({
-                aps: { alert: { title: "DORI Copiloto", body: n.body }, sound: "default" },
+                aps: {
+                  alert: {
+                    title: `DORI · ${n.payload?.recommendation === "RECOMENDADO" ? "TOMAR" : "NO TOMAR"}`,
+                    subtitle: "Oferta activa · revisa cuando sea seguro",
+                    body: n.body,
+                  },
+                  sound: "default",
+                },
                 dori: { offerId: n.offer_id, deepLink: "turno://copiloto" },
               }),
             },
