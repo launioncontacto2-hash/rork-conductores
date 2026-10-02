@@ -246,19 +246,23 @@ struct UberTestApp: App {
             await receiver.claim(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             receiver.startHeartbeat(using: runtime.accessToken, refresh: runtime.refreshAccessToken)
             await UberTestPushCoordinator.registerForNotifications()
-            if let realtime, let token = await runtime.accessToken(), let profileID = receiver.profileID {
-                store.transportTelemetry?("realtime_start_requested", .now)
-                await realtime.start(accessToken: token, profileID: profileID) {
-                    await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
-                    await store.recover(using: client, transport: "realtime")
-                }
-                let subscribed = await realtime.waitUntilSubscribed()
-                store.transportTelemetry?(subscribed ? "realtime_subscribed_at" : "realtime_subscribe_timeout_at", .now)
-            }
-            // Realtime is established before initial recovery so a batch
-            // created during startup cannot be consumed only by fallback.
+            // Recovery must never wait for Realtime. Start the authoritative
+            // fallback path immediately, then let Realtime race it as a low-latency wakeup.
             await store.recover(using: client, transport: "fallback")
             await store.startForegroundRecovery(using: client, intervalSeconds: runtime.recoveryIntervalSeconds)
+            if let realtime, let token = await runtime.accessToken(), let profileID = receiver.profileID {
+                store.transportTelemetry?("realtime_start_requested", .now)
+                Task {
+                    await realtime.start(accessToken: token, profileID: profileID) {
+                        await MainActor.run { store.transportTelemetry?("realtime_received_at", .now) }
+                        await store.recover(using: client, transport: "realtime")
+                    }
+                    let subscribed = await realtime.waitUntilSubscribed()
+                    await MainActor.run {
+                        store.transportTelemetry?(subscribed ? "realtime_subscribed_at" : "realtime_subscribe_timeout_at", .now)
+                    }
+                }
+            }
         }
     }
 

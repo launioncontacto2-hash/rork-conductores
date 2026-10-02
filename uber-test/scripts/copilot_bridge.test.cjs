@@ -171,7 +171,7 @@ test('Realtime is the foreground wakeup and server recovery remains authoritativ
   assert.match(appSwift, /transportActive/);
   assert.match(appSwift, /activateTransportIfNeeded/);
   assert.match(appSwift, /realtime_start_requested/);
-  assert.match(appSwift, /await realtime\.start[\s\S]*await store\.recover\(using: client, transport: "fallback"\)/);
+  assert.match(appSwift, /await store\.recover\(using: client, transport: "fallback"\)[\s\S]*await store\.startForegroundRecovery[\s\S]*Task \{[\s\S]*await realtime\.start/);
   assert.doesNotMatch(appSwift, /\.onChange\(of: scenePhase\)[\s\S]*realtime\.start/);
   assert.match(storeSwift, /recover_started_at/);
   assert.match(storeSwift, /transport_used=/);
