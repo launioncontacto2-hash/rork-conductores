@@ -9,12 +9,15 @@ android {
     buildFeatures { buildConfig = true }
     defaultConfig {
         val agentToken = providers.gradleProperty("agentToken").orElse("").get()
+        val vehicleCode = providers.gradleProperty("vehicleCode").orElse("").get()
         check(agentToken.isNotEmpty()) { "AGENT_TOKEN_RESOLVED_FAILED" }
+        check(Regex("^[A-Z0-9-]{3,32}$").matches(vehicleCode)) { "VEHICLE_CODE_RESOLVED_FAILED" }
         check(
             listOf("GradlePropertyValueSource", "Provider", "valueof(", "fixed(")
                 .none(agentToken::contains)
         ) { "AGENT_TOKEN_PROVIDER_VALUE_FAILED" }
         logger.lifecycle("AGENT_TOKEN_RESOLVED=PASS")
+        logger.lifecycle("VEHICLE_CODE_RESOLVED=PASS:$vehicleCode")
         val escapedAgentToken = agentToken
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
@@ -27,6 +30,7 @@ android {
         versionName = "0.8"
         buildConfigField("String", "INGEST_URL", "\"https://yyxzuiantrmoyozetswv.supabase.co/functions/v1/dori-vehicle-telemetry-ingest\"")
         buildConfigField("String", "AGENT_TOKEN", "\"$escapedAgentToken\"")
+        buildConfigField("String", "VEHICLE_CODE", "\"$vehicleCode\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

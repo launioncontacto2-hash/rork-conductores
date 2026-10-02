@@ -18,6 +18,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     environment: test
+    strategy:
+      fail-fast: false
+      matrix:
+        vehicle_code: [DMP-002, DMP-003]
     steps:
       - name: Checkout current validation commit
         uses: actions/checkout@v4
@@ -99,6 +103,8 @@ jobs:
           grep -q 'DEVICE_VEHICLE = 1014' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
           grep -q 'DEVICE_POWER = 1023' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
           grep -Fq 'Parcel\\(00000000\\s+' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          grep -q 'BuildConfig.VEHICLE_CODE' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          ! grep -q '\"vehicle_code\":\"DMP-003\"' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
           ! grep -Fq '0x' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
 
       - name: Assemble unsigned release APK
@@ -108,7 +114,7 @@ jobs:
         run: |
           chmod +x gradlew
           test -n "$AGENT_TOKEN"
-          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace -PagentToken="$AGENT_TOKEN"
+          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace -PagentToken="$AGENT_TOKEN" -PvehicleCode="${{ matrix.vehicle_code }}"
 
       - name: Align, sign and verify APK
         env:
@@ -126,7 +132,7 @@ jobs:
           aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           aligned="$RUNNER_TEMP/dori-vehicle-agent/aligned.apk"
           keystore="$RUNNER_TEMP/dori-vehicle-agent/dori-vehicle-agent.keystore"
-          final="artifacts/dori-vehicle-agent-live-v0.8.apk"
+          final="artifacts/dori-vehicle-agent-${{ matrix.vehicle_code }}-live-v0.8.apk"
           printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
           "$zipalign_bin" -p -f 4 "$unsigned" "$aligned"
           "$zipalign_bin" -c -v 4 "$aligned"
@@ -151,12 +157,12 @@ jobs:
           ! grep -q 'android.permission.ACCESS_NETWORK_STATE' "$permissions"
           ! grep -q 'BYDAUTO_' "$permissions"
           ! grep -Eiq '(WRITE|CONTROL|_SET)' "$permissions"
-          sha256sum "$final" | tee artifacts/dori-vehicle-agent-live-v0.8.apk.sha256
+          sha256sum "$final" | tee "${final}.sha256"
           rm -f "$keystore" "$aligned" "$unsigned"
 
       - name: Upload v0.8 APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dori-vehicle-agent-live-v0.8
-          path: artifacts/dori-vehicle-agent-live-v0.8.apk*
+          name: dori-vehicle-agent-${{ matrix.vehicle_code }}-live-v0.8
+          path: artifacts/dori-vehicle-agent-${{ matrix.vehicle_code }}-live-v0.8.apk*
           if-no-files-found: error
