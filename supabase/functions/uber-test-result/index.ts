@@ -46,8 +46,8 @@ Deno.serve(async (request) => {
     client.from("dori_decision_events").select("id").eq("offer_id", payload.offerId).maybeSingle(),
     client.from("uber_test_offer_events").select("copilot_status").eq("presented_offer_id", payload.offerId).maybeSingle(),
   ]);
-  if (decisionError || eventError) return reply(503, { error: "copilot_outcome_lookup_pending" });
-  if (offerEvent?.copilot_status === "evaluated" && !decision) return reply(503, { error: "copilot_decision_not_visible_yet" });
+  if (decisionError || eventError || !offerEvent) return reply(503, { error: "copilot_outcome_lookup_pending" });
+  if (!decision && ["pending", "evaluated"].includes(offerEvent.copilot_status)) return reply(503, { error: "copilot_decision_not_visible_yet" });
 
   let copilotOutcome: unknown = null;
   if (decision?.id) {
