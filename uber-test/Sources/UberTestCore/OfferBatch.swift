@@ -51,6 +51,9 @@ public struct UberTestTripObservation: Codable, Equatable, Sendable {
 public struct UberTestResult: Codable, Equatable, Sendable {
     public let batchId: String; public let offerId: String; public let outcome: UberTestOutcome; public let occurredAt: Date
     public let observation: UberTestTripObservation?
+    public init(batchId: String, offerId: String, outcome: UberTestOutcome, occurredAt: Date, observation: UberTestTripObservation? = nil) {
+        self.batchId = batchId; self.offerId = offerId; self.outcome = outcome; self.occurredAt = occurredAt; self.observation = observation
+    }
 }
 public enum UberTestError: Error, Equatable { case invalidBatchSize, productionPayloadRejected, duplicateBatch, duplicateOffer }
 
