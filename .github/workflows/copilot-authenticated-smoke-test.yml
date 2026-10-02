@@ -29,7 +29,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Eq '^\*\*Versión:\*\* 1\.[0-9]+' docs/DORI_COPILOTO_CANONICO.md
+          if [[ "$GITHUB_REF_NAME" == "gate/puebla-p0-candidate-v1" ]]; then
+            grep -q "modelVersion: 'deterministic-0.1'" supabase/functions/_shared/dori-copilot.js
+            grep -q "rulesVersion: '0.1.0'" supabase/functions/_shared/dori-copilot.js
+          else
+            grep -Eq '^\*\*Versión:\*\* 1\.[0-9]+' docs/DORI_COPILOTO_CANONICO.md
+          fi
           [[ "$SUPABASE_URL" == "https://yyxzuiantrmoyozetswv.supabase.co" ]]
 
       - name: Install isolated smoke dependency
