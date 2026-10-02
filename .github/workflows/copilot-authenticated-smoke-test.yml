@@ -188,6 +188,22 @@ jobs:
             if (uberNext.data?.batch?.presented?.id) created.uberOffers.push(uberNext.data.batch.presented.id);
             const notification = await admin.from('dori_copilot_notifications').select('offer_id,status,recommendation').eq('offer_id', uberNext.data?.batch?.evaluation?.offerId).maybeSingle();
             assert('DORI notification persisted', !notification.error && !!notification.data, notification.error?.message || 'notification missing');
+
+            const presentedOfferId = uberNext.data?.batch?.presented?.id || uberNext.data?.batch?.evaluation?.offerId;
+            assert('UBER TEST presented offer id', typeof presentedOfferId === 'string', JSON.stringify(uberNext.data));
+            const completed = await edge('driver', {
+              offerId: presentedOfferId,
+              outcome: 'accepted',
+              idempotencyKey: `gate-puebla-outcome-${run}`,
+              occurredAt: new Date().toISOString(),
+              observation: { actualFare: 241, actualTripMinutes: 36, actualTripKm: 18.4, nextWaitMinutes: 7, nextFare: 190 }
+            }, 'uber-test-result', { 'x-uber-test-installation-id': installId });
+            assert('UBER TEST result creates Copilot outcome', completed.status === 201 && !!completed.data?.copilotOutcome?.event, JSON.stringify(completed.data));
+            const decisionForOffer = await admin.from('dori_decision_events').select('id').eq('offer_id', presentedOfferId).maybeSingle();
+            assert('decision linked by offer_id', !decisionForOffer.error && !!decisionForOffer.data?.id, decisionForOffer.error?.message || 'decision missing');
+            const storedOutcome = await admin.from('dori_outcome_events').select('id,decision_event_id,event_payload').eq('decision_event_id', decisionForOffer.data.id).maybeSingle();
+            assert('outcome persisted and linked', !storedOutcome.error && storedOutcome.data?.event_payload?.observation?.driverAction === 'accepted', storedOutcome.error?.message || JSON.stringify(storedOutcome.data));
+            await clients.driver.client.rpc('uber_test_release_receiver', { p_installation_id: installId });
             console.log('PASS live invariance (simulation path uses dedicated tables; no live mutation requested)');
             console.log('PASS driver B isolation');
           })().catch((error) => { console.error(`SMOKE_FAILED ${error.message}`); process.exitCode = 1; }).finally(cleanup);
