@@ -50,7 +50,7 @@ public struct UberTestOfferView: View {
         return VStack(spacing: 18) {
             Text("VIAJE TEST ACTIVO").font(.caption.weight(.bold)).tracking(2).foregroundStyle(.green)
             Text(trip.service).font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(.white)
-            Text("Oferta (trip.fare.description) (trip.currency) · (String(format: "%.0f min", trip.tripDurationMinutes))").foregroundStyle(.white.opacity(0.75))
+            Text("Oferta \(trip.fare.description) \(trip.currency) · \(Int(trip.tripDurationMinutes.rounded())) min").foregroundStyle(.white.opacity(0.75))
             VStack(spacing: 12) {
                 observedField("TARIFA REAL", text: $actualFare, unit: "MXN")
                 observedField("MINUTOS REALES", text: $actualTripMinutes, unit: "min")

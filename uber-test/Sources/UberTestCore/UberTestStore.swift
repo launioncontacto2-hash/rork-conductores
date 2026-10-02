@@ -52,12 +52,14 @@ public final class UberTestStore: ObservableObject {
         copilotEvaluatedOfferIDs = UserDefaults.standard.stringArray(forKey: copilotEvaluatedOfferIDsKey) ?? []
         NotificationCenter.default.addObserver(forName: UberTestPushCoordinator.batchNotification, object: nil, queue: .main) { [weak self] notification in
             guard let batch = notification.object as? UberTestOfferBatch else { return }
-            self?.receive(batch)
+            Task { @MainActor [weak self] in self?.receive(batch) }
         }
         NotificationCenter.default.addObserver(forName: Notification.Name("UIApplication.willEnterForegroundNotification"), object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            if self.queue.current != nil && self.activeTrip == nil { self.startTimer(resetDeadline: false) }
-            Task { [weak self] in await self?.flushPendingResults() }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.queue.current != nil && self.activeTrip == nil { self.startTimer(resetDeadline: false) }
+                await self.flushPendingResults()
+            }
         }
     }
     public func receive(_ batch: UberTestOfferBatch) {
