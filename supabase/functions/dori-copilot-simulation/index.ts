@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { doriCopilot } from "../_shared/dori-copilot-runtime.ts";
 
-const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Content-Type": "application/json" };
+const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Content-Type": "application/json" };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers });
 const record = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 
@@ -39,21 +39,35 @@ Deno.serve(async (request) => {
     const rpc = typeof payload.caseId === "string" ? "driver_get_dori_simulation_case" : "driver_next_dori_simulation_case";
     const args = typeof payload.caseId === "string" ? { p_auth_user_id: authUserId, p_case_id: payload.caseId } : { p_auth_user_id: authUserId };
     const { data, error } = await admin.rpc(rpc, args);
-    if (error) return reply(403, { error: "case_not_available" });
+    if (error) {
+      if (error.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
+      if (error.code === "42501" || error.code === "P0002") return reply(403, { error: "case_not_available" });
+      return reply(500, { error: "simulation_backend_error" });
+    }
     return reply(200, { case: data });
   }
   if (payload.operation === "evaluate") {
     if (typeof payload.caseId !== "string" || typeof payload.idempotencyKey !== "string") return reply(400, { error: "evaluation_fields_required" });
     const { data: existing, error: existingError } = await admin.rpc("driver_get_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey });
-    if (existingError) return reply(403, { error: "case_not_available" });
-    if (existing) return reply(201, { evaluation: existing });
+    if (existingError) {
+      if (existingError.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
+      if (existingError.code === "42501" || existingError.code === "P0002") return reply(403, { error: "case_not_available" });
+      return reply(500, { error: "simulation_backend_error" });
+    }
+    if (existing) return reply(201, { evaluation: { ...existing, result_payload: existing.result_payload ?? existing.result } });
     const { data: pending, error: loadError } = await admin.rpc("driver_get_dori_simulation_case", { p_auth_user_id: authUserId, p_case_id: payload.caseId });
-    if (loadError || !pending?.input_payload) return reply(404, { error: "case_not_available" });
+    if (loadError) {
+      if (loadError.code === "42883") return reply(503, { error: "simulation_backend_unavailable" });
+      if (loadError.code === "42501" || loadError.code === "P0002") return reply(403, { error: "case_not_available" });
+      return reply(500, { error: "simulation_backend_error" });
+    }
+    if (!pending?.input_payload) return reply(404, { error: "case_not_available" });
+    const effectiveInput = record(payload.input) ? payload.input : pending.input_payload;
     let result;
-    try { result = doriCopilot.evaluate(pending.input_payload); } catch { return reply(422, { error: "invalid_simulation_input" }); }
+    try { result = doriCopilot.evaluate(effectiveInput); } catch { return reply(422, { error: "invalid_simulation_input" }); }
     const { data, error } = await admin.rpc("record_dori_simulation_evaluation", { p_auth_user_id: authUserId, p_case_id: payload.caseId, p_idempotency_key: payload.idempotencyKey, p_result_payload: result });
     if (error) return reply(error.code === "22023" ? 422 : 409, { error: error.message });
-    return reply(201, { evaluation: data });
+    return reply(201, { evaluation: { ...data, result_payload: data.result_payload ?? data.result } });
   }
   return reply(400, { error: "unsupported_operation" });
 });

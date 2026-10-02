@@ -6,6 +6,8 @@ on:
     branches:
       - feature/dori-copiloto
       - feat/dori-conductores-live-vehicle-e2e
+      - feat/copilot-cross-test-foundation
+      - gate/puebla-p0-candidate-v1
     paths:
       - .github/workflows/ios-copilot-validation.yml
       - ios-turno-ev/**

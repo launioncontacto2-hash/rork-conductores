@@ -2,7 +2,7 @@ import SwiftUI
 
 struct DORICopilotView: View {
     @Environment(FleetStore.self) private var fleet
-    @State private var copilot = DORICopilotStore()
+    @Environment(DORICopilotStore.self) private var copilot
 
     private var driverId: String? {
         guard let principal = fleet.currentPrincipal, principal.role == .driver else {
@@ -23,14 +23,10 @@ struct DORICopilotView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         introduction
-                        modeCard
+                        simulationCard
                         if let result = copilot.state.result { resultCard(result) }
                         else if case .failed(let message) = copilot.state { errorCard(message) }
                         offerCard
-                        contextCard
-                        temporalCard
-                        evaluateButton
-                        if let result = copilot.state.result { developmentCard(result) }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -39,7 +35,6 @@ struct DORICopilotView: View {
             }
             .navigationTitle("DORI Copiloto")
             .navigationBarTitleDisplayMode(.inline)
-            .onChange(of: copilot.inputFingerprint) { _, _ in copilot.invalidateResult() }
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SessionMenuButton() } }
         }
@@ -50,10 +45,10 @@ struct DORICopilotView: View {
             Label("DORI Copiloto", systemImage: "sparkles")
                 .font(.system(.title2, weight: .black))
                 .foregroundStyle(Palette.text)
-            Text("Tu copiloto para elegir mejor cada viaje.")
+            Text("DORI analiza tus ofertas automáticamente.")
                 .font(.subheadline)
                 .foregroundStyle(Palette.textMuted)
-            Text("Laboratorio de ofertas")
+            Text("En espera de ofertas")
                 .font(.caption.weight(.bold))
                 .textCase(.uppercase)
                 .tracking(1.2)
@@ -93,6 +88,34 @@ struct DORICopilotView: View {
         .panelFlat()
     }
 
+    private var simulationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Oferta TEST de Consola", systemImage: "qrcode.viewfinder")
+                .font(.headline)
+            Text("Recibe el caso asignado, muéstralo como oferta y pásalo por Vision/OCR. No se copian números manualmente.")
+                .font(.caption)
+                .foregroundStyle(Palette.textMuted)
+            if let image = copilot.simulationOfferImage {
+                Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 250).clipShape(.rect(cornerRadius: 16))
+            }
+            if let offer = copilot.simulationOffer {
+                Text(offer.readiness).font(.caption.weight(.bold)).foregroundStyle(offer.readiness == "LISTO" ? Palette.volt : Palette.amber)
+            }
+            if let message = copilot.simulationMessage { Text(message).font(.caption).foregroundStyle(Palette.textMuted) }
+            if copilot.state.result != nil {
+                HStack {
+                    Button("TOMAR") { copilot.confirmDecision(true) }
+                        .buttonStyle(.borderedProminent).tint(Palette.volt)
+                    Button("NO TOMAR") { copilot.confirmDecision(false) }
+                        .buttonStyle(.borderedProminent).tint(Palette.surfaceRaised)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .panelFlat()
+    }
+
     private func resultCard(_ result: DORIDecisionResult) -> some View {
         let tint = result.recommendation == .recommended ? Palette.volt : Palette.danger
         return VStack(alignment: .leading, spacing: 14) {
@@ -113,14 +136,9 @@ struct DORICopilotView: View {
     }
 
     private var offerCard: some View {
-        @Bindable var form = copilot
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Oferta").font(.headline)
-            numericField("Tarifa", unit: "$", value: $form.fare)
-            numericField("Minutos para recoger", unit: "min", value: $form.pickupMinutes)
-            numericField("Distancia para recoger", unit: "km", value: $form.pickupKm)
-            numericField("Duración del viaje", unit: "min", value: $form.tripMinutes)
-            numericField("Distancia del viaje", unit: "km", value: $form.tripKm)
+            Text("Oferta recibida").font(.headline)
+            Text("DORI analiza automáticamente tus ofertas.").font(.subheadline).foregroundStyle(Palette.textMuted)
         }
         .padding(16)
         .panelFlat()
@@ -246,5 +264,6 @@ struct DORICopilotView: View {
 #Preview {
     DORICopilotView()
         .environment(FleetStore())
+        .environment(DORICopilotStore())
         .preferredColorScheme(.dark)
 }
