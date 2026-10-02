@@ -45,6 +45,10 @@ test('DORI push dispatcher is isolated from Acquisition and deduplicates by offe
   assert.match(push, /claim_dori_copilot_notifications/);
   assert.match(push, /dori_copilot_push_devices/);
   assert.match(push, /offerId:\s*n\.offer_id/);
+  assert.match(push, /body\.notification/);
+  assert.match(edge, /notification:\s*directNotification/);
+  assert.match(edge, /status:\s*"sending"/);
+  assert.match(edge, /claimed_at:\s*new Date\(\)\.toISOString\(\)/);
   assert.match(push, /turno:\/\/copiloto/);
   assert.doesNotMatch(push, /acquisition_notifications/);
 });

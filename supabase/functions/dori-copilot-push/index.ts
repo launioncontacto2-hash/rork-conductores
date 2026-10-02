@@ -12,9 +12,36 @@ Deno.serve(async (request) => {
   try {
     const url = required("SUPABASE_URL"), service = required("SUPABASE_SERVICE_ROLE_KEY"), bundle = required("APNS_BUNDLE_ID");
     const admin = createClient(url, service, {auth:{persistSession:false,autoRefreshToken:false}});
-    const {data: claimed,error} = await admin.rpc("claim_dori_copilot_notifications",{p_limit:25}); if(error) throw error;
+    let offerId: string | null = null;
+    let direct: Notification | null = null;
+    try {
+      const body = await request.json();
+      if (body && typeof body === "object" && !Array.isArray(body)) {
+        if (typeof body.offerId === "string") offerId = body.offerId;
+        const candidate = body.notification;
+        if (candidate && typeof candidate === "object" && !Array.isArray(candidate)
+          && typeof candidate.id === "string" && typeof candidate.environment_id === "string"
+          && typeof candidate.profile_id === "string" && typeof candidate.offer_id === "string"
+          && typeof candidate.body === "string") {
+          direct = candidate as Notification;
+        }
+      }
+    } catch {}
+    let claimed: Notification[] = direct ? [direct] : [];
+    if (!claimed.length && offerId) {
+      const {data,error} = await admin.from("dori_copilot_notifications")
+        .update({status:"sending",claimed_at:new Date().toISOString()})
+        .eq("offer_id",offerId).eq("status","pending")
+        .select("id,environment_id,profile_id,offer_id,body,payload,status");
+      if(error) throw error;
+      claimed = (data ?? []) as Notification[];
+    }
+    if (!claimed.length && !offerId) {
+      const {data,error} = await admin.rpc("claim_dori_copilot_notifications",{p_limit:25}); if(error) throw error;
+      claimed = (data ?? []) as Notification[];
+    }
     const token = await providerToken(required("APNS_TEAM_ID"),required("APNS_KEY_ID"),required("APNS_PRIVATE_KEY").replaceAll("\\n","\n")); let sent=0, failed=0;
-    for (const n of (claimed ?? []) as Notification[]) {
+    for (const n of claimed) {
       const {data: devices,error: de} = await admin.from("dori_copilot_push_devices").select("id,device_token,bundle_id").eq("environment_id",n.environment_id).eq("profile_id",n.profile_id).eq("status","active"); if(de) throw de;
       let delivered=false;
       for (const d of (devices ?? []) as Device[]) {

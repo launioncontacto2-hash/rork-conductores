@@ -49,9 +49,24 @@ Deno.serve(async (request) => {
   if (existingNotificationError) return json(500, { error: "notification_lookup_failed" });
   let notificationStatus = existingNotification?.status ?? "pending";
   let notificationError = null;
+  let directNotification: Record<string, unknown> | null = null;
   if (!existingNotification) {
-    const inserted = await admin.from("dori_copilot_notifications").insert({ environment_id: context.environment_id, profile_id: input.driver.driverId, offer_id: body.offerId, recommendation, body: bodyText, payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour }, status: "pending" });
+    const inserted = await admin.from("dori_copilot_notifications")
+      .insert({
+        environment_id: context.environment_id,
+        profile_id: input.driver.driverId,
+        offer_id: body.offerId,
+        recommendation,
+        body: bodyText,
+        payload: { offerId: body.offerId, recommendation, reasons: result.reasons, effectivePerKm, effectivePerHour },
+        status: "sending",
+        claimed_at: new Date().toISOString(),
+      })
+      .select("id,environment_id,profile_id,offer_id,body,payload,status")
+      .single();
     notificationError = inserted.error;
+    directNotification = inserted.data;
+    if (!notificationError) notificationStatus = "sending";
   }
   if (notificationError) return json(500, { error: "notification_enqueue_failed" });
   let notificationDispatch = "pending";
@@ -59,7 +74,8 @@ Deno.serve(async (request) => {
   if (dispatchSecret) {
     const dispatchResponse = await fetch(`${url}/functions/v1/dori-copilot-push`, {
       method: "POST",
-      headers: { Authorization: authorization, apikey: anon, "x-push-dispatch-secret": dispatchSecret },
+      headers: { Authorization: authorization, apikey: anon, "x-push-dispatch-secret": dispatchSecret, "Content-Type": "application/json" },
+      body: JSON.stringify({ offerId: body.offerId, notification: directNotification }),
     });
     notificationDispatch = dispatchResponse.ok ? "attempted" : "pending";
   }
