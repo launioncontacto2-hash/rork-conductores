@@ -46,12 +46,17 @@ Deno.serve(async (request) => {
   const { data, error } = await client.rpc("record_uber_test_result", { p_offer_id: payload.offerId, p_outcome: payload.outcome, p_idempotency_key: payload.idempotencyKey });
   if (error) return reply(error.code === "42501" ? 403 : error.code === "23505" ? 409 : 422, { error: error.message });
 
-  const [{ data: decision, error: decisionError }, { data: offerEvent, error: eventError }] = await Promise.all([
-    client.from("dori_decision_events").select("id").eq("offer_id", payload.offerId).maybeSingle(),
-    client.from("uber_test_offer_events").select("copilot_status").eq("presented_offer_id", payload.offerId).maybeSingle(),
-  ]);
-  if (decisionError || eventError || !offerEvent) return reply(503, { error: "copilot_outcome_lookup_pending" });
-  if (!decision && ["pending", "evaluated"].includes(offerEvent.copilot_status)) return reply(503, { error: "copilot_decision_not_visible_yet" });
+  const { data: decision, error: decisionError } = await client
+    .from("dori_decision_events")
+    .select("id")
+    .eq("offer_id", payload.offerId)
+    .maybeSingle();
+  if (decisionError) return reply(503, { error: "copilot_outcome_lookup_pending" });
+  if (!decision) {
+    const { data: context, error: contextError } = await client.rpc("resolve_uber_test_dori_context", { p_offer_id: payload.offerId });
+    if (contextError) return reply(503, { error: "copilot_context_lookup_pending" });
+    if (context?.status === "ready") return reply(503, { error: "copilot_decision_not_visible_yet" });
+  }
 
   let copilotOutcome: unknown = null;
   if (decision?.id) {

@@ -77,7 +77,9 @@ test('completed UBER Test result creates a canonical Copilot outcome without inv
   assert.match(resultEdge, /driverAction = payload\.outcome === "accepted" \? "accepted" : payload\.outcome === "discarded" \? "rejected" : "unknown"/);
   assert.match(resultEdge, /accepted_trip_observation_required/);
   assert.match(resultEdge, /copilot_outcome_sync_pending/);
-  assert.match(resultEdge, /\["pending", "evaluated"\]\.includes\(offerEvent\.copilot_status\)/);
+  assert.match(resultEdge, /resolve_uber_test_dori_context/);
+  assert.match(resultEdge, /context\?\.status === "ready"/);
+  assert.doesNotMatch(resultEdge, /eq\("presented_offer_id", payload\.offerId\)/);
   assert.match(resultEdge, /uber-test-outcome-\$\{payload\.offerId\}-\$\{payload\.outcome\}/);
 });
 
