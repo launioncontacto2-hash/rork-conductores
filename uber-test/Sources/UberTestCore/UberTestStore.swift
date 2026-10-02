@@ -13,6 +13,7 @@ public protocol UberTestCopilotSink: Sendable {
 public final class UberTestStore: ObservableObject {
     @Published public private(set) var queue = UberTestQueue()
     @Published public private(set) var remainingSeconds = 0
+    @Published public private(set) var activeTrip: UberTestOffer?
     @Published public private(set) var errorMessage: String?
     public var resultSink: (any UberTestResultSink)?
     public var copilotSink: (any UberTestCopilotSink)?
@@ -20,6 +21,7 @@ public final class UberTestStore: ObservableObject {
     private let persistenceKey = "uber.test.pending.queue.v1"
     private let deadlineKey = "uber.test.current.offer.deadline.v1"
     private let pendingResultsKey = "uber.test.pending.results.v1"
+    private let activeTripOfferIDKey = "uber.test.active.trip.offer-id.v1"
     private let copilotEvaluatedOfferIDsKey = "uber.test.copilot.evaluated-offers.v1"
     private var copilotEvaluatedOfferIDs: [String] = []
     private let maxRememberedOfferIDs = 100
@@ -38,7 +40,13 @@ public final class UberTestStore: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: persistenceKey), let restored = try? UberTestQueue(snapshotData: data) {
             queue = restored
             deadline = UserDefaults.standard.object(forKey: deadlineKey) as? Date
-            if queue.current != nil { startTimer(resetDeadline: deadline == nil) }
+            if let activeID = UserDefaults.standard.string(forKey: activeTripOfferIDKey), queue.current?.id == activeID {
+                activeTrip = queue.current
+                remainingSeconds = 0
+            } else if queue.current != nil {
+                UserDefaults.standard.removeObject(forKey: activeTripOfferIDKey)
+                startTimer(resetDeadline: deadline == nil)
+            }
         }
         if let data = UserDefaults.standard.data(forKey: pendingResultsKey), let restored = try? JSONDecoder().decode([UberTestResult].self, from: data) { pendingResults = restored }
         copilotEvaluatedOfferIDs = UserDefaults.standard.stringArray(forKey: copilotEvaluatedOfferIDsKey) ?? []
@@ -48,7 +56,7 @@ public final class UberTestStore: ObservableObject {
         }
         NotificationCenter.default.addObserver(forName: Notification.Name("UIApplication.willEnterForegroundNotification"), object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
-            if self.queue.current != nil { self.startTimer(resetDeadline: false) }
+            if self.queue.current != nil && self.activeTrip == nil { self.startTimer(resetDeadline: false) }
             Task { [weak self] in await self?.flushPendingResults() }
         }
     }
@@ -56,7 +64,8 @@ public final class UberTestStore: ObservableObject {
         do {
             try queue.receive(batch)
             transportTelemetry?("presented_at", .now)
-            persist(); startTimer(); evaluateCurrentOfferIfNeeded()
+            persist()
+            if activeTrip == nil { startTimer(); evaluateCurrentOfferIfNeeded() }
         }
         catch { errorMessage = String(describing: error) }
     }
@@ -94,15 +103,30 @@ public final class UberTestStore: ObservableObject {
         }
     }
     public func stopForegroundRecovery() { recoveryTask?.cancel(); recoveryTask = nil }
-    public func accept() { finish(.accepted) }
-    public func discard() { finish(.discarded) }
-    private func finish(_ outcome: UberTestOutcome) {
+    public func accept() {
+        guard activeTrip == nil, let offer = queue.current else { return }
+        timer?.invalidate(); timer = nil; deadline = nil; remainingSeconds = 0
+        UserDefaults.standard.removeObject(forKey: deadlineKey)
+        activeTrip = offer
+        UserDefaults.standard.set(offer.id, forKey: activeTripOfferIDKey)
+        persist()
+    }
+    public func discard() { guard activeTrip == nil else { return }; finish(.discarded) }
+    public func completeTrip(observation: UberTestTripObservation) { finish(.accepted, observation: observation) }
+    private func finish(_ outcome: UberTestOutcome, observation: UberTestTripObservation? = nil) {
         guard !isFinishing else { return }
         guard queue.current != nil else { return }
+        if outcome == .accepted {
+            guard activeTrip != nil, observation != nil else { return }
+        } else if activeTrip != nil { return }
         isFinishing = true
         timer?.invalidate()
         timer = nil
-        guard let result = queue.finishCurrent(as: outcome) else { isFinishing = false; return }
+        guard let result = queue.finishCurrent(as: outcome, observation: observation) else { isFinishing = false; return }
+        if outcome == .accepted {
+            activeTrip = nil
+            UserDefaults.standard.removeObject(forKey: activeTripOfferIDKey)
+        }
         pendingResults.append(result); persistPendingResults()
         if resultSink != nil { Task { [weak self] in await self?.flushPendingResults() } }
         persist()

@@ -37,8 +37,20 @@ public struct UberTestOfferBatch: Codable, Equatable, Sendable {
 }
 
 public enum UberTestOutcome: String, Codable, Equatable, Sendable { case accepted, discarded, expired }
+public struct UberTestTripObservation: Codable, Equatable, Sendable {
+    public let actualFare: Double
+    public let actualTripMinutes: Double
+    public let actualTripKm: Double
+    public let nextWaitMinutes: Double?
+    public let nextFare: Double?
+    public init(actualFare: Double, actualTripMinutes: Double, actualTripKm: Double, nextWaitMinutes: Double? = nil, nextFare: Double? = nil) {
+        self.actualFare = actualFare; self.actualTripMinutes = actualTripMinutes; self.actualTripKm = actualTripKm
+        self.nextWaitMinutes = nextWaitMinutes; self.nextFare = nextFare
+    }
+}
 public struct UberTestResult: Codable, Equatable, Sendable {
     public let batchId: String; public let offerId: String; public let outcome: UberTestOutcome; public let occurredAt: Date
+    public let observation: UberTestTripObservation?
 }
 public enum UberTestError: Error, Equatable { case invalidBatchSize, productionPayloadRejected, duplicateBatch, duplicateOffer }
 
@@ -84,9 +96,9 @@ public struct UberTestQueue: Codable, Sendable {
         batch = incoming; currentIndex = 0; results = []
     }
 
-    @discardableResult public mutating func finishCurrent(as outcome: UberTestOutcome, at date: Date = .now) -> UberTestResult? {
+    @discardableResult public mutating func finishCurrent(as outcome: UberTestOutcome, observation: UberTestTripObservation? = nil, at date: Date = .now) -> UberTestResult? {
         guard let batch, let offer = current else { return nil }
-        let result = UberTestResult(batchId: batch.id, offerId: offer.id, outcome: outcome, occurredAt: date)
+        let result = UberTestResult(batchId: batch.id, offerId: offer.id, outcome: outcome, occurredAt: date, observation: observation)
         results.append(result); currentIndex += 1
         return result
     }

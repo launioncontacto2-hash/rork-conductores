@@ -37,7 +37,14 @@ final class UberTestStoreTests: XCTestCase {
             UberTestOffer(id: "b", service: "UberX", fare: 110, pickup: "B", pickupDistanceKm: 2, tripDurationMinutes: 11, tripDistanceKm: 5)
         ]
         store.receive(try UberTestOfferBatch(id: "batch", offers: offers))
-        store.accept(); XCTAssertEqual(store.queue.results.map(\.outcome), [.accepted])
+        store.accept()
+        XCTAssertEqual(store.activeTrip?.id, "a")
+        XCTAssertEqual(store.queue.current?.id, "a")
+        XCTAssertTrue(store.queue.results.isEmpty)
+        store.completeTrip(observation: UberTestTripObservation(actualFare: 102, actualTripMinutes: 11, actualTripKm: 4.2))
+        XCTAssertNil(store.activeTrip)
+        XCTAssertEqual(store.queue.results.map(\.outcome), [.accepted])
+        XCTAssertEqual(store.queue.current?.id, "b")
         store.discard(); XCTAssertEqual(store.queue.results.map(\.outcome), [.accepted, .discarded])
         XCTAssertTrue(store.queue.isWaiting)
     }
@@ -99,6 +106,7 @@ final class UberTestStoreTests: XCTestCase {
         let store = UberTestStore(resultSink: sink)
         store.receive(try UberTestOfferBatch(id: "sink-batch", offers: [UberTestOffer(id: "sink-offer", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4)]))
         store.accept()
+        store.completeTrip(observation: UberTestTripObservation(actualFare: 101, actualTripMinutes: 10, actualTripKm: 4))
 
         try await Task.sleep(for: .milliseconds(100))
 
@@ -119,6 +127,7 @@ final class UberTestStoreTests: XCTestCase {
             UberTestOffer(id: "single-flight-offer", service: "UberX", fare: 100, pickup: "A", pickupDistanceKm: 1, tripDurationMinutes: 10, tripDistanceKm: 4)
         ]))
         store.accept()
+        store.completeTrip(observation: UberTestTripObservation(actualFare: 100, actualTripMinutes: 10, actualTripKm: 4))
         store.resultSink = sink
 
         async let first: Void = store.flushPendingResultsForTesting()
@@ -146,6 +155,11 @@ final class UberTestStoreTests: XCTestCase {
         let firstCount = await sink.count()
         XCTAssertEqual(firstCount, 1)
         store.accept()
+        try await Task.sleep(for: .milliseconds(100))
+        let countDuringTrip = await sink.count()
+        XCTAssertEqual(countDuringTrip, 1)
+        XCTAssertEqual(store.activeTrip?.id, "copilot-offer-1")
+        store.completeTrip(observation: UberTestTripObservation(actualFare: 121, actualTripMinutes: 21, actualTripKm: 8.1))
         try await Task.sleep(for: .milliseconds(100))
         let secondCount = await sink.count()
         XCTAssertEqual(secondCount, 2)

@@ -69,6 +69,17 @@ test('presentation and outcomes invoke the evaluator with offer-scoped idempoten
   assert.match(bridgeMigration, /not exists\s*\(select 1 from public\.uber_test_offer_results/);
 });
 
+test('completed UBER Test result creates a canonical Copilot outcome without inventing trip data', () => {
+  assert.match(resultEdge, /dori_decision_events/);
+  assert.match(resultEdge, /eq\("offer_id", payload\.offerId\)/);
+  assert.match(resultEdge, /functions\/v1\/dori-copilot-events/);
+  assert.match(resultEdge, /kind: "outcome"/);
+  assert.match(resultEdge, /driverAction = payload\.outcome === "accepted" \? "accepted" : payload\.outcome === "discarded" \? "rejected" : "unknown"/);
+  assert.match(resultEdge, /accepted_trip_observation_required/);
+  assert.match(resultEdge, /copilot_outcome_sync_pending/);
+  assert.match(resultEdge, /uber-test-outcome-\$\{payload\.offerId\}-\$\{payload\.outcome\}/);
+});
+
 test('context resolution preserves caller identity and TEST parameters are provisioned explicitly', () => {
   assert.match(edge, /caller\.rpc\("resolve_uber_test_dori_context"/);
   assert.match(vehicleFixture, /uber-test-v1/);

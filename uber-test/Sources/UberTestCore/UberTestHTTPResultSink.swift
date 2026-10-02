@@ -3,6 +3,13 @@ import Foundation
 public enum UberTestResultError: Error, Equatable { case terminal, retryable }
 
 public struct UberTestHTTPResultSink: UberTestResultSink {
+    private struct ResultRequest: Encodable {
+        let offerId: String
+        let outcome: String
+        let idempotencyKey: String
+        let occurredAt: Date
+        let observation: UberTestTripObservation?
+    }
     public let functionURL: URL
     public let accessToken: @Sendable () async -> String?
     public let refreshAccessToken: (@Sendable () async -> String?)?
@@ -20,7 +27,7 @@ public struct UberTestHTTPResultSink: UberTestResultSink {
         var request = URLRequest(url: functionURL)
         request.httpMethod = "POST"; request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization"); request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(installationID, forHTTPHeaderField: "x-uber-test-installation-id")
-        request.httpBody = try? JSONEncoder.uberTest.encode(["offerId": result.offerId, "outcome": result.outcome.rawValue, "idempotencyKey": "uber-test-\(result.batchId)-\(result.offerId)-\(result.outcome.rawValue)"])
+        request.httpBody = try? JSONEncoder.uberTest.encode(ResultRequest(offerId: result.offerId, outcome: result.outcome.rawValue, idempotencyKey: "uber-test-\(result.batchId)-\(result.offerId)-\(result.outcome.rawValue)", occurredAt: result.occurredAt, observation: result.observation))
         var (data, response) = try await session.data(for: request)
         if (response as? HTTPURLResponse)?.statusCode == 401 {
             guard let refreshAccessToken, let refreshed = await refreshAccessToken() else {

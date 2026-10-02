@@ -30,9 +30,14 @@ test("builds the Supabase Auth URL with a real query item", () => {
   assert.equal(url.toString().includes("token%3Fgrant_type"), false);
 });
 
-test("accept, discard and expiry advance FIFO", () => {
+test("accepted offer stays active until TEST trip completion; discard and expiry advance FIFO", () => {
+  const storeSource = fs.readFileSync(path.join(__dirname, "..", "Sources", "UberTestCore", "UberTestStore.swift"), "utf8");
+  assert.match(storeSource, /public func accept\(\)[\s\S]*activeTrip = offer/);
+  assert.doesNotMatch(storeSource, /public func accept\(\) \{ finish\(\.accepted\) \}/);
+  assert.match(storeSource, /public func completeTrip\(observation: UberTestTripObservation\)/);
   const state = { batches: new Set(), offers: new Set(), current: [], index: 0, results: [] };
   receive(state, batch());
+  assert.equal(state.current[state.index].id, "offer-1");
   assert.equal(finish(state, "accepted").id, "offer-1");
   assert.equal(finish(state, "discarded").id, "offer-2");
   assert.equal(finish(state, "expired").id, "offer-3");
