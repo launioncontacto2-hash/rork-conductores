@@ -20,3 +20,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Turno EV Android"
 include(":app")
+include(":vehicleAgentProbe")
+project(":vehicleAgentProbe").projectDir = file("vehicleAgentProbe")

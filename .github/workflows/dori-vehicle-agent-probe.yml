@@ -1,0 +1,162 @@
+name: DORI Vehicle Agent Live v0.8
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/dori-vehicle-agent-live-v08
+      - gate/puebla-p0-candidate-v1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dori-vehicle-agent-probe
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - name: Checkout current validation commit
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+
+      - name: Check release signing secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_B64" || { echo "Missing DORI_VEHICLE_AGENT_KEYSTORE_B64" >&2; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "Missing DORI_VEHICLE_AGENT_STORE_PASSWORD" >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Missing DORI_VEHICLE_AGENT_KEY_ALIAS" >&2; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing DORI_VEHICLE_AGENT_KEY_PASSWORD" >&2; exit 1; }
+          echo "All required signing secrets are present."
+
+      - name: Validate private signing entry
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/dori-vehicle-agent-signing.keystore"
+          report="$RUNNER_TEMP/dori-vehicle-agent-signing.txt"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          actual_sha=$(sha256sum "$keystore" | awk '{print $1}')
+          echo "Signing keystore SHA256: $actual_sha"
+          if [ "$actual_sha" != "a71d0ef6a0a8d3ae47c32e947bfc1f4e9f3fc55d73495253beac77480eceec9e" ]; then
+            echo 'GITHUB_KEYSTORE_SECRET_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if ! keytool -list -storetype JKS -keystore "$keystore" -storepass "$STORE_PASSWORD" > "$report" 2>&1; then
+            echo 'GITHUB_STORE_PASSWORD_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if ! keytool -list -v -storetype JKS -keystore "$keystore" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >> "$report" 2>&1; then
+            echo 'GITHUB_KEY_ALIAS_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          entry_type=$(awk -F': ' '/Entry type:/ {print $2; exit}' "$report")
+          echo "Signing entry classification: $entry_type"
+          if [ "$KEY_ALIAS" != 'dori-vehicle-agent' ]; then
+            echo 'GITHUB_KEY_ALIAS_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          if [ "$entry_type" != 'PrivateKeyEntry' ]; then
+            echo 'GITHUB_PRIVATE_KEY_ENTRY_MISMATCH' >&2
+            rm -f "$keystore" "$report"
+            exit 1
+          fi
+          rm -f "$keystore" "$report"
+      - name: Enforce read-only source policy
+        run: |
+          set -euo pipefail
+          if grep -RInE 'BYDAUTO_.*_SET|android\.permission\.(WRITE|CONTROL)|CAN[[:space:]_-]*WRITE|ServiceManager|IBinder|binder\.transact|Runtime\.exec|sh -c|bash -c|setProperty|setInt|setFloat' android/vehicleAgentProbe; then
+            echo "Forbidden write/control capability found" >&2
+            exit 1
+          fi
+          grep -q 'DEVICE_VEHICLE = 1014' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          grep -q 'DEVICE_POWER = 1023' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          grep -Fq 'Parcel\\(00000000\\s+' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+          ! grep -Fq '0x' android/vehicleAgentProbe/src/main/java/mx/dori/vehicleagent/probe/MainActivity.kt
+
+      - name: Assemble unsigned release APK
+        working-directory: android
+        env:
+          AGENT_TOKEN: ${{ secrets.DORI_VEHICLE_AGENT_TOKEN_TEST }}
+        run: |
+          chmod +x gradlew
+          test -n "$AGENT_TOKEN"
+          ./gradlew :vehicleAgentProbe:assembleRelease --stacktrace -PagentToken="$AGENT_TOKEN"
+
+      - name: Align, sign and verify APK
+        env:
+          KEYSTORE_B64: ${{ secrets.DORI_VEHICLE_AGENT_KEYSTORE_B64 }}
+          STORE_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.DORI_VEHICLE_AGENT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.DORI_VEHICLE_AGENT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts "$RUNNER_TEMP/dori-vehicle-agent"
+          unsigned="$(find android/vehicleAgentProbe/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -n "$unsigned"
+          zipalign_bin="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          apksigner_bin="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          aapt_bin="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+          aligned="$RUNNER_TEMP/dori-vehicle-agent/aligned.apk"
+          keystore="$RUNNER_TEMP/dori-vehicle-agent/dori-vehicle-agent.keystore"
+          final="artifacts/dori-vehicle-agent-live-v0.8.apk"
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore"
+          "$zipalign_bin" -p -f 4 "$unsigned" "$aligned"
+          "$zipalign_bin" -c -v 4 "$aligned"
+          "$apksigner_bin" sign --ks "$keystore" --ks-pass env:STORE_PASSWORD --ks-key-alias "$KEY_ALIAS" --key-pass env:KEY_PASSWORD --min-sdk-version 23 --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --out "$final" "$aligned"
+          "$zipalign_bin" -c -v 4 "$final"
+          "$apksigner_bin" verify --verbose --print-certs --min-sdk-version 23 "$final" | tee "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v1 scheme (JAR signing): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$RUNNER_TEMP/dori-vehicle-agent/apksigner.txt"
+          unzip -l "$final" | grep -E 'META-INF/.*\.(SF|RSA|DSA|EC)$'
+          unzip -l "$final" | grep 'META-INF/MANIFEST.MF'
+          badging="$RUNNER_TEMP/dori-vehicle-agent/badging.txt"
+          "$aapt_bin" dump badging "$final" | tee "$badging"
+          grep -q "package: name='mx.dori.vehicleagent.probe' versionCode='8' versionName='0.8'" "$badging"
+          grep -q "sdkVersion:'24'" "$badging"
+          grep -q "targetSdkVersion:'33'" "$badging"
+          permissions="$RUNNER_TEMP/dori-vehicle-agent/permissions.txt"
+          "$aapt_bin" dump permissions "$final" | tee "$permissions"
+          ! grep -q 'android.permission.ACCESS_NETWORK_STATE' "$permissions"
+          ! grep -Eiq '(BYDAUTO_.*_SET|WRITE|CONTROL)' "$permissions"
+          grep -q 'android.permission.INTERNET' "$permissions"
+          ! grep -q 'android.permission.ACCESS_NETWORK_STATE' "$permissions"
+          ! grep -q 'BYDAUTO_' "$permissions"
+          ! grep -Eiq '(WRITE|CONTROL|_SET)' "$permissions"
+          sha256sum "$final" | tee artifacts/dori-vehicle-agent-live-v0.8.apk.sha256
+          rm -f "$keystore" "$aligned" "$unsigned"
+
+      - name: Upload v0.8 APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dori-vehicle-agent-live-v0.8
+          path: artifacts/dori-vehicle-agent-live-v0.8.apk*
+          if-no-files-found: error
